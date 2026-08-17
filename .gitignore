@@ -1,0 +1,62 @@
+# === Secrets ===
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!**/testdata/**/*.key
+
+# === Go ===
+/bin/
+/tmp/
+*.exe
+*.test
+*.out
+vendor/
+coverage.out
+coverage.html
+
+# === Node / Next.js ===
+node_modules/
+.next/
+out/
+build/
+dist/
+.turbo/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# === Flutter / Dart ===
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+**/ios/Pods/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Generated.xcconfig
+**/android/local.properties
+**/android/.gradle/
+**/android/key.properties
+*.jks
+*.keystore
+
+# === Editor ===
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.iml
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Local data ===
+/data/
+/postgres-data/
+*.db
+*.sqlite
