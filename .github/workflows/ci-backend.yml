@@ -1,0 +1,52 @@
+name: CI — Backend
+
+# Monorepo (ADR-009): this workflow must only run for changes that actually
+# touch crm_be. Without the paths filter, every documentation-only PR would
+# burn CI time running the full backend test suite.
+on:
+  pull_request:
+    paths:
+      - "crm_be/**"
+      - ".github/workflows/ci-backend.yml"
+  push:
+    branches: [main]
+    paths:
+      - "crm_be/**"
+      - ".github/workflows/ci-backend.yml"
+
+defaults:
+  run:
+    working-directory: crm_be
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: crm_be/go.mod
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: crm_be
+          version: latest
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: crm_be/go.mod
+      # ubuntu-latest ships Docker preinstalled — needed by testcontainers
+      # once repository tests land (issue #3).
+      - run: go test -race ./...
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: crm_be/go.mod
+      - run: go build ./...

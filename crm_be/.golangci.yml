@@ -1,0 +1,21 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - staticcheck
+    - ineffassign
+    - misspell
+    - gosec
+    - bodyclose
+    - sqlclosecheck
+  settings:
+    gosec:
+      # G104 (unhandled errors) duplicates errcheck; kept off to avoid
+      # double-reporting the same finding under two different linters.
+      excludes:
+        - G104
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
