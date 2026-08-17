@@ -37,10 +37,26 @@ APP_ENV=prod (tidak valid)  → exit 1, "config invalid: APP_ENV must be one of 
 
 Semua sesuai 7 acceptance criteria di `prd.md`.
 
+### `golangci-lint` vs Go 1.25 — temuan CI
+
+`golangci-lint-action@v6` dengan `version: latest` gagal: *"the Go language version (go1.24) used to build golangci-lint is lower than the targeted Go version (1.25.4)"*.
+
+**Akar masalah bukan bug di kode.** `gin@v1.12.0` menarik `quic-go@v0.59.0` (dukungan HTTP/3) sebagai dependensi transitif, dan `quic-go` mensyaratkan Go 1.25 — dikonfirmasi lewat `go mod graph`. `go.mod` yang menargetkan 1.25 itu sah; binary rilis `golangci-lint` yang belum dibangun ulang dengan toolchain 1.25 itu yang tertinggal.
+
+**Perbaikan:** bangun `golangci-lint` dari sumber dengan toolchain kita sendiri, bukan memakai binary pre-built Action:
+
+```yaml
+- run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+- run: golangci-lint run
+```
+
+Diverifikasi lokal: `golangci-lint version` → *"built with go1.25.4"*, lalu `golangci-lint run` menemukan **satu** temuan sungguhan — `os.Setenv` yang error-nya tidak diperiksa di `config_test.go` (`errcheck`) — sudah diperbaiki di commit yang sama.
+
+**Tidak** menurunkan `gin` untuk menghindari `quic-go`: itu kebutuhan transitif yang sah di versi ini, bukan sesuatu yang perlu "dihindari".
+
 ### Utang teknis
 
-- Tidak ada test end-to-end otomatis untuk graceful shutdown (diverifikasi manual di atas). Menambahkannya butuh test yang menjalankan binary sungguhan dan mengirim sinyal OS — dipertimbangkan lagi bila perilaku shutdown berubah.
-- `golangci-lint` belum dijalankan lokal (tidak terpasang di mesin dev). Diverifikasi lewat CI saat PR dibuka.
+- Tidak ada test end-to-end otomatis untuk graceful shutdown (diverifikasi manual, lihat di atas). Menambahkannya butuh test yang menjalankan binary sungguhan dan mengirim sinyal OS — dipertimbangkan lagi bila perilaku shutdown berubah.
 
 ### Catatan untuk session berikutnya
 

@@ -20,7 +20,9 @@ func unsetEnv(t *testing.T, key string) {
 	}
 	t.Cleanup(func() {
 		if existed {
-			os.Setenv(key, orig)
+			if err := os.Setenv(key, orig); err != nil {
+				t.Errorf("failed to restore %s: %v", key, err)
+			}
 		}
 	})
 }
