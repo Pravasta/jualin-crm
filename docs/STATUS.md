@@ -29,24 +29,13 @@ _(kosong)_
 
 ## Berikutnya
 
-**Buka Phase 0 — Foundation:** tulis `docs/phases/00-foundation/{prd,td,issues}.md`, lalu buat issue-nya di GitHub. Prosedur: `docs/workflow.md` bagian 1.
+**Issue #1 — Project skeleton: config, logging, error, health, CI**
 
-Cakupan dan acceptance criteria: `docs/architecture/freeze.md` bagian 4 (Phase 0) dan 13.2.
+PRD & TD Phase 0 sudah ditulis, issue #1–#3 sudah dibuat. Setelah PR PRD/TD di-merge, pengerjaan dimulai dari issue #1.
 
-Ringkas:
-- Struktur project Go + `cmd/api`
-- Docker Compose (app + PostgreSQL)
-- Config dari env, ter-validasi saat boot
-- Structured logging + request ID
-- Penanganan & mapping error terpusat
-- Tooling migration + `0001_baseline` (fungsi `set_updated_at()`)
-- Health check
-- Test harness (PostgreSQL asli, bukan mock)
-- CI: lint + test + build
-
-**Tidak termasuk:** business logic, endpoint domain, tabel domain, auth.
-
-Sebelum mulai: tulis `docs/features/foundation/spec.md`.
+- Cakupan & acceptance: [issue #1](https://github.com/Pravasta/jualin-crm/issues/1)
+- TD: `docs/phases/00-foundation/td.md` §2–§7, §12–§14
+- Urutan: #1 → #2 → #3 (berurutan, tidak bisa diparalelkan)
 
 ---
 
@@ -87,7 +76,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 
 | Phase | Nama | PRD | TD | Issues | Selesai |
 |---|---|---|---|---|---|
-| 0 | Foundation | ⬜ | ⬜ | ⬜ | ⬜ |
+| 0 | Foundation | ✅ | ✅ | ✅ #1–#3 | ⬜ |
 | 1 | Auth & Organization | ⬜ | ⬜ | ⬜ | ⬜ |
 | 2 | CRM Core | ⬜ | ⬜ | ⬜ | ⬜ |
 | 3 | Owner Dashboard | ⬜ | ⬜ | ⬜ | ⬜ |
