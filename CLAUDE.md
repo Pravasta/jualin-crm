@@ -18,6 +18,21 @@ Go + Gin + PostgreSQL + Docker (monolith) · Next.js (dashboard) · Flutter (mob
 
 **sqlc/pgx — bukan ORM.** Tanpa Redis. Tanpa message broker. Tanpa search engine.
 
+## Struktur repository (ADR-009)
+
+Monorepo — empat aplikasi sejajar, satu produk:
+
+```
+crm_be/             Go backend        Phase 0+   ← module .../jualin-crm/crm_be
+crm_dashboard/      Next.js           Phase 3
+crm_landing_page/   Next.js           belum terjadwal
+crm_employee/       Flutter           Phase 5
+
+docs/  .claude/  Makefile  docker-compose.yml   ← akar
+```
+
+`Makefile` dan `docker-compose.yml` di **akar** sebagai entry point tunggal. CI punya satu workflow per aplikasi dengan `paths:` filter.
+
 ## Layering
 
 ```

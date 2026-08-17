@@ -33,34 +33,50 @@
 
 ## 2. Struktur project
 
+> Diperbarui oleh [ADR-009](../../decisions/ADR-009-monorepo-layout.md) — monorepo dengan empat folder aplikasi.
+> Modul Go tinggal di `crm_be/`, bukan di akar repository.
+
 ```
-cmd/
-  api/main.go                 HTTP server
-  migrate/main.go             runner migration
-
-internal/shared/
-  config/config.go            parsing + validasi env
-  logger/logger.go            slog setup
-  httpx/
-    response.go               envelope {data,meta}
-    error.go                  sentinel + mapping ke HTTP
-    middleware.go             request id, recovery, logging
-  db/
-    db.go                     pgxpool
-    tx.go                     InTx
-
-migrations/
-  0001_baseline.sql
-
-Dockerfile
-docker-compose.yml
-Makefile
-.env.example
-.golangci.yml
-.github/workflows/ci.yml
+jualin_crm/                       ← akar repository
+├── crm_be/                       ← Go, satu-satunya yang dikerjakan di Phase 0
+│   ├── go.mod                    module github.com/Pravasta/jualin-crm/crm_be
+│   ├── cmd/
+│   │   ├── api/main.go           HTTP server
+│   │   └── migrate/main.go       runner migration              (issue #2)
+│   ├── internal/shared/
+│   │   ├── config/config.go      parsing + validasi env
+│   │   ├── logger/logger.go      slog setup
+│   │   ├── httpx/
+│   │   │   ├── response.go       envelope {data,meta}
+│   │   │   ├── error.go          sentinel + mapping ke HTTP
+│   │   │   └── middleware.go     request id, logging, recovery
+│   │   └── db/                   pgxpool, InTx                 (issue #2)
+│   ├── migrations/0001_baseline.sql                            (issue #2)
+│   ├── Dockerfile                                              (issue #2)
+│   ├── .golangci.yml
+│   └── README.md
+│
+├── crm_dashboard/                Next.js       — Phase 3, baru README
+├── crm_landing_page/             Next.js       — belum terjadwal, baru README
+├── crm_employee/                 Flutter       — Phase 5, baru README
+│
+├── docker-compose.yml            orkestrator lintas aplikasi   (issue #2)
+├── Makefile                      entry point tunggal
+├── .env.example
+└── .github/workflows/ci-backend.yml
 ```
 
-Mengikuti struktur di `.claude/skills/jualin-backend/`. **Paket domain (`internal/lead`, dst.) belum dibuat** — Aturan #28.
+### Aturan penempatan
+
+| Berkas | Lokasi | Alasan |
+|---|---|---|
+| `Makefile` | **akar** | Satu entry point; target mendelegasikan ke folder aplikasi |
+| `docker-compose.yml` | **akar** | Nanti mengorkestrasi lebih dari satu aplikasi |
+| `.golangci.yml` | `crm_be/` | Milik satu aplikasi |
+| `.env.example` | **akar** | Dibaca `docker compose` |
+| CI workflow | `.github/workflows/ci-backend.yml` | Satu berkas per aplikasi, **dengan `paths:` filter** |
+
+Mengikuti konvensi paket di `.claude/skills/jualin-backend/`. **Paket domain (`internal/lead`, dst.) belum dibuat** — Aturan #28.
 
 ---
 
@@ -310,6 +326,23 @@ Setiap test mendapat state bersih — **truncate**, bukan re-migrate, agar cepat
 | `build` | `go build ./...` |
 
 Ketiganya harus hijau sebelum PR bisa di-merge.
+
+### ⚠️ `paths:` filter wajib sejak workflow pertama
+
+Karena monorepo (ADR-009), workflow backend **hanya** berjalan bila ada perubahan yang relevan:
+
+```yaml
+on:
+  pull_request:
+    paths: ['crm_be/**', '.github/workflows/ci-backend.yml']
+  push:
+    branches: [main]
+    paths: ['crm_be/**', '.github/workflows/ci-backend.yml']
+```
+
+Semua job memakai `defaults.run.working-directory: crm_be`.
+
+> Menambahkan filter ini belakangan berarti sudah membakar waktu CI berbulan-bulan — setiap perubahan dokumentasi menjalankan seluruh test backend.
 
 ### `.golangci.yml`
 
