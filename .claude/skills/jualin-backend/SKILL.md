@@ -22,24 +22,34 @@ Go · Gin · PostgreSQL · **sqlc atau pgx — bukan ORM** · goose/golang-migra
 
 ## Struktur
 
-```
-cmd/api/            HTTP server
-cmd/migrate/        migration runner
+Repository ini **monorepo** ([ADR-009](../../../docs/decisions/ADR-009-monorepo-layout.md)). Kode Go tinggal di **`crm_be/`**, bukan di akar.
 
-internal/
-  <domain>/         satu paket per domain: auth, organization, membership, lead, ...
-    handler.go      HTTP: parsing, validasi bentuk, serialisasi
-    service.go      business logic, otorisasi, orkestrasi transaksi
-    repository.go   akses database — SELALU tenant-scoped
-    model.go        struct domain
-
-  shared/
-    tenant/         TenantContext
-    httpx/          response envelope, error mapping, helper
-    db/             pool, transaction manager
-    config/
-    logger/
 ```
+crm_be/                 ← module github.com/Pravasta/jualin-crm/crm_be
+  cmd/api/              HTTP server
+  cmd/migrate/          migration runner
+
+  internal/
+    <domain>/           satu paket per domain: auth, organization, membership, lead, ...
+      handler.go        HTTP: parsing, validasi bentuk, serialisasi
+      service.go        business logic, otorisasi, orkestrasi transaksi
+      repository.go     akses database — SELALU tenant-scoped
+      model.go          struct domain
+
+    shared/
+      tenant/           TenantContext
+      httpx/            response envelope, error mapping, middleware
+      db/               pool, transaction manager
+      config/
+      logger/
+
+  migrations/           SQL, dijalankan goose
+  .golangci.yml
+```
+
+Folder sejajar `crm_dashboard/` (Next.js), `crm_landing_page/` (Next.js), dan `crm_employee/` (Flutter) **bukan** urusan skill ini.
+
+`Makefile`, `docker-compose.yml`, dan `.env.example` ada di **akar repository**. Jalankan perintah dari sana, bukan dari `crm_be/`.
 
 **Buat paket hanya saat fiturnya dikerjakan.** Folder kosong adalah utang yang terlihat seperti kemajuan.
 
