@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 18 Agustus 2026 — ADR-010, mulai issue #3
-**Phase sekarang:** Phase 0 — Foundation (2/3 issue selesai)
+**Last updated:** 18 Agustus 2026 — Issue #3 selesai, Phase 0 tutup
+**Phase sekarang:** Phase 0 — Foundation **selesai** (3/3 issue). Berikutnya: buka Phase 1.
 
 ---
 
@@ -22,6 +22,7 @@
 | **Issue #1 — Project skeleton** | — | 0 | PR [#5](https://github.com/Pravasta/jualin-crm/pull/5). Config ter-validasi saat boot, logger + request_id, error envelope, `/health`, graceful shutdown, CI. |
 | **Issue #2 — Database, Docker Compose, migration** | — | 0 | `db.InTx`, `cmd/migrate` (goose), `0001_baseline`, Dockerfile + `docker-compose.yml` di akar, `/health/ready`. Diverifikasi end-to-end: `docker compose up` tanpa langkah manual, migration up/down bersih, `/health/ready` degradasi & pulih otomatis saat DB mati/hidup. |
 | **ADR-010 — Fail-fast startup** | — | — | Muncul dari review PR #6, dikonfirmasi pemilik produk sebagai prinsip umum (bukan hanya DB). Aturan #36 di `CLAUDE.md`. |
+| **Issue #3 — Test harness PostgreSQL asli** | — | 0 | `internal/shared/db/dbtest` (subpaket terpisah dari `db` produksi — testcontainers tidak ikut ter-link ke binary). Mengotomasi `db.InTx`, migration round-trip, `/health/ready` yang tadinya manual. **Phase 0 selesai.** |
 
 ---
 
@@ -33,11 +34,13 @@ _(kosong)_
 
 ## Berikutnya
 
-**Issue #3 — Test harness terhadap PostgreSQL asli**
+**Buka Phase 1 — Auth & Organization**
 
-- Cakupan & acceptance: [issue #3](https://github.com/Pravasta/jualin-crm/issues/3)
-- TD: `docs/phases/00-foundation/td.md` §11, §12, §15
-- Terakhir di Phase 0. Mengotomasi apa yang selama ini diverifikasi manual di issue #1 & #2 (lihat Utang Teknis) — termasuk `db.InTx` dan migration round-trip.
+Phase 0 selesai. Sebelum implementasi apapun: tulis `docs/phases/01-auth-organization/{prd,td,issues}.md` (prosedur: `docs/workflow.md` bagian 1), lalu buat issue-nya di GitHub dengan milestone Phase 1.
+
+Cakupan sesuai `docs/architecture/freeze.md` bagian 4 (Phase 1): `organizations`, `users`, `memberships`, `invitations`, token tables, `subscriptions` minimal, `audit_logs` · registrasi atomik · verifikasi email · login · refresh + rotasi · undangan employee · penonaktifan membership · tenant context · RBAC · **harness test isolasi tenant** (freeze lapis 4 — dibangun di atas `dbtest` dari issue #3).
+
+Keputusan identity (B1–B5) sudah final di freeze bagian 7 — tidak ada yang memblokir migration `0002`.
 
 ---
 
@@ -45,9 +48,10 @@ _(kosong)_
 
 | Item | Dari | Catatan |
 |---|---|---|
-| Tidak ada test end-to-end otomatis untuk graceful shutdown | Issue #1 | Diverifikasi manual (build binary + SIGINT). Otomatisasi butuh test yang menjalankan binary sungguhan dan mengirim sinyal OS — `go run` tidak meneruskan sinyal ke child process, jadi tidak bisa diuji lewat itu. |
-| Tidak ada test otomatis untuk `db.InTx` dan migration round-trip | Issue #2 | Diverifikasi manual terhadap Postgres asli (lihat `phases/00-foundation/notes.md`). Masuk cakupan eksplisit issue #3. |
+| Tidak ada test end-to-end otomatis untuk graceful shutdown | Issue #1 | Diverifikasi manual (build binary + SIGINT). Otomatisasi butuh test yang menjalankan binary sungguhan dan mengirim sinyal OS — `go run` tidak meneruskan sinyal ke child process, jadi tidak bisa diuji lewat itu. Belum ada issue yang mencakup ini; angkat saat menyentuh area shutdown lagi. |
 | Tidak ada auto-migrate saat container `api` start | Issue #2 | `make migrate-up` dijalankan manual. Sengaja dipisah dari entrypoint `api` — migration dan serving punya kelas kegagalan berbeda. |
+
+> ~~Test otomatis `db.InTx` dan migration round-trip~~ — selesai di issue #3.
 
 > Bagian ini sama pentingnya dengan bagian Selesai. Kompromi yang diambil di session 3 akan terlupa di session 12 lalu ditemukan kembali sebagai bug produksi.
 
@@ -108,7 +112,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 
 | Phase | Nama | PRD | TD | Issues | Selesai |
 |---|---|---|---|---|---|
-| 0 | Foundation | ✅ | ✅ | ✅ #1–#3 | ⬜ |
+| 0 | Foundation | ✅ | ✅ | ✅ #1–#3 | ✅ |
 | 1 | Auth & Organization | ⬜ | ⬜ | ⬜ | ⬜ |
 | 2 | CRM Core | ⬜ | ⬜ | ⬜ | ⬜ |
 | 3 | Owner Dashboard | ⬜ | ⬜ | ⬜ | ⬜ |
