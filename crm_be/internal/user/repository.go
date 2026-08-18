@@ -8,10 +8,20 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 )
+
+// ErrEmailTaken means the email uniqueness constraint (users_email_key)
+// rejected an insert. Detected from the database's own unique-violation
+// error rather than a SELECT-then-INSERT check — that would be a
+// check-then-act race under concurrent registrations for the same
+// email; letting Postgres enforce it atomically isn't.
+var ErrEmailTaken = errors.New("user: email already taken")
+
+const emailUniqueConstraint = "users_email_key"
 
 // Repository is the one repository in this codebase that deliberately
 // does NOT take tenant.Context. users has no organization_id — a user
@@ -79,9 +89,25 @@ func (r *Repository) Create(ctx context.Context, id uuid.UUID, email, passwordHa
 
 	u, err := scanOne(r.q.QueryRow(ctx, q, id, normalizeEmail(email), passwordHash, fullName))
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == emailUniqueConstraint {
+			return nil, ErrEmailTaken
+		}
 		return nil, fmt.Errorf("user: create: %w", err)
 	}
 	return u, nil
+}
+
+// MarkEmailVerified sets email_verified_at. Called exactly once, from
+// auth.Service.VerifyEmail, inside the same transaction that marks the
+// consumed verification token as used.
+func (r *Repository) MarkEmailVerified(ctx context.Context, id uuid.UUID) error {
+	const q = `UPDATE users SET email_verified_at = now() WHERE id = $1 AND email_verified_at IS NULL`
+	_, err := r.q.Exec(ctx, q, id)
+	if err != nil {
+		return fmt.Errorf("user: mark email verified: %w", err)
+	}
+	return nil
 }
 
 func normalizeEmail(email string) string {

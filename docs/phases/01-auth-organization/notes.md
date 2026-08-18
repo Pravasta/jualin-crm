@@ -60,3 +60,64 @@ Migration dikembalikan (diverifikasi `diff` identik dengan cadangan), test kemba
 - **`db.Querier`** dipakai ulang oleh setiap repository baru mulai issue #9. Constructor selalu `New(q db.Querier) *Repository`, bukan `New(pool *pgxpool.Pool)`.
 - **Organization belum punya model/repository sendiri.** Issue #8 hanya membuat tabelnya lewat migration; `internal/organization` (bila dibutuhkan sebagai paket) menyusul di issue #9 saat registrasi benar-benar membuat baris organization.
 - **Pola "satu contoh nyata lalu disalin"**: `membership.Repository` adalah rujukan untuk setiap repository tenant-scoped berikutnya. `user.Repository` adalah rujukan untuk setiap repository global berikutnya (belum ada yang lain sampai saat ini).
+
+---
+
+## #9 — Registrasi atomik, argon2id, dan verifikasi email
+
+### Menyimpang dari TD
+
+| Yang berbeda | Alasan |
+|---|---|
+| `httpx.DomainError` — mekanisme baru, tidak ada di TD | Domain error (`email_already_registered`, `invalid_token`) butuh status/code/message spesifik tanpa membuat `internal/shared/httpx` mengimpor paket domain (itu akan membalik arah dependensi: shared → domain). `DomainError{Status, Code, Message}` dikenali `MapError` lewat `errors.As`, generik untuk domain manapun. Dipakai lagi tanpa perubahan di #10 dan #11. |
+| `internal/organization`, `internal/subscription`, `internal/auditlog` dibuat sebagai paket baru | Tidak eksplisit di rencana per-file, tapi sudah tersirat dari cakupan ("organization + membership owner + subscription free", "audit log"). Mengikuti pola yang sama seperti `membership`/`user` di #8: `organization.Repository` juga tanpa `tenant.Context` (ia tenant root — alasan berbeda dari `user`, tapi pengecualian sejenis, didokumentasikan eksplisit di komentar). |
+| `internal/shared/ratelimit` — paket baru, tidak ada di TD sebagai nama paket | TD menyebut kebutuhan "rate limit per IP/per email" tanpa menentukan bentuk implementasinya. Dipilih fixed-window in-memory sesuai freeze ("tanpa Redis di MVP"), di balik interface `Limiter` agar bisa diganti nanti. Dipakai ulang di #10 (login) dan #11 (invitation). |
+| Rate limit dicek di **handler**, bukan sebagai middleware generik | Dimensi "per email" untuk `resend` butuh body ter-parse — middleware generik gin berjalan sebelum body dibaca, sehingga tidak punya akses ke email. Dicek eksplisit di dalam masing-masing handler setelah `ShouldBindJSON`. |
+| Angka rate limit (5/jam register, 3/jam+10/jam resend) adalah **default sementara**, bukan keputusan final | Freeze & `STATUS.md` sendiri mencatat "strategi rate limit final" sebagai keputusan terbuka hingga Phase 4/traffic nyata. Nilai di sini cukup untuk membuktikan mekanismenya aktif (acceptance criteria), bukan hasil tuning. |
+| **Test isolasi tenant untuk endpoint baru — tidak berlaku langsung di #9** | Definition of Done template menyebutnya secara generik, tapi ketiga endpoint di issue ini (`register`, `verify-email`, `verify-email/resend`) **tidak terautentikasi** — `register` justru **membuat** tenant, dan `verify-email`/`resend` beroperasi pada `users`/`email_verification_tokens` yang global. Tidak ada boundary lintas-tenant untuk diuji di sini karena belum ada sesi yang membawa `organization_id`. Pengujian isolasi tenant yang sesungguhnya dimulai di #10 (token terikat satu organization) dan #11 (harness generik lapis 4). Yang paling dekat dengan "isolasi" di #9: setiap registrasi menghasilkan `organization_id` baru yang independen — diverifikasi implisit lewat `TestRegister_CreatesFourRowsAtomically` dan `TestRegister_DuplicateEmail_LeavesNothingBehind`. |
+
+### Keputusan implementasi
+
+- **Deteksi email duplikat lewat *unique violation* Postgres, bukan `SELECT` lalu `INSERT`.** Menghindari race check-then-act di bawah registrasi konkuren untuk email yang sama. `user.Repository.Create` memeriksa `pgconn.PgError.Code == "23505"` **dan** `ConstraintName == "users_email_key"` secara spesifik — bukan asal kode 23505 apapun — supaya *unique violation* dari constraint lain (mis. token hash) tidak salah diterjemahkan jadi `email_already_registered`.
+- **Seluruh insert registrasi (organization, user, membership, subscription, token verifikasi, audit log) berada dalam satu `db.InTx`.** Token verifikasi sengaja dibuat **di dalam** transaksi yang sama, bukan setelah commit — supaya tidak ada state "user ada tapi tidak punya token untuk verifikasi" bila proses crash di antara keduanya. Hanya pengiriman email yang berada di luar transaksi (Aturan #32).
+- **`VerifyEmail` menyamakan token hilang/kedaluwarsa/sudah dipakai** — `verificationRepository.FindValidByHash` memakai satu query (`used_at IS NULL AND expires_at > now()`) yang mengembalikan `httpx.ErrNotFound` untuk ketiganya, diterjemahkan seragam jadi `invalid_token`. Klien tidak bisa membedakan ketiga kasus lewat response.
+- **Audit log `email.verified` mengasumsikan tepat satu membership aktif** pada saat verifikasi (`FindActiveByUserID`, ambil elemen pertama). Ini benar sepanjang Phase 1 karena user baru selalu lahir dengan satu membership dari registrasi. Akan perlu ditinjau ulang begitu #11 membuat multi-membership umum terjadi **sebelum** verifikasi selesai (mis. diundang ke organization kedua sebelum memverifikasi email organisasi pertama) — dicatat sebagai kondisi tepi untuk #11, bukan blocker sekarang karena skenario itu butuh urutan kejadian yang tidak mungkin di alur produk saat ini (undangan mensyaratkan akun yang sudah ada).
+- **`ResendVerification` tidak pernah mengembalikan error ke handler** — signature-nya `func(ctx, email)` tanpa `error`, karena endpoint selalu 202 apapun yang terjadi secara internal (email tidak ditemukan, sudah terverifikasi, gagal generate token). Kegagalan internal dicatat ke logger, tidak pernah bocor ke response.
+- **`looksLikeEmail` sengaja validasi minimal** (ada `@` dengan sesuatu di kedua sisi) — bukan regex RFC 5322 penuh. Validasi format yang lebih ketat tidak menambah keamanan (keunikan sudah ditegakkan database) dan berisiko menolak alamat sah yang tidak lazim. Konsisten Aturan #27.
+
+### Verifikasi
+
+```
+go test -race -count=1 ./...    → semua paket PASS, 2× berturut-turut
+golangci-lint run                → 0 issues (5 errcheck + 1 staticcheck ditemukan & diperbaiki)
+gofmt -l .                       → bersih
+go list -deps ./cmd/api | grep docker → kosong (binary produksi tetap bersih meski testcontainers dipakai luas di test)
+```
+
+19 test baru di `internal/auth`, mencakup seluruh acceptance criteria issue:
+
+| Acceptance criteria | Test |
+|---|---|
+| Registrasi sukses → 4 baris + audit + email | `TestRegister_CreatesFourRowsAtomically` |
+| Kegagalan di tengah transaksi → tidak ada baris tersimpan | `TestRegister_DuplicateEmail_LeavesNothingBehind` |
+| `LogMailer` gagal → registrasi tetap commit | `TestRegister_MailerFailure_StillCommits` |
+| Email sudah terdaftar → 409 | `TestRegister_DuplicateEmail_LeavesNothingBehind`, `TestHandler_Register_DuplicateEmail_Returns409` |
+| Resend email tak dikenal → 202, tidak ada email terkirim | `TestResendVerification_UnknownEmail_SendsNothing` |
+| Token sekali pakai, dipakai dua kali → `invalid_token` | `TestVerifyEmail_TokenUsedTwice_SecondAttemptFails` |
+| Token kedaluwarsa ditolak | `TestVerifyEmail_ExpiredToken_Rejected` |
+| Rate limit terbukti aktif | `TestHandler_Register_RateLimited`, `TestHandler_ResendVerification_RateLimitedPerEmail` |
+
+Ditambah di luar checklist eksplisit: `TestPassword_HashIsNeverPlaintext` (jaring pengaman terhadap regresi paling merusak yang mungkin terjadi di paket ini), dan test HTTP-level untuk register/verify-email/resend di `handler_test.go`.
+
+### Utang teknis
+
+- **Peta `map[string]*bucket` di `ratelimit.FixedWindow` tidak pernah dibersihkan** — tumbuh tanpa batas seiring key baru (IP/email) muncul. Untuk volume MVP tidak masalah; perlu eviction (TTL sederhana atau `sync.Map` + goroutine pembersih berkala) sebelum traffic produksi nyata. Belum jadi masalah karena provider email sungguhan (dan karenanya traffic pendaftaran nyata) masih menunggu domain.
+- **Angka rate limit belum final** (lihat Menyimpang dari TD) — perlu direvisi berdasarkan data nyata di Phase 4 atau lebih awal bila terbukti terlalu ketat/longgar saat pengujian manual dengan pengguna sungguhan.
+- **HIBP (cek password bocor) belum diimplementasikan** — dicatat di TD §3 sebagai kandidat, sengaja tidak dikerjakan di sini (butuh panggilan HTTP eksternal, di luar cakupan issue).
+
+### Catatan untuk session berikutnya
+
+- **`httpx.DomainError` adalah titik ekstensi utama mulai sekarang** — #10 dan #11 akan menambah lebih banyak kode error (`invalid_credentials`, `email_not_verified`, `organization_selection_required`, dst.) lewat pola yang sama, bukan menambah sentinel baru di `httpx`.
+- **`internal/shared/password`, `token`, `mailer`, `ratelimit` adalah dependensi bersama** — #10 (reset password, login) dan #11 (invitation) memakainya langsung, tidak menulis ulang.
+- **`auth.Service` akan tumbuh** — `RegisterService`/`VerifyEmail`/`ResendVerification` sekarang; #10 menambah `Login`, `Refresh`, `Logout`, `ForgotPassword`, `ResetPassword` ke struct `Service` yang sama (satu domain "auth", sesuai skill).
+- **`internal/organization.Repository` belum punya method `Update`** (mis. ubah timezone) — belum dibutuhkan siapapun. Tambahkan hanya saat ada pemakai nyata (Aturan #27).

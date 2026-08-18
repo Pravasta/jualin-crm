@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 18 Agustus 2026 — Issue #8 selesai
-**Phase sekarang:** Phase 1 — Auth & Organization (1/4 issue selesai)
+**Last updated:** 19 Agustus 2026 — Issue #9 selesai
+**Phase sekarang:** Phase 1 — Auth & Organization (2/4 issue selesai)
 
 ---
 
@@ -24,6 +24,7 @@
 | **ADR-010 — Fail-fast startup** | — | — | Muncul dari review PR #6, dikonfirmasi pemilik produk sebagai prinsip umum (bukan hanya DB). Aturan #36 di `CLAUDE.md`. |
 | **Issue #3 — Test harness PostgreSQL asli** | — | 0 | `internal/shared/db/dbtest` (subpaket terpisah dari `db` produksi — testcontainers tidak ikut ter-link ke binary). Mengotomasi `db.InTx`, migration round-trip, `/health/ready` yang tadinya manual. **Phase 0 selesai.** |
 | **Issue #8 — Schema 0002, tenant context, pola repository, test katalog** | — | 1 | 9 tabel identity, `internal/shared/tenant`, `db.Querier`, `internal/membership` + `internal/user` sebagai contoh repository tenant-scoped/global. Test katalog **diverifikasi bisa gagal** secara adversarial (lihat notes.md). |
+| **Issue #9 — Registrasi atomik, argon2id, verifikasi email** | — | 1 | `POST /v1/auth/{register,verify-email,verify-email/resend}`. `httpx.DomainError` (mekanisme error domain generik, baru), `internal/{organization,subscription,auditlog,auth}`, `internal/shared/{password,token,mailer,ratelimit}`. Registrasi 6-insert atomik dalam satu `db.InTx`; email di luar transaksi (Aturan #32). Rate limit **dibuktikan aktif** di test HTTP. |
 
 ---
 
@@ -35,11 +36,11 @@ _(kosong)_
 
 ## Berikutnya
 
-**Issue #9 — Registrasi atomik, argon2id, dan verifikasi email**
+**Issue #10 — Login, refresh rotation, logout, reset password, CSRF**
 
-- Cakupan & acceptance: [issue #9](https://github.com/Pravasta/jualin-crm/issues/9)
-- TD: `docs/phases/01-auth-organization/td.md` §2, §3, §6, §10, §11, §12
-- Bergantung pada #8 (selesai). Urutan sisanya: #9 → #10 → #11.
+- Cakupan & acceptance: [issue #10](https://github.com/Pravasta/jualin-crm/issues/10)
+- TD: `docs/phases/01-auth-organization/td.md` §2, §4, §5, §6, §11, §12, §13
+- Bergantung pada #9 (selesai). Memakai `internal/shared/{password,token,mailer,ratelimit}` dan `httpx.DomainError` langsung, tanpa menulis ulang. Terakhir sebelum #11.
 
 ---
 
@@ -49,6 +50,8 @@ _(kosong)_
 |---|---|---|
 | Tidak ada test end-to-end otomatis untuk graceful shutdown | Issue #1 | Diverifikasi manual (build binary + SIGINT). Otomatisasi butuh test yang menjalankan binary sungguhan dan mengirim sinyal OS — `go run` tidak meneruskan sinyal ke child process, jadi tidak bisa diuji lewat itu. Belum ada issue yang mencakup ini; angkat saat menyentuh area shutdown lagi. |
 | Tidak ada auto-migrate saat container `api` start | Issue #2 | `make migrate-up` dijalankan manual. Sengaja dipisah dari entrypoint `api` — migration dan serving punya kelas kegagalan berbeda. |
+| `ratelimit.FixedWindow` tidak pernah membersihkan key lama | Issue #9 | Map tumbuh tanpa batas seiring IP/email baru muncul. Tidak masalah di volume MVP; perlu eviction sebelum traffic produksi nyata. |
+| Angka rate limit (register 5/jam, resend 3/jam+10/jam) belum final | Issue #9 | Cukup untuk membuktikan mekanisme aktif, bukan hasil tuning. Freeze mencatat "strategi rate limit final" sebagai keputusan terbuka hingga Phase 4. |
 
 > ~~Test otomatis `db.InTx` dan migration round-trip~~ — selesai di issue #3.
 

@@ -14,6 +14,11 @@ import (
 var validAppEnvs = []string{"development", "production"}
 var validLogLevels = []string{"debug", "info", "warn", "error"}
 
+// "log" is the only provider that exists so far — LogMailer. A real
+// provider is added to this list when it's actually implemented, not
+// before (Rule #27).
+var validMailProviders = []string{"log"}
+
 // Config holds all environment-derived settings for crm_be.
 type Config struct {
 	AppEnv string `env:"APP_ENV" envDefault:"development"`
@@ -27,6 +32,12 @@ type Config struct {
 	DBMaxConns  int    `env:"DB_MAX_CONNS" envDefault:"10"`
 
 	LogLevel string `env:"LOG_LEVEL" envDefault:"info"`
+
+	// AppBaseURL is where verification/reset/invitation links point —
+	// the dashboard's origin, not this API's.
+	AppBaseURL   string `env:"APP_BASE_URL" envDefault:"http://localhost:3000"`
+	MailFrom     string `env:"MAIL_FROM" envDefault:"no-reply@localhost"`
+	MailProvider string `env:"MAIL_PROVIDER" envDefault:"log"`
 }
 
 // Load parses environment variables into a Config and validates it.
@@ -57,6 +68,9 @@ func (c *Config) validate() error {
 	// DBMaxConns safely fits int32 when passed to pgxpool.Config.MaxConns.
 	if c.DBMaxConns <= 0 || c.DBMaxConns > 1000 {
 		return fmt.Errorf("config invalid: DB_MAX_CONNS must be between 1 and 1000, got %d", c.DBMaxConns)
+	}
+	if !slices.Contains(validMailProviders, c.MailProvider) {
+		return fmt.Errorf("config invalid: MAIL_PROVIDER must be one of %v, got %q", validMailProviders, c.MailProvider)
 	}
 	return nil
 }
