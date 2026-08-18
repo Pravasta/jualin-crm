@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 17 Agustus 2026 — Bootstrap Documentation
-**Phase sekarang:** Pra-Phase 0 (belum ada kode)
+**Last updated:** 18 Agustus 2026 — Issue #1 selesai
+**Phase sekarang:** Phase 0 — Foundation (1/3 issue selesai)
 
 ---
 
@@ -18,6 +18,8 @@
 | Architecture freeze + 6 amandemen | — | — | `docs/architecture/freeze.md` — 🔒 FROZEN |
 | Bootstrap documentation | — | — | CLAUDE.md, STATUS.md, product/, architecture/, ADR-001..006, skill backend |
 | Delivery workflow + setup repository | — | — | ADR-008, `docs/workflow.md`, template GitHub, git init, label & milestone |
+| Restrukturisasi monorepo | — | — | ADR-009 — `crm_be/`, `crm_dashboard/`, `crm_landing_page/`, `crm_employee/` |
+| **Issue #1 — Project skeleton** | — | 0 | PR [#5](https://github.com/Pravasta/jualin-crm/pull/5). Config ter-validasi saat boot, logger + request_id, error envelope, `/health`, graceful shutdown, CI. |
 
 ---
 
@@ -29,19 +31,19 @@ _(kosong)_
 
 ## Berikutnya
 
-**Issue #1 — Project skeleton: config, logging, error, health, CI**
+**Issue #2 — Database, Docker Compose, dan migration tooling**
 
-PRD & TD Phase 0 sudah ditulis, issue #1–#3 sudah dibuat. Setelah PR PRD/TD di-merge, pengerjaan dimulai dari issue #1.
-
-- Cakupan & acceptance: [issue #1](https://github.com/Pravasta/jualin-crm/issues/1)
-- TD: `docs/phases/00-foundation/td.md` §2–§7, §12–§14
-- Urutan: #1 → #2 → #3 (berurutan, tidak bisa diparalelkan)
+- Cakupan & acceptance: [issue #2](https://github.com/Pravasta/jualin-crm/issues/2)
+- TD: `docs/phases/00-foundation/td.md` §8–§10
+- Bergantung pada #1 (selesai). #3 menyusul setelah #2.
 
 ---
 
 ## Utang Teknis
 
-_(kosong — belum ada kode)_
+| Item | Dari | Catatan |
+|---|---|---|
+| Tidak ada test end-to-end otomatis untuk graceful shutdown | Issue #1 | Diverifikasi manual (build binary + SIGINT). Otomatisasi butuh test yang menjalankan binary sungguhan dan mengirim sinyal OS — `go run` tidak meneruskan sinyal ke child process, jadi tidak bisa diuji lewat itu. |
 
 > Bagian ini sama pentingnya dengan bagian Selesai. Kompromi yang diambil di session 3 akan terlupa di session 12 lalu ditemukan kembali sebagai bug produksi.
 
