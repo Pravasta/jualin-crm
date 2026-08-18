@@ -13,32 +13,23 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 )
 
-// EmailVerificationToken is global, like user.User — it belongs to a
-// user_id, not an organization. See email_verification_tokens in
-// migration 0002.
-type EmailVerificationToken struct {
-	ID        uuid.UUID
-	UserID    uuid.UUID
-	TokenHash string
-	ExpiresAt time.Time
-	UsedAt    *time.Time
-	CreatedAt time.Time
-}
-
-const emailVerificationTTL = 24 * time.Hour
-
-// verificationRepository is unexported: email_verification_tokens is an
-// implementation detail of this package's Service, not something other
-// domains look up directly.
-type verificationRepository struct {
+// postgresVerificationRepository is this package's only repository
+// implementation — email_verification_tokens has no consumers outside
+// internal/auth, unlike user/organization/membership/subscription, whose
+// implementations live in their own packages and are wired in through
+// the interfaces in port.go.
+type postgresVerificationRepository struct {
 	q db.Querier
 }
 
-func newVerificationRepository(q db.Querier) *verificationRepository {
-	return &verificationRepository{q: q}
+// NewVerificationRepository is exported so the composition root
+// (cmd/api) can construct it when assembling Repos — the same reason
+// user.New, organization.New etc. are exported from their packages.
+func NewVerificationRepository(q db.Querier) VerificationTokenRepository {
+	return &postgresVerificationRepository{q: q}
 }
 
-func (r *verificationRepository) Create(ctx context.Context, id, userID uuid.UUID, tokenHash string) error {
+func (r *postgresVerificationRepository) Create(ctx context.Context, id, userID uuid.UUID, tokenHash string) error {
 	const q = `
 		INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at)
 		VALUES ($1, $2, $3, $4)`
@@ -54,8 +45,8 @@ func (r *verificationRepository) Create(ctx context.Context, id, userID uuid.UUI
 // and hasn't been used — any other case maps to the same
 // httpx.ErrNotFound so a caller can't distinguish "wrong token" from
 // "expired token" from "already used token" through timing or response
-// shape (all three become invalid_token at the HTTP layer).
-func (r *verificationRepository) FindValidByHash(ctx context.Context, hash string) (*EmailVerificationToken, error) {
+// shape (all three become invalid_token at the usecase layer).
+func (r *postgresVerificationRepository) FindValidByHash(ctx context.Context, hash string) (*EmailVerificationToken, error) {
 	const q = `
 		SELECT id, user_id, token_hash, expires_at, used_at, created_at
 		FROM email_verification_tokens
@@ -72,7 +63,7 @@ func (r *verificationRepository) FindValidByHash(ctx context.Context, hash strin
 	return &t, nil
 }
 
-func (r *verificationRepository) MarkUsed(ctx context.Context, id uuid.UUID) error {
+func (r *postgresVerificationRepository) MarkUsed(ctx context.Context, id uuid.UUID) error {
 	const q = `UPDATE email_verification_tokens SET used_at = now() WHERE id = $1`
 	_, err := r.q.Exec(ctx, q, id)
 	if err != nil {

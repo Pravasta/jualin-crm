@@ -10,18 +10,62 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Pravasta/jualin-crm/crm_be/internal/auditlog"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auth"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/membership"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/organization"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db/dbtest"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/mailer"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/password"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/token"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/subscription"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/user"
 )
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// testStore is a real, PostgreSQL-backed auth.Store — deliberately NOT a
+// fake. These are integration tests proving the atomic transaction
+// behavior (registration's four inserts, rollback on failure) actually
+// works against real Postgres; that guarantee only means something when
+// checked against the real thing. It mirrors cmd/api/auth_store.go —
+// internal/auth's production code never assembles Repos itself
+// (ADR-011), so test code that needs a real Store duplicates the small
+// amount of wiring rather than importing the main package.
+type testStore struct {
+	pool *pgxpool.Pool
+}
+
+func newTestStore(pool *pgxpool.Pool) auth.Store {
+	return &testStore{pool: pool}
+}
+
+func (s *testStore) InTx(ctx context.Context, fn func(auth.Repos) error) error {
+	return db.InTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return fn(testRepos(tx))
+	})
+}
+
+func (s *testStore) Repos() auth.Repos {
+	return testRepos(s.pool)
+}
+
+func testRepos(q db.Querier) auth.Repos {
+	return auth.Repos{
+		User:   user.New(q),
+		Org:    organization.New(q),
+		Member: membership.New(q),
+		Sub:    subscription.New(q),
+		Verify: auth.NewVerificationRepository(q),
+		Audit:  auditlog.New(q),
+	}
 }
 
 // spyMailer records every message it's asked to send, and can be told to
@@ -79,7 +123,7 @@ func TestRegister_CreatesFourRowsAtomically(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewService(pool, m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
 
 	out, err := svc.Register(ctx, validInput("owner@example.com"))
 	if err != nil {
@@ -131,7 +175,7 @@ func TestRegister_CreatesFourRowsAtomically(t *testing.T) {
 func TestRegister_DuplicateEmail_LeavesNothingBehind(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
-	svc := auth.NewService(pool, &spyMailer{}, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000")
 
 	if _, err := svc.Register(ctx, validInput("dup@example.com")); err != nil {
 		t.Fatalf("first registration failed: %v", err)
@@ -176,7 +220,7 @@ func TestRegister_MailerFailure_StillCommits(t *testing.T) {
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
 	m.failNext.Store(true)
-	svc := auth.NewService(pool, m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
 
 	out, err := svc.Register(ctx, validInput("mailfail@example.com"))
 	if err != nil {
@@ -190,7 +234,7 @@ func TestVerifyEmail_ValidToken_MarksVerifiedAndConsumesToken(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewService(pool, m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
 
 	out, err := svc.Register(ctx, validInput("verify@example.com"))
 	if err != nil {
@@ -224,7 +268,7 @@ func TestVerifyEmail_TokenUsedTwice_SecondAttemptFails(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewService(pool, m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
 
 	_, err := svc.Register(ctx, validInput("reuse@example.com"))
 	if err != nil {
@@ -243,7 +287,7 @@ func TestVerifyEmail_TokenUsedTwice_SecondAttemptFails(t *testing.T) {
 func TestVerifyEmail_ExpiredToken_Rejected(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
-	svc := auth.NewService(pool, &spyMailer{}, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000")
 
 	out, err := svc.Register(ctx, validInput("expired@example.com"))
 	if err != nil {
@@ -270,7 +314,7 @@ func TestVerifyEmail_ExpiredToken_Rejected(t *testing.T) {
 func TestVerifyEmail_UnknownToken_Rejected(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
-	svc := auth.NewService(pool, &spyMailer{}, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000")
 
 	err := svc.VerifyEmail(ctx, "this-token-does-not-exist")
 	assertInvalidToken(t, err)
@@ -280,7 +324,7 @@ func TestResendVerification_UnknownEmail_SendsNothing(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewService(pool, m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
 
 	// Must not panic or error — the handler always answers 202 regardless.
 	svc.ResendVerification(ctx, "nobody@example.com")
@@ -294,7 +338,7 @@ func TestResendVerification_UnverifiedUser_SendsNewToken(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewService(pool, m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
 
 	out, err := svc.Register(ctx, validInput("resend@example.com"))
 	if err != nil {
@@ -320,7 +364,7 @@ func TestResendVerification_AlreadyVerified_SendsNothing(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewService(pool, m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
 
 	_, err := svc.Register(ctx, validInput("already-verified@example.com"))
 	if err != nil {
@@ -342,7 +386,7 @@ func TestResendVerification_AlreadyVerified_SendsNothing(t *testing.T) {
 func TestRegister_WeakPassword_Rejected(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
-	svc := auth.NewService(pool, &spyMailer{}, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000")
 
 	in := validInput("weak@example.com")
 	in.Password = "short"
@@ -359,7 +403,7 @@ func TestRegister_WeakPassword_Rejected(t *testing.T) {
 func TestPassword_HashIsNeverPlaintext(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
-	svc := auth.NewService(pool, &spyMailer{}, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000")
 
 	in := validInput("hash-check@example.com")
 	out, err := svc.Register(ctx, in)

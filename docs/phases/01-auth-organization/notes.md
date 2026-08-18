@@ -119,5 +119,57 @@ Ditambah di luar checklist eksplisit: `TestPassword_HashIsNeverPlaintext` (jarin
 
 - **`httpx.DomainError` adalah titik ekstensi utama mulai sekarang** — #10 dan #11 akan menambah lebih banyak kode error (`invalid_credentials`, `email_not_verified`, `organization_selection_required`, dst.) lewat pola yang sama, bukan menambah sentinel baru di `httpx`.
 - **`internal/shared/password`, `token`, `mailer`, `ratelimit` adalah dependensi bersama** — #10 (reset password, login) dan #11 (invitation) memakainya langsung, tidak menulis ulang.
-- **`auth.Service` akan tumbuh** — `RegisterService`/`VerifyEmail`/`ResendVerification` sekarang; #10 menambah `Login`, `Refresh`, `Logout`, `ForgotPassword`, `ResetPassword` ke struct `Service` yang sama (satu domain "auth", sesuai skill).
+- ~~`auth.Service` akan tumbuh~~ — **superseded oleh #15.** `Service` menjadi `Usecase`, bergantung pada `Store`, bukan `*pgxpool.Pool`. #10 menambah `Login`/`Refresh`/`Logout`/`ForgotPassword`/`ResetPassword` ke `auth.Usecase` yang sama, dan ke `auth.Repos`/`port.go` bila butuh repository baru (mis. `RefreshTokenRepository`).
 - **`internal/organization.Repository` belum punya method `Update`** (mis. ubah timezone) — belum dibutuhkan siapapun. Tambahkan hanya saat ada pemakai nyata (Aturan #27).
+
+---
+
+## #15 — Refactor: layering per-paket, interface di sisi consumer, Unit of Work
+
+### Menyimpang dari rencana issue
+
+| Yang berbeda | Alasan |
+|---|---|
+| `membership`, `user`, `organization`, `subscription`, `auditlog` **tidak** mendapat `port.go`/`usecase.go`/`handler_http.go` — hanya `entity.go` + `repository_postgres.go` | Kelima paket ini adalah "repository murni": tidak punya business logic atau endpoint HTTP miliknya sendiri, hanya dikonsumsi lewat interface yang dideklarasikan `auth/port.go`. Memaksakan 5 berkas penuh pada paket yang tidak punya usecase adalah folder kosong yang terlihat seperti kemajuan (Aturan #27/#28) — bertentangan dengan semangat refactor ini sendiri. Pola 5 berkas berlaku untuk paket yang **punya** usecase & handler sendiri (`auth`, dan nanti `lead`, dll di Phase 2+). |
+| Perakitan `Repos`/`Store` (`authStore`) ditaruh di **`cmd/api/auth_store.go`**, bukan `internal/app` | ADR-011 hanya menetapkan "bukan di `shared/`, bukan di paket domain manapun" — lokasi persisnya diputuskan saat implementasi. Karena baru ada **satu** composition site (`cmd/api`; `cmd/migrate` tidak butuh ini), membuat `internal/app` sekarang adalah abstraksi untuk kebutuhan yang belum ada (Aturan #27). Diekstrak ke `internal/app` **saat** composition site kedua muncul (mis. `cmd/worker`), bukan sebelumnya. |
+| Test integrasi lama (`usecase_test.go`, sebelumnya `service_test.go`) mendapat `testStore` **sendiri**, menduplikasi ~20 baris dari `cmd/api/auth_store.go` | `internal/auth`'s production code sengaja tidak boleh mengimpor `user`/`organization`/`membership`/`subscription` konkret (itulah inti ADR-011) — jadi test package `auth_test` juga tidak mengimpor `cmd/api` (package `main`, dan secara arsitektural janggal untuk diimpor test paket domain). Duplikasi kecil ini adalah harga yang sepadan untuk menjaga batas itu tetap bersih di kedua sisi. |
+
+### Keputusan implementasi
+
+- **Deteksi "lepasnya business logic dari Docker" memakai `DOCKER_HOST` yang diarahkan ke socket tidak ada**, bukan benar-benar mematikan Docker Desktop pengguna — lebih aman dan tetap reversibel, membuktikan hal yang sama. Percobaan pertama (`DOCKER_HOST` + tanpa `-count=1`) sempat memberi hasil `(cached)` yang menyesatkan — Go test cache tidak otomatis tervalidasi ulang oleh perubahan env var sembarangan. Diperbaiki dengan `-count=1` untuk memaksa run baru.
+- **Percobaan "negative control"** (menjalankan test **integrasi** dengan `DOCKER_HOST` yang sama untuk membuktikan ia justru gagal) **tidak berhasil sebagai pembuktian negatif** — testcontainers tetap menemukan Docker asli lewat mekanisme context Docker Desktop, bukan murni `DOCKER_HOST`. Ini tidak melemahkan klaim utama: pembuktian utama datang dari **inspeksi kode** (`grep testcontainers` di berkas unit test → kosong; `go list -deps` tidak menyertakan `internal/shared/db/dbtest`) dan **kecepatan run** (<1 detik vs ~9 detik test integrasi), bukan dari eksperimen `DOCKER_HOST` semata. Dicatat di sini secara jujur agar tidak terbaca sebagai bukti yang lebih kuat dari yang sebenarnya.
+- **`VerificationTokenRepository`** (email_verification_tokens) **tetap punya interface DAN implementasi di dalam `internal/auth`** — berbeda dari `user`/`organization`/`membership`/`subscription` yang implementasinya di paket masing-masing. Alasan: tabel ini tidak punya consumer di luar `auth`, jadi tidak ada alasan memisahkannya ke paket sendiri hanya demi konsistensi kosmetik. `NewVerificationRepository` diekspor supaya composition root (`cmd/api`) tetap bisa mengonstruksinya tanpa mengetahui detail internal `auth`.
+- **Kesalahan kecil terulang, ditemukan sendiri saat menulis**: sempat menambahkan import `internal/membership` + placeholder `var _ = membership.Membership{}` yang tidak perlu di `usecase.go` — Go ternyata tidak butuh import eksplisit untuk tipe yang hanya mengalir lewat inferensi (nilai balik `r.Member.FindActiveByUserID` tidak pernah dieja ulang sebagai `membership.Membership` secara literal di `usecase.go`). Dihapus sebelum commit — pengingat untuk lebih hati-hati pada import yang "terasa perlu" tapi sebenarnya tidak.
+
+### Verifikasi
+
+```
+go build ./...                              → bersih
+go vet ./...                                → bersih
+golangci-lint run                           → 0 issues
+gofmt -l .                                  → bersih
+go test -race -count=1 ./...                → semua PASS (33 test lama, asersi tidak diubah)
+
+DOCKER_HOST=unix:///tmp/nonexistent-docker.sock \
+  go test ./internal/auth/... -run TestUnit -v -count=1
+                                             → 7/7 PASS, 0.63–0.86 detik
+
+go list -deps ./internal/shared/db | grep -E "internal/(auth|user|organization|membership|subscription|auditlog)$"
+                                             → kosong
+go list -deps ./cmd/api | grep -iE "testcontainers|docker"
+                                             → kosong (binary produksi tetap bersih)
+grep "jackc/pgx" internal/auth/{usecase,entity,port,handler_http}.go
+                                             → kosong (pgx hanya di repository_postgres.go)
+```
+
+Seluruh 8 acceptance criteria issue #15 terpenuhi.
+
+### Utang teknis
+
+- Tidak ada item baru. Refactor murni, tanpa perubahan perilaku.
+
+### Catatan untuk session berikutnya
+
+- **Pola 5 berkas (`entity.go`/`port.go`/`usecase.go`/`repository_postgres.go`/`handler_http.go`) hanya untuk paket yang punya usecase & endpoint sendiri.** Paket "repository murni" seperti `membership`/`user`/`organization`/`subscription`/`auditlog` cukup `entity.go` + `repository_postgres.go` — **jangan** tambahkan `port.go` kosong ke paket-paket ini hanya demi keseragaman kosmetik. Tambahkan `port.go`/`usecase.go` pada paket itu **hanya** saat paket itu sendiri mendapat business logic atau endpoint HTTP miliknya (mis. `membership` kemungkinan mendapatkannya di #11 saat "ubah role"/"nonaktifkan" jadi endpoint tersendiri).
+- **Composition root ada di `cmd/api/auth_store.go`.** Domain baru (mis. `lead` di Phase 2) yang butuh Unit of Work sendiri akan mendapat `cmd/api/<domain>_store.go` yang sama polanya — bukan satu `Store` raksasa yang menaungi semua domain.
+- **Test integrasi lintas paket (`internal/auth`'s `usecase_test.go`) menduplikasi wiring `Repos` yang juga ada di `cmd/api/auth_store.go`.** Ini disengaja (lihat Menyimpang dari rencana). Bila polanya terasa berulang di banyak paket, pertimbangkan test helper bersama — tapi jangan taruh di `internal/shared` (aturan yang sama berlaku untuk test helper: jangan sampai `shared` mengimpor domain).

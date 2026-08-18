@@ -77,8 +77,9 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	r.Use(httpx.RequestID(), httpx.Logging(log), httpx.Recovery(log))
 
 	mail := newMailer(cfg, log)
-	authService := auth.NewService(pool, mail, log, cfg.AppBaseURL)
-	auth.NewHandler(authService).RegisterRoutes(r)
+	authStore := newAuthStore(pool)
+	authUsecase := auth.NewUsecase(authStore, mail, log, cfg.AppBaseURL)
+	auth.NewHandler(authUsecase).RegisterRoutes(r)
 
 	r.NoRoute(func(c *gin.Context) {
 		httpx.RespondError(c, http.StatusNotFound, "not_found", "Route tidak ditemukan.")

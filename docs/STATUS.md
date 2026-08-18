@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 19 Agustus 2026 — Issue #9 selesai
-**Phase sekarang:** Phase 1 — Auth & Organization (2/4 issue selesai)
+**Last updated:** 19 Agustus 2026 — Issue #15 selesai
+**Phase sekarang:** Phase 1 — Auth & Organization (3/5 issue selesai — #15 ditambahkan di tengah phase, diprioritaskan sebelum #10)
 
 ---
 
@@ -25,6 +25,8 @@
 | **Issue #3 — Test harness PostgreSQL asli** | — | 0 | `internal/shared/db/dbtest` (subpaket terpisah dari `db` produksi — testcontainers tidak ikut ter-link ke binary). Mengotomasi `db.InTx`, migration round-trip, `/health/ready` yang tadinya manual. **Phase 0 selesai.** |
 | **Issue #8 — Schema 0002, tenant context, pola repository, test katalog** | — | 1 | 9 tabel identity, `internal/shared/tenant`, `db.Querier`, `internal/membership` + `internal/user` sebagai contoh repository tenant-scoped/global. Test katalog **diverifikasi bisa gagal** secara adversarial (lihat notes.md). |
 | **Issue #9 — Registrasi atomik, argon2id, verifikasi email** | — | 1 | `POST /v1/auth/{register,verify-email,verify-email/resend}`. `httpx.DomainError` (mekanisme error domain generik, baru), `internal/{organization,subscription,auditlog,auth}`, `internal/shared/{password,token,mailer,ratelimit}`. Registrasi 6-insert atomik dalam satu `db.InTx`; email di luar transaksi (Aturan #32). Rate limit **dibuktikan aktif** di test HTTP. |
+| **ADR-011 — Layering per-paket + Unit of Work** | — | — | Diminta pemilik produk di tengah Phase 1, diprioritaskan sebelum #10. Merevisi Aturan #8, menegakkan Aturan #11 yang sejak awal dilanggar. |
+| **Issue #15 — Refactor: layering, interface, Unit of Work** | — | 1 | `internal/auth` dipecah jadi `entity/port/usecase/repository_postgres/handler_http.go`. `Store`/`Repos` (Unit of Work) menggantikan `db.InTx` langsung di usecase. Composition root di `cmd/api/auth_store.go`. **7 unit test baru lolos tanpa Docker** (dibuktikan lewat `DOCKER_HOST` tak valid + inspeksi `go list -deps`). 33 test lama lolos tanpa perubahan asersi. |
 
 ---
 
@@ -40,7 +42,7 @@ _(kosong)_
 
 - Cakupan & acceptance: [issue #10](https://github.com/Pravasta/jualin-crm/issues/10)
 - TD: `docs/phases/01-auth-organization/td.md` §2, §4, §5, §6, §11, §12, §13
-- Bergantung pada #9 (selesai). Memakai `internal/shared/{password,token,mailer,ratelimit}` dan `httpx.DomainError` langsung, tanpa menulis ulang. Terakhir sebelum #11.
+- Bergantung pada #9 dan #15 (keduanya selesai). Memakai `internal/shared/{password,token,mailer,ratelimit}`, `httpx.DomainError`, dan pola `auth.Usecase` + `Store`/`Repos` langsung — endpoint baru (`Login`, `Refresh`, dst.) ditambah ke `Usecase` yang sama, repository baru (mis. `RefreshTokenRepository`) ditambah ke `auth/port.go`. Sebelum #11.
 
 ---
 
@@ -115,7 +117,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | Phase | Nama | PRD | TD | Issues | Selesai |
 |---|---|---|---|---|---|
 | 0 | Foundation | ✅ | ✅ | ✅ #1–#3 | ✅ |
-| 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11 | ⬜ |
+| 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11, #15 | ⬜ |
 | 2 | CRM Core | ⬜ | ⬜ | ⬜ | ⬜ |
 | 3 | Owner Dashboard | ⬜ | ⬜ | ⬜ | ⬜ |
 | 4 | Public API | ⬜ | ⬜ | ⬜ | ⬜ |
