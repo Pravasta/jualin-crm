@@ -24,21 +24,21 @@ const (
 	resendIPWindow = time.Hour
 )
 
-// Handler wires HTTP to Service. Rate limiting is checked here rather
-// than in Service: the "per email" dimension for resend needs the
-// parsed request body, which only the handler has — Service's job is
+// Handler wires HTTP to Usecase. Rate limiting is checked here rather
+// than in Usecase: the "per email" dimension for resend needs the
+// parsed request body, which only the handler has — Usecase's job is
 // business logic, not request shaping.
 type Handler struct {
-	service *Service
+	usecase *Usecase
 
 	registerLimiter    ratelimit.Limiter
 	resendEmailLimiter ratelimit.Limiter
 	resendIPLimiter    ratelimit.Limiter
 }
 
-func NewHandler(service *Service) *Handler {
+func NewHandler(usecase *Usecase) *Handler {
 	return &Handler{
-		service:            service,
+		usecase:            usecase,
 		registerLimiter:    ratelimit.NewFixedWindow(registerLimit, registerWindow),
 		resendEmailLimiter: ratelimit.NewFixedWindow(resendLimit, resendWindow),
 		resendIPLimiter:    ratelimit.NewFixedWindow(resendIPLimit, resendIPWindow),
@@ -73,7 +73,7 @@ func (h *Handler) register(c *gin.Context) {
 		return
 	}
 
-	out, err := h.service.Register(c.Request.Context(), RegisterInput(req))
+	out, err := h.usecase.Register(c.Request.Context(), RegisterInput(req))
 	if err != nil {
 		httpx.WriteError(c, err)
 		return
@@ -96,7 +96,7 @@ func (h *Handler) verifyEmail(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.VerifyEmail(c.Request.Context(), req.Token); err != nil {
+	if err := h.usecase.VerifyEmail(c.Request.Context(), req.Token); err != nil {
 		httpx.WriteError(c, err)
 		return
 	}
@@ -122,7 +122,7 @@ func (h *Handler) resendVerification(c *gin.Context) {
 		return
 	}
 
-	h.service.ResendVerification(c.Request.Context(), req.Email)
+	h.usecase.ResendVerification(c.Request.Context(), req.Email)
 
 	c.JSON(http.StatusAccepted, gin.H{"data": gin.H{"status": "accepted"}})
 }

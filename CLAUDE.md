@@ -33,17 +33,30 @@ docs/  .claude/  Makefile  docker-compose.yml   ← akar
 
 `Makefile` dan `docker-compose.yml` di **akar** sebagai entry point tunggal. CI punya satu workflow per aplikasi dengan `paths:` filter.
 
-## Layering
+## Layering (ADR-011)
 
 ```
-Handler → Service → Repository → PostgreSQL
+Handler → Usecase → Repository (interface) → Repository (implementasi) → PostgreSQL
 ```
 
+Tiap paket domain (`internal/<domain>/`) punya lapis eksplisit lewat nama berkas:
+
+```
+entity.go               tipe domain — tanpa dependensi infrastruktur
+port.go                 interface consumer + Repos + Store (Unit of Work)
+usecase.go               business logic — hanya bergantung pada port.go
+repository_postgres.go  implementasi PostgreSQL
+handler_http.go          gin
+```
+
+- Package-by-feature **tetap** — satu fitur, satu folder. **Bukan** folder-per-lapis (`domain/`, `usecase/`, `adapter/` di level `internal/`) — ditolak, lihat ADR-011.
 - Handler **tidak** memanggil repository
 - Repository **tidak** berisi business logic
-- Service **tidak** tahu tentang HTTP
-- Otorisasi di **service layer**, bukan di UI
-- Interface didefinisikan di sisi consumer
+- Usecase **tidak** tahu tentang HTTP, **tidak** mengimpor `pgx` langsung
+- Otorisasi di **usecase**, bukan di UI
+- Interface di `port.go` milik **consumer**, hanya method yang dipakai — bukan cermin seluruh repository
+- Transaksi lintas repository lewat `Store.InTx(ctx, func(Repos) error)` — usecase tidak pernah menyentuh `pgx.Tx`
+- `Repos`/`Store` didefinisikan **per-domain**, tidak pernah di `internal/shared/db` — kalau tidak, `shared/db` harus mengimpor paket domain
 
 ## Aturan yang tidak boleh dilanggar
 

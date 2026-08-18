@@ -12,45 +12,30 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/Pravasta/jualin-crm/crm_be/internal/auditlog"
-	"github.com/Pravasta/jualin-crm/crm_be/internal/membership"
-	"github.com/Pravasta/jualin-crm/crm_be/internal/organization"
-	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/mailer"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/password"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/token"
-	"github.com/Pravasta/jualin-crm/crm_be/internal/subscription"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/user"
 )
 
 const minPasswordLength = 12
 
-type Service struct {
-	pool    *pgxpool.Pool
+// Usecase depends only on Store (port.go) and mailer.Mailer — never on
+// *pgxpool.Pool or pgx.Tx directly (ADR-011). That's what makes
+// TestRegister_WeakPassword_Rejected-style tests possible with a fake
+// Store and no Docker.
+type Usecase struct {
+	store   Store
 	mailer  mailer.Mailer
 	logger  *slog.Logger
 	baseURL string
 }
 
-func NewService(pool *pgxpool.Pool, m mailer.Mailer, logger *slog.Logger, baseURL string) *Service {
-	return &Service{pool: pool, mailer: m, logger: logger, baseURL: baseURL}
-}
-
-type RegisterInput struct {
-	OrganizationName string
-	FullName         string
-	Email            string
-	Password         string
-}
-
-type RegisterOutput struct {
-	UserID         uuid.UUID
-	OrganizationID uuid.UUID
+func NewUsecase(store Store, m mailer.Mailer, logger *slog.Logger, baseURL string) *Usecase {
+	return &Usecase{store: store, mailer: m, logger: logger, baseURL: baseURL}
 }
 
 // Register creates an organization, its owner user, the owner
@@ -58,7 +43,7 @@ type RegisterOutput struct {
 // A1) — a failure at any point leaves nothing behind. The verification
 // email is sent only after that transaction commits (Rule #32); a send
 // failure is logged but never rolls back the registration.
-func (s *Service) Register(ctx context.Context, in RegisterInput) (*RegisterOutput, error) {
+func (u *Usecase) Register(ctx context.Context, in RegisterInput) (*RegisterOutput, error) {
 	if verr := validateRegisterInput(in); verr != nil {
 		return nil, verr
 	}
@@ -81,36 +66,29 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*RegisterOutp
 
 	var createdUser *user.User
 
-	txErr := db.InTx(ctx, s.pool, func(tx pgx.Tx) error {
-		orgRepo := organization.New(tx)
-		userRepo := user.New(tx)
-		membershipRepo := membership.New(tx)
-		subRepo := subscription.New(tx)
-		verifyRepo := newVerificationRepository(tx)
-		auditRepo := auditlog.New(tx)
-
-		if _, err := orgRepo.Create(ctx, orgID, in.OrganizationName); err != nil {
+	txErr := u.store.InTx(ctx, func(r Repos) error {
+		if _, err := r.Org.Create(ctx, orgID, in.OrganizationName); err != nil {
 			return err
 		}
 
-		u, err := userRepo.Create(ctx, userID, in.Email, hash, in.FullName)
+		created, err := r.User.Create(ctx, userID, in.Email, hash, in.FullName)
 		if err != nil {
 			return err // may be user.ErrEmailTaken — translated after InTx returns
 		}
-		createdUser = u
+		createdUser = created
 
 		t := tenant.Context{OrganizationID: orgID, PrincipalType: tenant.PrincipalUser}
 
-		if _, err := membershipRepo.Create(ctx, t, membershipID, u.ID, tenant.RoleOwner); err != nil {
+		if _, err := r.Member.Create(ctx, t, membershipID, created.ID, tenant.RoleOwner); err != nil {
 			return err
 		}
-		if _, err := subRepo.CreateFree(ctx, t, subID); err != nil {
+		if _, err := r.Sub.CreateFree(ctx, t, subID); err != nil {
 			return err
 		}
-		if err := verifyRepo.Create(ctx, verificationID, u.ID, tokenHash); err != nil {
+		if err := r.Verify.Create(ctx, verificationID, created.ID, tokenHash); err != nil {
 			return err
 		}
-		if err := auditRepo.Record(ctx, t, &membershipID, "user.registered"); err != nil {
+		if err := r.Audit.Record(ctx, t, &membershipID, "user.registered"); err != nil {
 			return err
 		}
 
@@ -127,7 +105,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*RegisterOutp
 		return nil, fmt.Errorf("auth: register: %w", txErr)
 	}
 
-	s.sendVerificationEmail(ctx, createdUser.Email, rawToken)
+	u.sendVerificationEmail(ctx, createdUser.Email, rawToken)
 
 	return &RegisterOutput{UserID: createdUser.ID, OrganizationID: orgID}, nil
 }
@@ -137,16 +115,11 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*RegisterOutp
 // (httpx.ErrNotFound) and are translated to the same invalid_token
 // response here — a client can't use response differences to enumerate
 // which case applies.
-func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
+func (u *Usecase) VerifyEmail(ctx context.Context, rawToken string) error {
 	hash := token.Hash(rawToken)
 
-	return db.InTx(ctx, s.pool, func(tx pgx.Tx) error {
-		verifyRepo := newVerificationRepository(tx)
-		userRepo := user.New(tx)
-		membershipRepo := membership.New(tx)
-		auditRepo := auditlog.New(tx)
-
-		vt, err := verifyRepo.FindValidByHash(ctx, hash)
+	return u.store.InTx(ctx, func(r Repos) error {
+		vt, err := r.Verify.FindValidByHash(ctx, hash)
 		if err != nil {
 			if errors.Is(err, httpx.ErrNotFound) {
 				return invalidTokenError()
@@ -154,10 +127,10 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
 			return err
 		}
 
-		if err := verifyRepo.MarkUsed(ctx, vt.ID); err != nil {
+		if err := r.Verify.MarkUsed(ctx, vt.ID); err != nil {
 			return err
 		}
-		if err := userRepo.MarkEmailVerified(ctx, vt.UserID); err != nil {
+		if err := r.User.MarkEmailVerified(ctx, vt.UserID); err != nil {
 			return err
 		}
 
@@ -165,14 +138,14 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
 		// logging needs an organization to attach to. This assumption
 		// holds through Phase 1; revisit once #11 makes multi-org
 		// membership common at verification time.
-		memberships, err := membershipRepo.FindActiveByUserID(ctx, vt.UserID)
+		memberships, err := r.Member.FindActiveByUserID(ctx, vt.UserID)
 		if err != nil {
 			return err
 		}
 		if len(memberships) > 0 {
 			m := memberships[0]
 			t := tenant.Context{OrganizationID: m.OrganizationID, PrincipalType: tenant.PrincipalUser}
-			if err := auditRepo.Record(ctx, t, &m.ID, "email.verified"); err != nil {
+			if err := r.Audit.Record(ctx, t, &m.ID, "email.verified"); err != nil {
 				return err
 			}
 		}
@@ -185,33 +158,35 @@ func (s *Service) VerifyEmail(ctx context.Context, rawToken string) error {
 // email exists or is already verified — anti-enumeration (Rule: TD §6.3).
 // An email is only actually sent when there's a real, unverified account
 // to send it to.
-func (s *Service) ResendVerification(ctx context.Context, email string) {
-	u, err := user.New(s.pool).FindByEmail(ctx, email)
+func (u *Usecase) ResendVerification(ctx context.Context, email string) {
+	repos := u.store.Repos()
+
+	usr, err := repos.User.FindByEmail(ctx, email)
 	if err != nil {
 		return // unknown email — silently do nothing, still 202 to caller
 	}
-	if u.EmailVerifiedAt != nil {
+	if usr.EmailVerifiedAt != nil {
 		return // already verified — nothing to resend
 	}
 
 	rawToken, tokenHash, err := token.Generate()
 	if err != nil {
-		s.logger.Error("failed to generate resend verification token", "err", err, "user_id", u.ID)
+		u.logger.Error("failed to generate resend verification token", "err", err, "user_id", usr.ID)
 		return
 	}
 
 	verificationID := uuid.Must(uuid.NewV7())
-	if err := newVerificationRepository(s.pool).Create(ctx, verificationID, u.ID, tokenHash); err != nil {
-		s.logger.Error("failed to store resend verification token", "err", err, "user_id", u.ID)
+	if err := repos.Verify.Create(ctx, verificationID, usr.ID, tokenHash); err != nil {
+		u.logger.Error("failed to store resend verification token", "err", err, "user_id", usr.ID)
 		return
 	}
 
-	s.sendVerificationEmail(ctx, u.Email, rawToken)
+	u.sendVerificationEmail(ctx, usr.Email, rawToken)
 }
 
-func (s *Service) sendVerificationEmail(ctx context.Context, email, rawToken string) {
-	link := fmt.Sprintf("%s/verify-email?token=%s", s.baseURL, rawToken)
-	err := s.mailer.Send(ctx, mailer.Message{
+func (u *Usecase) sendVerificationEmail(ctx context.Context, email, rawToken string) {
+	link := fmt.Sprintf("%s/verify-email?token=%s", u.baseURL, rawToken)
+	err := u.mailer.Send(ctx, mailer.Message{
 		To:      email,
 		Subject: "Verifikasi email Jualin CRM Anda",
 		Body:    fmt.Sprintf("Klik tautan berikut untuk memverifikasi email Anda: %s\n\nTautan berlaku 24 jam.", link),
@@ -219,7 +194,7 @@ func (s *Service) sendVerificationEmail(ctx context.Context, email, rawToken str
 	if err != nil {
 		// Rule #32: send failure never rolls back work that already
 		// committed. Logged structurally so it's visible, not silent.
-		s.logger.Error("failed to send verification email", "err", err, "to", email)
+		u.logger.Error("failed to send verification email", "err", err, "to", email)
 	}
 }
 
