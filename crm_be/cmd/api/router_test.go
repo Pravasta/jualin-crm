@@ -19,7 +19,11 @@ func testLogger() *slog.Logger {
 }
 
 func TestHealth_ReturnsOK(t *testing.T) {
-	r := newRouter(testLogger())
+	// nil pool is safe here: none of these tests hit /health/ready, and
+	// newRouter only closes over the pool — it never dereferences it at
+	// build time. /health/ready's DB-down path needs a real database and
+	// is covered by the testcontainers harness in issue #3.
+	r := newRouter(testLogger(), nil)
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 
@@ -43,7 +47,11 @@ func TestHealth_ReturnsOK(t *testing.T) {
 }
 
 func TestUnknownRoute_Returns404WithErrorEnvelope(t *testing.T) {
-	r := newRouter(testLogger())
+	// nil pool is safe here: none of these tests hit /health/ready, and
+	// newRouter only closes over the pool — it never dereferences it at
+	// build time. /health/ready's DB-down path needs a real database and
+	// is covered by the testcontainers harness in issue #3.
+	r := newRouter(testLogger(), nil)
 	req := httptest.NewRequest(http.MethodGet, "/this-does-not-exist", nil)
 	w := httptest.NewRecorder()
 
@@ -67,7 +75,11 @@ func TestUnknownRoute_Returns404WithErrorEnvelope(t *testing.T) {
 }
 
 func TestWrongMethod_Returns405(t *testing.T) {
-	r := newRouter(testLogger())
+	// nil pool is safe here: none of these tests hit /health/ready, and
+	// newRouter only closes over the pool — it never dereferences it at
+	// build time. /health/ready's DB-down path needs a real database and
+	// is covered by the testcontainers harness in issue #3.
+	r := newRouter(testLogger(), nil)
 	req := httptest.NewRequest(http.MethodPost, "/health", nil)
 	w := httptest.NewRecorder()
 

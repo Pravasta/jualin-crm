@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: jualin
+      POSTGRES_PASSWORD: jualin
+      POSTGRES_DB: jualin_crm
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jualin -d jualin_crm"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  api:
+    build:
+      context: ./crm_be
+    # Defaults match .env.example so `docker compose up` works on a fresh
+    # clone with zero setup. Override any of these with a local .env file
+    # if needed — env_file is intentionally NOT used here so a missing
+    # .env never breaks `docker compose up`.
+    environment:
+      APP_ENV: development
+      HTTP_PORT: 8080
+      DATABASE_URL: postgres://jualin:jualin@postgres:5432/jualin_crm?sslmode=disable
+      DB_MAX_CONNS: 10
+      LOG_LEVEL: debug
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

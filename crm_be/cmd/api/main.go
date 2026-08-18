@@ -13,11 +13,15 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/config"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/logger"
 )
+
+const readyPingTimeout = 2 * time.Second
 
 func main() {
 	cfg, err := config.Load()
@@ -30,7 +34,20 @@ func main() {
 
 	log := logger.New(cfg)
 
-	router := newRouter(log)
+	ctx := context.Background()
+	pool, err := db.New(ctx, cfg)
+	if err != nil {
+		// Fail fast, consistent with config validation: an unreachable
+		// database at boot should stop deployment immediately rather than
+		// surface as a wall of failed requests. docker-compose's
+		// depends_on: service_healthy keeps this from firing in normal
+		// `docker compose up`.
+		log.Error("failed to connect to database", "err", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+
+	router := newRouter(log, pool)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
@@ -50,7 +67,7 @@ func main() {
 	waitForShutdown(srv, log, cfg.HTTPShutdownTimeout)
 }
 
-func newRouter(log *slog.Logger) *gin.Engine {
+func newRouter(log *slog.Logger, pool *pgxpool.Pool) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.HandleMethodNotAllowed = true
@@ -67,8 +84,25 @@ func newRouter(log *slog.Logger) *gin.Engine {
 	// Health is deliberately unversioned (no /v1 prefix) — it is
 	// infrastructure consumed by orchestrators, not a product API
 	// endpoint. See docs/architecture/api.md.
+	//
+	// /health checks liveness only — it must never touch the database, or
+	// a slow/dead DB would make the orchestrator kill a process that is
+	// otherwise fine to keep running.
 	r.GET("/health", func(c *gin.Context) {
 		httpx.OK(c, http.StatusOK, gin.H{"status": "ok", "version": "dev"})
+	})
+
+	// /health/ready checks readiness by pinging the database on every
+	// call — it reflects current connectivity, not just boot-time state,
+	// so it correctly reports 503 if postgres goes down after a
+	// successful start.
+	r.GET("/health/ready", func(c *gin.Context) {
+		if err := db.Ping(c.Request.Context(), pool, readyPingTimeout); err != nil {
+			httpx.Logger(c).Warn("readiness check failed", "err", err)
+			c.JSON(http.StatusServiceUnavailable, gin.H{"data": gin.H{"status": "degraded", "database": "unreachable"}})
+			return
+		}
+		httpx.OK(c, http.StatusOK, gin.H{"status": "ok", "database": "reachable"})
 	})
 
 	return r
