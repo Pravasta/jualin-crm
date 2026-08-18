@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/config"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 )
 
@@ -18,12 +19,23 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// testConfig returns a minimal config sufficient for newRouter — no
+// DATABASE_URL is set because these router-level tests never touch the
+// database directly.
+func testConfig() *config.Config {
+	return &config.Config{
+		AppEnv:       "development",
+		MailProvider: "log",
+		AppBaseURL:   "http://localhost:3000",
+	}
+}
+
 func TestHealth_ReturnsOK(t *testing.T) {
 	// nil pool is safe here: none of these tests hit /health/ready, and
 	// newRouter only closes over the pool — it never dereferences it at
 	// build time. /health/ready's DB-down path needs a real database and
 	// is covered by the testcontainers harness in issue #3.
-	r := newRouter(testLogger(), nil)
+	r := newRouter(testLogger(), nil, testConfig())
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 
@@ -51,7 +63,7 @@ func TestUnknownRoute_Returns404WithErrorEnvelope(t *testing.T) {
 	// newRouter only closes over the pool — it never dereferences it at
 	// build time. /health/ready's DB-down path needs a real database and
 	// is covered by the testcontainers harness in issue #3.
-	r := newRouter(testLogger(), nil)
+	r := newRouter(testLogger(), nil, testConfig())
 	req := httptest.NewRequest(http.MethodGet, "/this-does-not-exist", nil)
 	w := httptest.NewRecorder()
 
@@ -79,7 +91,7 @@ func TestWrongMethod_Returns405(t *testing.T) {
 	// newRouter only closes over the pool — it never dereferences it at
 	// build time. /health/ready's DB-down path needs a real database and
 	// is covered by the testcontainers harness in issue #3.
-	r := newRouter(testLogger(), nil)
+	r := newRouter(testLogger(), nil, testConfig())
 	req := httptest.NewRequest(http.MethodPost, "/health", nil)
 	w := httptest.NewRecorder()
 

@@ -15,10 +15,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Pravasta/jualin-crm/crm_be/internal/auth"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/config"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/logger"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/mailer"
 )
 
 const readyPingTimeout = 2 * time.Second
@@ -47,7 +49,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	router := newRouter(log, pool)
+	router := newRouter(log, pool, cfg)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
@@ -67,12 +69,16 @@ func main() {
 	waitForShutdown(srv, log, cfg.HTTPShutdownTimeout)
 }
 
-func newRouter(log *slog.Logger, pool *pgxpool.Pool) *gin.Engine {
+func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.HandleMethodNotAllowed = true
 
 	r.Use(httpx.RequestID(), httpx.Logging(log), httpx.Recovery(log))
+
+	mail := newMailer(cfg, log)
+	authService := auth.NewService(pool, mail, log, cfg.AppBaseURL)
+	auth.NewHandler(authService).RegisterRoutes(r)
 
 	r.NoRoute(func(c *gin.Context) {
 		httpx.RespondError(c, http.StatusNotFound, "not_found", "Route tidak ditemukan.")
@@ -106,6 +112,19 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool) *gin.Engine {
 	})
 
 	return r
+}
+
+// newMailer picks the mailer implementation for cfg.MailProvider.
+// "log" (LogMailer) is the only option today — config.validate rejects
+// any other value, so the default case here is unreachable, not a
+// silent fallback.
+func newMailer(cfg *config.Config, log *slog.Logger) mailer.Mailer {
+	switch cfg.MailProvider {
+	case "log":
+		return mailer.NewLogMailer(log)
+	default:
+		panic(fmt.Sprintf("unreachable: unknown MAIL_PROVIDER %q passed config validation", cfg.MailProvider))
+	}
 }
 
 func waitForShutdown(srv *http.Server, log *slog.Logger, timeout time.Duration) {

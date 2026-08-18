@@ -47,6 +47,27 @@ func NewValidationError(details ...ErrorDetail) *ValidationError {
 	return &ValidationError{Details: details}
 }
 
+// DomainError lets any domain package produce a specific status/code/
+// message without internal/shared/httpx needing to import that domain
+// package — importing domain packages here would invert the dependency
+// direction every other shared package follows. A domain constructs
+// &httpx.DomainError{...} and returns it; MapError recognizes the type
+// generically via errors.As.
+//
+// This is the extension point referenced throughout
+// .claude/skills/jualin-backend: "tambahkan sentinel baru + case di
+// MapError saat domain butuh kode error baru" — for a one-off status/code
+// pair, constructing a DomainError directly is enough; only reach for a
+// dedicated sentinel + MapError case when multiple call sites need to
+// recognize the same error via errors.Is/errors.As.
+type DomainError struct {
+	Status  int
+	Code    string
+	Message string
+}
+
+func (e *DomainError) Error() string { return e.Message }
+
 // MapError translates a domain error into an HTTP status and response body.
 //
 // Resources belonging to another tenant must be returned as ErrNotFound
@@ -54,6 +75,7 @@ func NewValidationError(details ...ErrorDetail) *ValidationError {
 // itself an information leak (Rule #6).
 func MapError(err error) (int, ErrorBody) {
 	var verr *ValidationError
+	var derr *DomainError
 	switch {
 	case errors.As(err, &verr):
 		return http.StatusBadRequest, ErrorBody{
@@ -61,6 +83,8 @@ func MapError(err error) (int, ErrorBody) {
 			Message: "Permintaan tidak valid.",
 			Details: verr.Details,
 		}
+	case errors.As(err, &derr):
+		return derr.Status, ErrorBody{Code: derr.Code, Message: derr.Message}
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound, ErrorBody{
 			Code:    "not_found",

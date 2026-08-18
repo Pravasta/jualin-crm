@@ -14,7 +14,7 @@ import (
 func TestHealthReady_ReturnsOK_WhenDatabaseReachable(t *testing.T) {
 	pool := dbtest.NewPool(t)
 
-	r := newRouter(testLogger(), pool)
+	r := newRouter(testLogger(), pool, testConfig())
 	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	w := httptest.NewRecorder()
 
@@ -47,7 +47,7 @@ func TestHealthReady_Returns503_WhenDatabaseUnreachable(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	r := newRouter(testLogger(), pool)
+	r := newRouter(testLogger(), pool, testConfig())
 	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	w := httptest.NewRecorder()
 
@@ -80,7 +80,7 @@ func TestHealth_UnaffectedByDatabaseState(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 
-	r := newRouter(testLogger(), pool)
+	r := newRouter(testLogger(), pool, testConfig())
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 
