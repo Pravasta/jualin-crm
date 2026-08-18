@@ -80,6 +80,7 @@ Tidak ada penyimpangan pada bentuk `db.InTx`, struktur Dockerfile, atau perilaku
 ### Keputusan implementasi
 
 - **Boot gagal keras bila database tidak terjangkau saat startup** (`db.New` melakukan `Ping` dengan timeout 5 detik; gagal → `os.Exit(1)`). Konsisten dengan kegagalan validasi config — infrastruktur yang tidak lengkap dihentikan saat deploy, bukan menyurfa sebagai request yang gagal satu-satu. `docker-compose`'s `depends_on: condition: service_healthy` mencegah ini terpicu pada `docker compose up` normal.
+  **✅ Dikonfirmasi** oleh pemilik produk saat review PR #6, dan digeneralisasi sebagai prinsip startup — bukan hanya untuk PostgreSQL. Dicatat sebagai [ADR-010](../../decisions/ADR-010-fail-fast-startup.md) dan Aturan #36 di `CLAUDE.md`.
 - **Setelah boot berhasil, `/health/ready` independen dari state boot** — ia melakukan `Ping` baru di **setiap** request, sehingga benar-benar mencerminkan konektivitas saat itu. Diverifikasi: mematikan Postgres setelah API berjalan membuat `/health/ready` melapor 503 sementara `/health` tetap 200 (tidak menyentuh DB sama sekali), dan `/health/ready` **pulih otomatis ke 200** begitu Postgres hidup lagi — tanpa restart aplikasi. `pgxpool` menangani reconnect secara transparan.
 - **`db.InTx` adalah satu-satunya jalan masuk ke transaksi**, sesuai TD — tidak ada cara lain untuk mendapatkan `pgx.Tx` di luar closure ini.
 
@@ -122,3 +123,51 @@ Semua sesuai acceptance criteria di `issue #2`.
 - `internal/shared/db.New` dan `db.Ping` adalah API publik paket ini. Repository Phase 1 akan menerima `*pgxpool.Pool` (via DI dari `main.go`), bukan membuat pool sendiri.
 - Pola composite FK (freeze lapis 2) belum relevan sampai ada tabel tenant-scoped pertama di `0002_identity` (Phase 1) — `0001_baseline` sengaja tidak menyentuhnya.
 - Bila RLS (freeze lapis 3, ditunda) suatu saat diaktifkan, `db.InTx` adalah **satu-satunya** titik untuk menyisipkan `SET LOCAL app.current_org_id` — jangan buat jalur transaksi kedua.
+
+---
+
+## #3 — Test harness terhadap PostgreSQL asli
+
+### Menyimpang dari TD
+
+| Yang berbeda | Alasan |
+|---|---|
+| `internal/shared/db/dbtest` sebagai **subpaket terpisah**, bukan berkas `testdb.go` di paket `db` | **Kesalahan yang dikoreksi di tengah implementasi, bukan keputusan awal.** Percobaan pertama menaruh helper testcontainers langsung sebagai berkas non-`_test.go` di paket `db` — karena `cmd/api` mengimpor `internal/shared/db`, itu akan menyeret `testcontainers-go` dan seluruh Docker client library ke **binary produksi**. Dipindah ke subpaket `dbtest` yang hanya diimpor oleh berkas `_test.go` di seluruh repo. Diverifikasi: `go list -deps ./cmd/api \| grep -i testcontainers` → kosong. |
+| `TestMigrationRoundTrip` membuka koneksi `database/sql` sendiri, bukan lewat `dbtest.NewPool` | `NewPool` men-truncate tabel tapi mengasumsikan schema sudah ter-migrasi (dipakai bersama oleh test lain di container yang sama). Test ini justru perlu menjalankan `down` lalu `up` lagi — kalau memakai pool bersama yang sama, ia akan merusak state migration untuk test lain yang berjalan setelahnya (sequential, tapi berbagi satu container per paket). Koneksi terpisah + restore eksplisit ke `up` di akhir test menjaga container tetap konsisten untuk test berikutnya. |
+| `CREATE TABLE IF NOT EXISTS _intx_test` (bukan `CREATE TABLE`) di `db_test.go` | Ditemukan saat run pertama: `dbtest.NewPool` men-truncate tabel yang sudah ada (bukan drop), sehingga test kedua yang mencoba `CREATE TABLE` tanpa `IF NOT EXISTS` gagal dengan "relation already exists". |
+
+### Keputusan implementasi
+
+- **Satu container per paket test** (bukan per test individual) — `dbtest.ConnString` memakai `sync.Once` per-proses. `cmd/api` dan `internal/shared/db` masing-masing punya test binary sendiri, sehingga **masing-masing menjalankan container Postgres-nya sendiri** (tidak saling berbagi lintas paket). Diverifikasi: dua container berbeda muncul di log saat `go test ./...` dijalankan, keduanya start paralel (~12 detik cold start, berjalan bersamaan, bukan berurutan).
+- **Migration dijalankan sekali per proses** (`sync.Once` terpisah dari container startup), `NewPool` hanya men-truncate. Karena `0001_baseline` belum punya tabel domain, truncate saat ini efektif no-op — `truncateAll` menangani kasus "tidak ada tabel" dengan aman (query mengembalikan `NULL`, fungsi return lebih awal) sehingga tidak error saat dipanggil pada database yang baru saja di-migrate tanpa tabel domain.
+- **Test `/health/ready` yang gagal** memakai pool ke `127.0.0.1:1` (port tertutup, `connect_timeout=1`) — bukan mematikan container asli. Lebih cepat (tidak ada I/O container) dan tidak mengganggu container yang dipakai test lain di paket yang sama.
+- **`t.Context()`** (Go 1.24+) dipakai untuk pool yang sengaja gagal connect — otomatis di-cancel saat test selesai, tanpa perlu `context.Background()` + cleanup manual.
+
+### Verifikasi
+
+```
+go test -race ./...                    → semua paket PASS
+go test -race -count=1 ./... (2×)      → konsisten PASS, tidak ada state leakage antar-run
+go list -deps ./cmd/api | grep docker  → kosong (binary produksi bersih dari testcontainers)
+go list -deps ./cmd/migrate | grep docker → kosong
+```
+
+Tiga hal yang tadinya diverifikasi manual di issue #1 dan #2 sekarang otomatis:
+
+| Sebelumnya manual (issue) | Sekarang otomatis |
+|---|---|
+| `db.InTx` commit / rollback-on-error / rollback-on-panic (#2) | `TestInTx_CommitsOnSuccess`, `TestInTx_RollsBackOnError`, `TestInTx_RollsBackOnPanic` |
+| Migration round-trip up/down (#2) | `TestMigrationRoundTrip` |
+| `/health/ready` 200 vs 503 (#2) | `TestHealthReady_ReturnsOK_WhenDatabaseReachable`, `TestHealthReady_Returns503_WhenDatabaseUnreachable` |
+
+Graceful shutdown (issue #1) **tetap manual** — sesuai catatan di bagian #1, `go run` tidak meneruskan sinyal OS ke child process sehingga tidak bisa diuji lewat `go test` tanpa membangun binary sungguhan di dalam test, yang di luar cakupan issue #3.
+
+### Utang teknis
+
+- Tidak ada. Kedua item utang teknis dari issue #2 (test `db.InTx` dan migration round-trip) selesai di sini.
+
+### Catatan untuk session berikutnya
+
+- **Pola `dbtest.NewPool(t)` dipakai ulang di Phase 1+** untuk test repository tenant-scoped. Saat tabel domain pertama (`organizations`, dst.) muncul di `0002_identity`, `truncateAll` otomatis mencakupnya tanpa perubahan — ia men-truncate seluruh tabel `public` kecuali `goose_db_version`.
+- **Harness isolasi tenant (freeze lapis 4) belum dibangun di sini** — itu baru bisa ditulis begitu ada tabel `organizations` + endpoint tenant-scoped pertama (Phase 1). `dbtest` menyediakan fondasinya (Postgres asli, migration otomatis), tapi loop generik "untuk setiap route tenant-scoped, tembak dengan kredensial tenant lain, harap 404" adalah pekerjaan Phase 1.
+- Bila jumlah paket yang butuh `dbtest` bertambah banyak dan waktu CI mulai terasa (masing-masing paket start container sendiri), pertimbangkan `TestMain` bersama di level lebih tinggi atau `testcontainers-go`'s reuse-by-label. Belum perlu sekarang — total waktu test masih di bawah 15 detik.
