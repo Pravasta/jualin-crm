@@ -31,10 +31,11 @@ crm_be/                 ← module github.com/Pravasta/jualin-crm/crm_be
 
   internal/
     <domain>/           satu paket per domain: auth, organization, membership, lead, ...
-      handler.go        HTTP: parsing, validasi bentuk, serialisasi
-      service.go        business logic, otorisasi, orkestrasi transaksi
-      repository.go     akses database — SELALU tenant-scoped
-      model.go          struct domain
+      entity.go               tipe domain — tanpa dependensi infrastruktur
+      port.go                 interface consumer + Repos + Store (Unit of Work)
+      usecase.go               business logic, otorisasi — hanya bergantung pada port.go
+      repository_postgres.go  implementasi PostgreSQL — SELALU tenant-scoped
+      handler_http.go          gin: parsing, validasi bentuk, serialisasi
 
     shared/
       tenant/           TenantContext
@@ -55,25 +56,41 @@ Folder sejajar `crm_dashboard/` (Next.js), `crm_landing_page/` (Next.js), dan `c
 
 ---
 
-## Layering
+## Layering (ADR-011)
 
 ```
-Handler → Service → Repository → PostgreSQL
+Handler → Usecase → Repository (interface) → Repository (implementasi) → PostgreSQL
 ```
 
-| Lapis | Boleh | Tidak boleh |
-|---|---|---|
-| Handler | Parsing, validasi bentuk, panggil service, serialisasi | Memanggil repository · business logic · query SQL |
-| Service | Business logic, otorisasi, transaksi, panggil repository | Menyentuh `*gin.Context` · menentukan HTTP status |
-| Repository | Query SQL, mapping ke struct | Business logic · otorisasi |
+| Lapis | Berkas | Boleh | Tidak boleh |
+|---|---|---|---|
+| Entity | `entity.go` | Tipe domain murni | Import `pgx`, `gin`, atau apapun infrastruktur |
+| Port | `port.go` | Interface repository yang dibutuhkan **usecase paket ini**, `Repos`, `Store` | Implementasi apapun |
+| Usecase | `usecase.go` | Business logic, otorisasi, memanggil `store.InTx` | Menyentuh `*gin.Context` · menentukan HTTP status · import `pgx` |
+| Repository | `repository_postgres.go` | Query SQL, mapping ke struct, implementasi interface di `port.go` | Business logic · otorisasi |
+| Handler | `handler_http.go` | Parsing, validasi bentuk, panggil usecase, serialisasi | Memanggil repository langsung · business logic |
 
-**Interface didefinisikan di sisi consumer.** Service mendefinisikan interface repository yang dibutuhkannya — bukan paket `interfaces/` terpusat.
+**Interface didefinisikan di sisi consumer** (Aturan #11) — ditegakkan secara harfiah, bukan sekadar dinyatakan:
+
+```go
+// internal/auth/port.go — auth MENDEFINISIKAN apa yang ia butuhkan dari user
+type UserRepository interface {
+    Create(ctx context.Context, id uuid.UUID, email, passwordHash, fullName string) (*user.User, error)
+    FindByEmail(ctx context.Context, email string) (*user.User, error)
+    // HANYA method yang benar-benar dipakai usecase.go — bukan cermin
+    // seluruh internal/user.Repository.
+}
+```
+
+`*user.Repository` (paket lain) memenuhi interface ini lewat **interface implisit Go** — `internal/user` tidak perlu tahu, apalagi mengimpor, `internal/auth`. Arah dependensi selalu dari domain yang butuh → interface miliknya sendiri, tidak pernah sebaliknya.
+
+**Bukan folder-per-lapis.** `domain/`, `usecase/`, `adapter/` di level `internal/` — ditolak. Package-by-feature tetap: satu fitur, satu folder. Alasan lengkap: [ADR-011](../../../docs/decisions/ADR-011-layered-packages-and-unit-of-work.md).
 
 ---
 
 ## Repository tenant-scoped — pola wajib
 
-`TenantContext` **selalu** parameter kedua (setelah `ctx`), dan `organization_id` di-inject **di dalam**, tidak pernah diserahkan ke caller.
+Interface-nya di `port.go` milik consumer (lihat Layering di atas); implementasinya di `repository_postgres.go`. `TenantContext` **selalu** parameter kedua (setelah `ctx`), dan `organization_id` di-inject **di dalam**, tidak pernah diserahkan ke caller.
 
 ```go
 func (r *LeadRepository) FindByID(
@@ -168,29 +185,72 @@ CREATE TRIGGER trg_leads_updated_at BEFORE UPDATE ON leads
 
 ---
 
-## Transaksi
+## Transaksi — Unit of Work (ADR-011)
 
-**Aturan #32: efek samping eksternal tidak pernah di dalam transaksi.**
+Usecase **tidak pernah** menyentuh `pgx.Tx` atau `db.InTx` langsung. Transaksi lintas repository lewat `Store.InTx`, yang dideklarasikan di `port.go` domain itu sendiri:
 
 ```go
-// ✅ BENAR
-err := db.InTx(ctx, func(tx db.Tx) error {
-    user, err := userRepo.Create(ctx, tx, ...)
-    org, err := orgRepo.Create(ctx, tx, ...)
-    membership, err := membershipRepo.Create(ctx, tx, ...)
-    subscription, err := subRepo.CreateFree(ctx, tx, ...)
-    return err
-})
-if err != nil { return err }
+// internal/auth/port.go
+type Repos struct {
+    User   UserRepository
+    Org    OrganizationRepository
+    Member MembershipRepository
+    Sub    SubscriptionRepository
+}
 
-// Email dikirim SETELAH commit
-if err := mailer.SendVerification(ctx, user); err != nil {
-    logger.Error("gagal kirim email verifikasi", "user_id", user.ID, "err", err)
-    // TIDAK membatalkan registrasi yang sudah commit
+type Store interface {
+    InTx(ctx context.Context, fn func(Repos) error) error
+    Repos() Repos // non-transactional, untuk operasi baca tunggal
 }
 ```
 
+```go
+// internal/auth/usecase.go
+func (u *Usecase) Register(ctx context.Context, in RegisterInput) (*RegisterOutput, error) {
+    var created *user.User
+
+    err := u.store.InTx(ctx, func(r Repos) error {
+        org, err := r.Org.Create(ctx, ...)
+        if err != nil { return err }
+        created, err = r.User.Create(ctx, ...)
+        if err != nil { return err }
+        if _, err := r.Member.Create(ctx, ...); err != nil { return err }
+        if _, err := r.Sub.CreateFree(ctx, ...); err != nil { return err }
+        return nil
+    })
+    if err != nil { return nil, err }
+
+    // Email dikirim SETELAH commit (Aturan #32) — TIDAK membatalkan
+    // registrasi yang sudah commit bila gagal.
+    if err := u.mailer.Send(ctx, ...); err != nil {
+        u.logger.Error("gagal kirim email verifikasi", "user_id", created.ID, "err", err)
+    }
+    return &RegisterOutput{...}, nil
+}
+```
+
+**`Repos`/`Store` didefinisikan per-domain, tidak pernah di `internal/shared/db`** — kalau di sana, `shared/db` harus mengimpor tipe domain, membalik arah dependensi. `internal/shared/db.InTx` tetap ada sebagai primitif tingkat rendah; implementasi `Store` di composition root cukup membungkusnya.
+
 Setiap alur yang bergantung pada email wajib punya jalur pemulihan mandiri (kirim ulang).
+
+### Unit test dengan fake `Store` — tanpa Docker
+
+Ini manfaat utama pola ini: business logic yang tidak menyentuh string SQL bisa diuji tanpa testcontainers.
+
+```go
+type fakeStore struct{ repos Repos }
+
+func (f *fakeStore) InTx(_ context.Context, fn func(Repos) error) error { return fn(f.repos) }
+func (f *fakeStore) Repos() Repos                                       { return f.repos }
+
+func TestRegister_WeakPassword_Rejected(t *testing.T) {
+    u := NewUsecase(&fakeStore{}, &fakeMailer{}, testLogger(), "http://localhost")
+    _, err := u.Register(ctx, RegisterInput{Password: "short"})
+    // ... tidak butuh database sama sekali
+}
+```
+
+Test yang **benar-benar** menyentuh SQL (repository, migration, isolasi tenant) tetap wajib PostgreSQL asli via `dbtest` — fake hanya untuk business logic yang murni.
 
 ---
 
@@ -266,7 +326,7 @@ logger.Info("lead created",
 
 | Jenis | Cara |
 |---|---|
-| Business logic | Unit test murni di service |
+| Business logic (usecase) | Unit test dengan **fake `Store`** — tanpa Docker |
 | Repository | **PostgreSQL asli** via testcontainers — bukan mock |
 | Endpoint | Test HTTP untuk jalur penting |
 | Otorisasi | Setiap role × setiap operasi |
@@ -308,10 +368,12 @@ Bahasa: **kode dan kolom dalam Inggris**, dokumentasi dan komunikasi dalam Indon
 
 - [ ] Test isolasi tenant untuk endpoint baru
 - [ ] Otorisasi diuji per role
+- [ ] Unit test usecase dengan fake `Store` — lolos tanpa Docker
 - [ ] Migration punya `down` yang bekerja
 - [ ] Composite FK terpasang pada setiap FK antar entity bisnis
 - [ ] Tidak ada `organization_id` di DTO manapun
 - [ ] Tidak ada efek samping eksternal di dalam transaksi
+- [ ] Usecase tidak mengimpor `pgx` langsung
 - [ ] Error termapping ke `code` yang stabil
 - [ ] `docs/STATUS.md` diperbarui
-- [ ] `docs/features/<feature>/notes.md` ditulis
+- [ ] `docs/phases/<NN>-<slug>/notes.md` ditulis

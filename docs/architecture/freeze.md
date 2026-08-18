@@ -626,12 +626,14 @@ Setiap aturan ditulis agar bisa diperiksa — bila sebuah aturan tidak bisa dive
 
 ## Layering
 
+> ⚠️ **Aturan #8 direvisi oleh [ADR-011](../decisions/ADR-011-layered-packages-and-unit-of-work.md).** Aturan #9–#11 tidak berubah — #11 sebelumnya dinyatakan tapi tidak ditegakkan; ADR-011 menegakkannya secara harfiah.
+
 | # | Aturan |
 |---|---|
-| 8 | `Handler → Service → Repository → PostgreSQL`. Handler **tidak boleh** memanggil repository. |
-| 9 | Repository tidak berisi business logic. Service tidak tahu tentang HTTP. |
-| 10 | Otorisasi ditegakkan di **service layer**. UI yang menyembunyikan tombol bukan otorisasi. |
-| 11 | Interface didefinisikan di sisi consumer, bukan di paket `interfaces/` terpusat. |
+| 8 | `Handler → Usecase → Repository (interface) → Repository (implementasi) → PostgreSQL`. Setiap paket domain mendeklarasikan lapisnya lewat penamaan berkas: `entity.go`, `port.go`, `usecase.go`, `repository_postgres.go`, `handler_http.go`. Handler **tidak boleh** memanggil repository langsung. **Bukan** folder-per-lapis (`domain/`, `usecase/`, `adapter/` di level `internal/`) — package-by-feature tetap dipertahankan; lihat ADR-011 untuk alasan penolakannya. |
+| 9 | Repository tidak berisi business logic. Usecase tidak tahu tentang HTTP. |
+| 10 | Otorisasi ditegakkan di **usecase**. UI yang menyembunyikan tombol bukan otorisasi. |
+| 11 | Interface didefinisikan di sisi consumer (`port.go` milik paket yang memakainya), memuat hanya method yang benar-benar dipakai — bukan cermin seluruh repository, bukan paket `interfaces/` terpusat. Transaksi lintas repository lewat pola Unit of Work (`Store.InTx`) — lihat ADR-011. |
 
 ## Data
 
