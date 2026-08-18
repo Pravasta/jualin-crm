@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 18 Agustus 2026 — PRD & TD Phase 1 ditulis
-**Phase sekarang:** Phase 1 — Auth & Organization (PRD/TD selesai, implementasi belum mulai)
+**Last updated:** 18 Agustus 2026 — Issue #8 selesai
+**Phase sekarang:** Phase 1 — Auth & Organization (1/4 issue selesai)
 
 ---
 
@@ -23,6 +23,7 @@
 | **Issue #2 — Database, Docker Compose, migration** | — | 0 | `db.InTx`, `cmd/migrate` (goose), `0001_baseline`, Dockerfile + `docker-compose.yml` di akar, `/health/ready`. Diverifikasi end-to-end: `docker compose up` tanpa langkah manual, migration up/down bersih, `/health/ready` degradasi & pulih otomatis saat DB mati/hidup. |
 | **ADR-010 — Fail-fast startup** | — | — | Muncul dari review PR #6, dikonfirmasi pemilik produk sebagai prinsip umum (bukan hanya DB). Aturan #36 di `CLAUDE.md`. |
 | **Issue #3 — Test harness PostgreSQL asli** | — | 0 | `internal/shared/db/dbtest` (subpaket terpisah dari `db` produksi — testcontainers tidak ikut ter-link ke binary). Mengotomasi `db.InTx`, migration round-trip, `/health/ready` yang tadinya manual. **Phase 0 selesai.** |
+| **Issue #8 — Schema 0002, tenant context, pola repository, test katalog** | — | 1 | 9 tabel identity, `internal/shared/tenant`, `db.Querier`, `internal/membership` + `internal/user` sebagai contoh repository tenant-scoped/global. Test katalog **diverifikasi bisa gagal** secara adversarial (lihat notes.md). |
 
 ---
 
@@ -34,13 +35,11 @@ _(kosong)_
 
 ## Berikutnya
 
-**Issue #8 — Schema 0002, tenant context, pola repository, test katalog**
+**Issue #9 — Registrasi atomik, argon2id, dan verifikasi email**
 
-PRD & TD Phase 1 sudah ditulis, issue #8–#11 sudah dibuat. Setelah PR PRD/TD di-merge, pengerjaan dimulai dari #8.
-
-- Cakupan & acceptance: [issue #8](https://github.com/Pravasta/jualin-crm/issues/8)
-- TD: `docs/phases/01-auth-organization/td.md` §1, §7, §8, §14
-- Urutan: #8 → #9 → #10 → #11 (berurutan, tidak bisa diparalelkan)
+- Cakupan & acceptance: [issue #9](https://github.com/Pravasta/jualin-crm/issues/9)
+- TD: `docs/phases/01-auth-organization/td.md` §2, §3, §6, §10, §11, §12
+- Bergantung pada #8 (selesai). Urutan sisanya: #9 → #10 → #11.
 
 ---
 
