@@ -86,6 +86,10 @@ Ringkasan. Lengkapnya — 35 aturan — di `docs/architecture/freeze.md` bagian 
 34. Endpoint pengirim email wajib rate-limited **per alamat email dan per IP**
 35. `leads` & `tasks` memakai optimistic locking (`version`) — konflik → **409**, jangan menimpa
 
+### Startup (ADR-010)
+
+36. **Fail-fast.** Kegagalan dependensi wajib (config invalid, database tidak terjangkau, dst.) saat boot menghentikan proses sebelum HTTP server menerima koneksi — server tidak pernah menyajikan traffic dalam keadaan setengah siap. Setelah boot berhasil, ini **tidak** berlaku lagi: `/health/ready` melapor degradasi dan pulih sendiri; proses tidak ikut mati.
+
 ## Anti-overengineering (#27–#29)
 
 - Bila solusi sederhana sudah cukup, **pakai itu**

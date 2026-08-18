@@ -80,6 +80,7 @@ Tidak ada penyimpangan pada bentuk `db.InTx`, struktur Dockerfile, atau perilaku
 ### Keputusan implementasi
 
 - **Boot gagal keras bila database tidak terjangkau saat startup** (`db.New` melakukan `Ping` dengan timeout 5 detik; gagal → `os.Exit(1)`). Konsisten dengan kegagalan validasi config — infrastruktur yang tidak lengkap dihentikan saat deploy, bukan menyurfa sebagai request yang gagal satu-satu. `docker-compose`'s `depends_on: condition: service_healthy` mencegah ini terpicu pada `docker compose up` normal.
+  **✅ Dikonfirmasi** oleh pemilik produk saat review PR #6, dan digeneralisasi sebagai prinsip startup — bukan hanya untuk PostgreSQL. Dicatat sebagai [ADR-010](../../decisions/ADR-010-fail-fast-startup.md) dan Aturan #36 di `CLAUDE.md`.
 - **Setelah boot berhasil, `/health/ready` independen dari state boot** — ia melakukan `Ping` baru di **setiap** request, sehingga benar-benar mencerminkan konektivitas saat itu. Diverifikasi: mematikan Postgres setelah API berjalan membuat `/health/ready` melapor 503 sementara `/health` tetap 200 (tidak menyentuh DB sama sekali), dan `/health/ready` **pulih otomatis ke 200** begitu Postgres hidup lagi — tanpa restart aplikasi. `pgxpool` menangani reconnect secara transparan.
 - **`db.InTx` adalah satu-satunya jalan masuk ke transaksi**, sesuai TD — tidak ada cara lain untuk mendapatkan `pgx.Tx` di luar closure ini.
 
