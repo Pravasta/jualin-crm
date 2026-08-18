@@ -62,3 +62,63 @@ Diverifikasi lokal: `golangci-lint version` → *"built with go1.25.4"*, lalu `g
 
 - Titik ekstensi error: tambahkan sentinel baru + case di `MapError` saat domain pertama (Phase 1) butuh kode error baru. Jangan taruh logika pemetaan di handler manapun.
 - `httpx.Logger(c)` dan `httpx.RequestIDFromContext(c)` adalah API publik paket ini — dipakai lagi saat `TenantContext` (Phase 1) perlu menyertakan `request_id`.
+
+---
+
+## #2 — Database, Docker Compose, dan migration tooling
+
+### Menyimpang dari TD
+
+| Yang berbeda | Alasan |
+|---|---|
+| `migrations/embed.go` — paket kecil terpisah hanya untuk `//go:embed *.sql` | TD menulis `migrations/0001_baseline.sql` langsung di bawah `crm_be/`, sejajar dengan `cmd/`. Tapi `//go:embed` tidak bisa menjangkau di luar direktori paket yang mendeklarasikannya — `cmd/migrate` tidak bisa meng-embed berkas di `../../migrations/`. Solusinya: paket `migrations` kecil yang hidup **bersama** berkas SQL-nya (lokasi TD tetap sama), mengekspos `migrations.FS`, lalu `cmd/migrate` mengimpornya. Bukan penyimpangan lokasi, hanya penambahan satu berkas Go yang dituntut aturan bahasa. |
+| `docker-compose.yml` tidak memakai `env_file: .env` | Rencana awal mempertimbangkan `env_file`, tapi itu akan membuat `docker compose up` gagal pada clone bersih yang belum punya `.env` — melanggar acceptance criteria "tanpa langkah manual tambahan". Diganti: default development ditulis langsung di blok `environment:` compose, meniru `.env.example`. `.env` lokal (bila ada) tetap bisa override lewat variabel shell / `--env-file` manual. |
+| `DB_MAX_CONNS` diberi batas atas (1–1000), tidak hanya "positif" | Ditemukan lewat `gosec` (G115: integer overflow saat `int32(cfg.DBMaxConns)`). Tanpa batas atas, nilai yang sangat besar bisa overflow saat dikonversi ke `int32` untuk `pgxpool.Config.MaxConns`. Diperbaiki di validasi config (fail-fast, pesan jelas) + anotasi `#nosec G115` di titik konversi yang merujuk balik ke validasi ini. |
+
+Tidak ada penyimpangan pada bentuk `db.InTx`, struktur Dockerfile, atau perilaku `/health/ready` — sesuai TD.
+
+### Keputusan implementasi
+
+- **Boot gagal keras bila database tidak terjangkau saat startup** (`db.New` melakukan `Ping` dengan timeout 5 detik; gagal → `os.Exit(1)`). Konsisten dengan kegagalan validasi config — infrastruktur yang tidak lengkap dihentikan saat deploy, bukan menyurfa sebagai request yang gagal satu-satu. `docker-compose`'s `depends_on: condition: service_healthy` mencegah ini terpicu pada `docker compose up` normal.
+- **Setelah boot berhasil, `/health/ready` independen dari state boot** — ia melakukan `Ping` baru di **setiap** request, sehingga benar-benar mencerminkan konektivitas saat itu. Diverifikasi: mematikan Postgres setelah API berjalan membuat `/health/ready` melapor 503 sementara `/health` tetap 200 (tidak menyentuh DB sama sekali), dan `/health/ready` **pulih otomatis ke 200** begitu Postgres hidup lagi — tanpa restart aplikasi. `pgxpool` menangani reconnect secara transparan.
+- **`db.InTx` adalah satu-satunya jalan masuk ke transaksi**, sesuai TD — tidak ada cara lain untuk mendapatkan `pgx.Tx` di luar closure ini.
+
+### Verifikasi manual (di luar automated test)
+
+Test otomatis terhadap PostgreSQL asli sengaja diserahkan ke issue #3 (harness testcontainers) — cakupan ini sudah tertulis eksplisit di checklist issue #3 sejak awal. Issue #2 diverifikasi manual, pola yang sama seperti graceful shutdown di issue #1:
+
+```
+docker compose up --build     → build sukses, api merespons tanpa langkah manual tambahan
+GET  /health                  → 200 (tidak menyentuh DB)
+GET  /health/ready (DB hidup) → 200 {data:{status:"ok",database:"reachable"}}
+
+make migrate-up   → goose: successfully migrated database to version: 1
+                     psql \df set_updated_at → 1 baris (fungsi ada)
+make migrate-down → OK 0001_baseline.sql
+                     psql \df set_updated_at → 0 baris (fungsi benar-benar hilang)
+
+docker compose stop postgres
+GET /health        → tetap 200
+GET /health/ready   → 503 {data:{status:"degraded",database:"unreachable"}}
+docker compose start postgres
+GET /health/ready   → pulih ke 200 tanpa restart api
+
+db.InTx — diverifikasi lewat program sekali-pakai (dibuat & dihapus dalam
+sesi yang sama, tidak ter-commit) terhadap Postgres yang sama:
+  commit                    → baris tersimpan
+  rollback saat fn error    → baris TIDAK tersimpan, error asli diteruskan
+  rollback saat panic       → baris TIDAK tersimpan, panic tetap menjalar
+```
+
+Semua sesuai acceptance criteria di `issue #2`.
+
+### Utang teknis
+
+- Belum ada test otomatis untuk `db.InTx` dan migration round-trip terhadap Postgres asli — keduanya diverifikasi manual di atas. Menjadi bagian eksplisit dari cakupan issue #3.
+- Tidak ada auto-migrate saat container `api` start. `make migrate-up` dijalankan manual. Dipertimbangkan lagi bila alur deploy butuh migration otomatis (mis. init container terpisah) — jangan digabung diam-diam ke entrypoint `api` karena migration dan serving punya kegagalan yang beda kelas.
+
+### Catatan untuk session berikutnya
+
+- `internal/shared/db.New` dan `db.Ping` adalah API publik paket ini. Repository Phase 1 akan menerima `*pgxpool.Pool` (via DI dari `main.go`), bukan membuat pool sendiri.
+- Pola composite FK (freeze lapis 2) belum relevan sampai ada tabel tenant-scoped pertama di `0002_identity` (Phase 1) — `0001_baseline` sengaja tidak menyentuhnya.
+- Bila RLS (freeze lapis 3, ditunda) suatu saat diaktifkan, `db.InTx` adalah **satu-satunya** titik untuk menyisipkan `SET LOCAL app.current_org_id` — jangan buat jalur transaksi kedua.

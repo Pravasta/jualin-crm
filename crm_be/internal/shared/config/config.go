@@ -53,8 +53,10 @@ func (c *Config) validate() error {
 	if c.HTTPPort <= 0 || c.HTTPPort > 65535 {
 		return fmt.Errorf("config invalid: HTTP_PORT must be between 1 and 65535, got %d", c.HTTPPort)
 	}
-	if c.DBMaxConns <= 0 {
-		return fmt.Errorf("config invalid: DB_MAX_CONNS must be positive, got %d", c.DBMaxConns)
+	// Upper bound is a sanity ceiling, not a tuned limit — it exists so
+	// DBMaxConns safely fits int32 when passed to pgxpool.Config.MaxConns.
+	if c.DBMaxConns <= 0 || c.DBMaxConns > 1000 {
+		return fmt.Errorf("config invalid: DB_MAX_CONNS must be between 1 and 1000, got %d", c.DBMaxConns)
 	}
 	return nil
 }

@@ -52,6 +52,19 @@ func TestLoad_InvalidAppEnv(t *testing.T) {
 	}
 }
 
+func TestLoad_InvalidDBMaxConns(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("DB_MAX_CONNS", "5000")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for out-of-range DB_MAX_CONNS, got nil")
+	}
+	if !strings.Contains(err.Error(), "DB_MAX_CONNS") {
+		t.Errorf("expected error to mention DB_MAX_CONNS, got: %v", err)
+	}
+}
+
 func TestLoad_InvalidLogLevel(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("LOG_LEVEL", "verbose")
