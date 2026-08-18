@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 18 Agustus 2026 — Issue #3 selesai, Phase 0 tutup
-**Phase sekarang:** Phase 0 — Foundation **selesai** (3/3 issue). Berikutnya: buka Phase 1.
+**Last updated:** 18 Agustus 2026 — PRD & TD Phase 1 ditulis
+**Phase sekarang:** Phase 1 — Auth & Organization (PRD/TD selesai, implementasi belum mulai)
 
 ---
 
@@ -34,13 +34,13 @@ _(kosong)_
 
 ## Berikutnya
 
-**Buka Phase 1 — Auth & Organization**
+**Issue #8 — Schema 0002, tenant context, pola repository, test katalog**
 
-Phase 0 selesai. Sebelum implementasi apapun: tulis `docs/phases/01-auth-organization/{prd,td,issues}.md` (prosedur: `docs/workflow.md` bagian 1), lalu buat issue-nya di GitHub dengan milestone Phase 1.
+PRD & TD Phase 1 sudah ditulis, issue #8–#11 sudah dibuat. Setelah PR PRD/TD di-merge, pengerjaan dimulai dari #8.
 
-Cakupan sesuai `docs/architecture/freeze.md` bagian 4 (Phase 1): `organizations`, `users`, `memberships`, `invitations`, token tables, `subscriptions` minimal, `audit_logs` · registrasi atomik · verifikasi email · login · refresh + rotasi · undangan employee · penonaktifan membership · tenant context · RBAC · **harness test isolasi tenant** (freeze lapis 4 — dibangun di atas `dbtest` dari issue #3).
-
-Keputusan identity (B1–B5) sudah final di freeze bagian 7 — tidak ada yang memblokir migration `0002`.
+- Cakupan & acceptance: [issue #8](https://github.com/Pravasta/jualin-crm/issues/8)
+- TD: `docs/phases/01-auth-organization/td.md` §1, §7, §8, §14
+- Urutan: #8 → #9 → #10 → #11 (berurutan, tidak bisa diparalelkan)
 
 ---
 
@@ -113,7 +113,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | Phase | Nama | PRD | TD | Issues | Selesai |
 |---|---|---|---|---|---|
 | 0 | Foundation | ✅ | ✅ | ✅ #1–#3 | ✅ |
-| 1 | Auth & Organization | ⬜ | ⬜ | ⬜ | ⬜ |
+| 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11 | ⬜ |
 | 2 | CRM Core | ⬜ | ⬜ | ⬜ | ⬜ |
 | 3 | Owner Dashboard | ⬜ | ⬜ | ⬜ | ⬜ |
 | 4 | Public API | ⬜ | ⬜ | ⬜ | ⬜ |
