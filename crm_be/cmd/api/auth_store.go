@@ -46,11 +46,13 @@ func (s *authStore) Repos() auth.Repos {
 // cases without change.
 func reposFor(q db.Querier) auth.Repos {
 	return auth.Repos{
-		User:   user.New(q),
-		Org:    organization.New(q),
-		Member: membership.New(q),
-		Sub:    subscription.New(q),
-		Verify: auth.NewVerificationRepository(q),
-		Audit:  auditlog.New(q),
+		User:         user.New(q),
+		Org:          organization.New(q),
+		Member:       membership.New(q),
+		Sub:          subscription.New(q),
+		Verify:       auth.NewVerificationRepository(q),
+		Audit:        auditlog.New(q),
+		RefreshToken: auth.NewRefreshTokenRepository(q),
+		ResetToken:   auth.NewPasswordResetRepository(q),
 	}
 }

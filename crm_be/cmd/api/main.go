@@ -78,8 +78,15 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 
 	mail := newMailer(cfg, log)
 	authStore := newAuthStore(pool)
-	authUsecase := auth.NewUsecase(authStore, mail, log, cfg.AppBaseURL)
-	auth.NewHandler(authUsecase).RegisterRoutes(r)
+	tokenCfg := auth.TokenConfig{
+		JWTSecret:                []byte(cfg.JWTSecret),
+		AccessTokenTTL:           cfg.AccessTokenTTL,
+		RefreshTokenTTLDashboard: cfg.RefreshTokenTTLDashboard,
+		RefreshTokenTTLMobile:    cfg.RefreshTokenTTLMobile,
+	}
+	authUsecase := auth.NewUsecase(authStore, mail, log, cfg.AppBaseURL, tokenCfg)
+	cookieCfg := auth.CookieConfig{Domain: cfg.CookieDomain, Secure: cfg.CookieSecure}
+	auth.NewHandler(authUsecase, cookieCfg).RegisterRoutes(r)
 
 	r.NoRoute(func(c *gin.Context) {
 		httpx.RespondError(c, http.StatusNotFound, "not_found", "Route tidak ditemukan.")

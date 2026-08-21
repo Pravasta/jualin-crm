@@ -173,3 +173,62 @@ Seluruh 8 acceptance criteria issue #15 terpenuhi.
 - **Pola 5 berkas (`entity.go`/`port.go`/`usecase.go`/`repository_postgres.go`/`handler_http.go`) hanya untuk paket yang punya usecase & endpoint sendiri.** Paket "repository murni" seperti `membership`/`user`/`organization`/`subscription`/`auditlog` cukup `entity.go` + `repository_postgres.go` — **jangan** tambahkan `port.go` kosong ke paket-paket ini hanya demi keseragaman kosmetik. Tambahkan `port.go`/`usecase.go` pada paket itu **hanya** saat paket itu sendiri mendapat business logic atau endpoint HTTP miliknya (mis. `membership` kemungkinan mendapatkannya di #11 saat "ubah role"/"nonaktifkan" jadi endpoint tersendiri).
 - **Composition root ada di `cmd/api/auth_store.go`.** Domain baru (mis. `lead` di Phase 2) yang butuh Unit of Work sendiri akan mendapat `cmd/api/<domain>_store.go` yang sama polanya — bukan satu `Store` raksasa yang menaungi semua domain.
 - **Test integrasi lintas paket (`internal/auth`'s `usecase_test.go`) menduplikasi wiring `Repos` yang juga ada di `cmd/api/auth_store.go`.** Ini disengaja (lihat Menyimpang dari rencana). Bila polanya terasa berulang di banyak paket, pertimbangkan test helper bersama — tapi jangan taruh di `internal/shared` (aturan yang sama berlaku untuk test helper: jangan sampai `shared` mengimpor domain).
+
+---
+
+## #10 — Login, refresh rotation, logout, reset password, CSRF, GET /v1/me
+
+### Menyimpang dari rencana issue
+
+| Yang berbeda | Alasan |
+|---|---|
+| `cmd/migrate` **berhenti memakai `internal/shared/config.Config`**, dapat `migrateConfig` lokal (hanya `DATABASE_URL`) | Ditemukan lewat smoke test manual `docker compose up`, bukan direncanakan di awal: begitu `JWT_SECRET` jadi `required` di `config.Config`, `make migrate-up`/`migrate-status` ikut gagal minta `JWT_SECRET` — padahal migrate tidak pernah menyentuhnya. Berbagi satu `Config` lintas binary dengan kebutuhan berbeda adalah bug yang menunggu terjadi lagi di field `required` berikutnya; diperbaiki sekarang, bukan dicatat sebagai utang. |
+| `MembershipRepository` (di `auth/port.go`) dapat method `FindByID` baru | Diperlukan `Refresh` untuk memuat ulang `role`/`user_id` sebelum menerbitkan access token baru — `refresh_tokens` hanya menyimpan `membership_id`+`organization_id` (TD §1), bukan keduanya. Implementasi konkretnya (`membership.Repository.FindByID`) sudah ada sejak #8; hanya diekspos lewat interface yang baru dipakai sekarang. |
+| Rate limit login pakai tipe baru `LoginLimiter` (backoff progresif), **bukan** `ratelimit.FixedWindow` | TD eksplisit minta "backoff progresif, tanpa lockout permanen" untuk login — beda dari limit flat register/resend/forgot. `ratelimit.Limiter`'s `Allow(key) bool` tidak bisa menyatakan "naik saat gagal, reset saat sukses". Satu tipe konkret baru, bukan interface baru — `ratelimit.Limiter` tidak disentuh. |
+
+### Keputusan implementasi
+
+- **`internal/shared/accesstoken` (JWT) dipisah dari `internal/shared/token` (opaque)** — keduanya secara struktural berbeda (JWT bertanda tangan vs random+hash) dan TD memperlakukannya sebagai dua konsep berbeda. Refresh token dan password reset token tetap memakai `token.Generate()`/`.Hash()` yang sudah ada — tidak ada paket baru untuk itu.
+- **`httpx.VerifyCSRF` generik**, tidak tahu domain — hanya membandingkan cookie `csrf_token` vs header `X-CSRF-Token`. Yang memutuskan *kapan* ia dipanggil bersifat lokal: `auth.AuthMiddleware` untuk endpoint di belakangnya, handler `refresh`/`logout` langsung untuk keduanya (karena determinasi "apakah kredensial ini dari cookie" berbeda tempat: middleware tahu dari token akses, refresh/logout tahu dari mana refresh token dibaca).
+- **`organization_selection_required`** ditulis langsung lewat `c.JSON`, bukan lewat `httpx.WriteError` — `OrganizationSelectionError` membawa field `organizations` yang tidak bisa direpresentasikan `httpx.DomainError`. Didokumentasikan di `api.md` sebagai satu-satunya pengecualian sadar terhadap bentuk envelope error.
+- **Deteksi reuse refresh token** tidak dapat kode error baru — mengikuti diagram alur TD §4 apa adanya, baik "tidak ditemukan/kedaluwarsa" maupun "sudah dirotasi/dicabut" sama-sama jadi `401 invalid_credentials`, supaya penyerang yang memakai token curian tidak bisa membedakan dari respons mana yang terjadi.
+- **`FindByHashForUpdate`/`RevokeAllByUserID`** (di `RefreshTokenRepository`) sengaja **tidak** menerima `tenant.Context` — ditulis eksplisit di `port.go` sebagai pengecualian TD §8: yang pertama karena organization baru diketahui dari hasil lookup itu sendiri (bukan diketahui sebelumnya), yang kedua karena reset password sengaja mencabut sesi lintas organization.
+- **`docker-compose.yml` dan `.env.example`** dapat `JWT_SECRET` dev-only + var Phase 1 lain (`ACCESS_TOKEN_TTL`, dst.) — tanpa ini `docker compose up` dari clone baru langsung gagal boot (Aturan #36 bekerja sesuai desain, tapi harus tetap zero-setup untuk dev).
+
+### Verifikasi
+
+```
+go build ./...                              → bersih
+go vet ./...                                → bersih
+golangci-lint run                           → 0 issues
+gofmt -l .                                  → bersih
+go test -race -count=1 ./... (2x)           → semua PASS
+
+DOCKER_HOST=unix:///tmp/nonexistent-docker.sock \
+  go test ./internal/auth/... -run TestUnit -v -count=1
+                                             → 20/20 PASS, tanpa Docker
+
+go list -deps ./cmd/api | grep -iE "docker"
+                                             → kosong
+
+Manual smoke test (docker compose up --build, migrasi dijalankan manual):
+  register → verify-email → login client=dashboard
+    → Set-Cookie: access_token (HttpOnly), refresh_token (HttpOnly), csrf_token (bukan HttpOnly)
+    → body TIDAK memuat token
+  login client=mobile
+    → TIDAK ada Set-Cookie sama sekali, token di body
+  GET /v1/me dengan Authorization: Bearer → 200, profil benar
+  POST /v1/auth/refresh dengan cookie TANPA X-CSRF-Token → 403 csrf_token_invalid
+```
+
+Seluruh acceptance criteria issue #10 (checklist & acceptance criteria di GitHub) terpenuhi, termasuk seluruh test keamanan TD §14 yang relevan untuk issue ini (reuse refresh → family dicabut; cookie tanpa CSRF → 403; bearer/body tanpa CSRF → berhasil; `COOKIE_SECURE=false`+`production` → boot gagal; reset password mencabut seluruh sesi).
+
+### Utang teknis
+
+- Tidak ada item baru dari issue ini sendiri. `docs/STATUS.md` bagian Utang Teknis tetap seperti sebelumnya (belum ada eviction `ratelimit.FixedWindow`, angka rate limit belum final).
+
+### Catatan untuk session berikutnya
+
+- **Jangan tambahkan field `required` baru ke `internal/shared/config.Config` tanpa memeriksa `cmd/migrate`.** Kejadian di atas (JWT_SECRET) kemungkinan besar akan terulang untuk field wajib berikutnya kalau tidak diperiksa — pertimbangkan pola `migrateConfig` yang sama untuk binary lain yang mungkin muncul (`cmd/worker`, dst.) bila mereka juga tidak butuh seluruh `Config`.
+- **Issue #11 (RBAC, invitation, membership deactivation, harness isolasi tenant) adalah penutup Phase 1.** `authorization.md` dibuat di sana, bukan di sini — `authentication.md` (issue #10) sudah menyebutkan `AuthMiddleware` tapi belum ada RBAC di atasnya.
+- **`AuthMiddleware` hanya melindungi `GET /v1/me` saat ini** — satu-satunya endpoint terautentikasi di Phase 1. Endpoint terautentikasi berikutnya (Phase 2 CRM Core) tinggal masuk grup `protected` yang sama di `RegisterRoutes`.

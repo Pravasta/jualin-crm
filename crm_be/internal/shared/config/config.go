@@ -14,6 +14,10 @@ import (
 var validAppEnvs = []string{"development", "production"}
 var validLogLevels = []string{"debug", "info", "warn", "error"}
 
+// minJWTSecretLength matches TD phase 1 §2 — enough entropy that HS256
+// signatures aren't brute-forceable.
+const minJWTSecretLength = 32
+
 // "log" is the only provider that exists so far — LogMailer. A real
 // provider is added to this list when it's actually implemented, not
 // before (Rule #27).
@@ -38,6 +42,21 @@ type Config struct {
 	AppBaseURL   string `env:"APP_BASE_URL" envDefault:"http://localhost:3000"`
 	MailFrom     string `env:"MAIL_FROM" envDefault:"no-reply@localhost"`
 	MailProvider string `env:"MAIL_PROVIDER" envDefault:"log"`
+
+	// JWTSecret signs and verifies access tokens (HS256, TD phase 1 §4).
+	// Required with no default — an app booting with a generated or empty
+	// secret would silently invalidate every token on the next restart.
+	JWTSecret                string        `env:"JWT_SECRET,required"`
+	AccessTokenTTL           time.Duration `env:"ACCESS_TOKEN_TTL" envDefault:"15m"`
+	RefreshTokenTTLDashboard time.Duration `env:"REFRESH_TOKEN_TTL_DASHBOARD" envDefault:"720h"`
+	RefreshTokenTTLMobile    time.Duration `env:"REFRESH_TOKEN_TTL_MOBILE" envDefault:"2160h"`
+
+	// CookieDomain empty = host-only cookie, correct for localhost.
+	CookieDomain string `env:"COOKIE_DOMAIN" envDefault:""`
+	// CookieSecure must be true whenever AppEnv is production — validated
+	// below, not just documented, because COOKIE_SECURE=false in
+	// production means auth cookies travel over plain HTTP (Rule #36).
+	CookieSecure bool `env:"COOKIE_SECURE" envDefault:"false"`
 }
 
 // Load parses environment variables into a Config and validates it.
@@ -71,6 +90,12 @@ func (c *Config) validate() error {
 	}
 	if !slices.Contains(validMailProviders, c.MailProvider) {
 		return fmt.Errorf("config invalid: MAIL_PROVIDER must be one of %v, got %q", validMailProviders, c.MailProvider)
+	}
+	if len(c.JWTSecret) < minJWTSecretLength {
+		return fmt.Errorf("config invalid: JWT_SECRET must be at least %d bytes, got %d", minJWTSecretLength, len(c.JWTSecret))
+	}
+	if c.AppEnv == "production" && !c.CookieSecure {
+		return fmt.Errorf("config invalid: COOKIE_SECURE must be true when APP_ENV=production")
 	}
 	return nil
 }

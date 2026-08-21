@@ -59,12 +59,25 @@ func (s *testStore) Repos() auth.Repos {
 
 func testRepos(q db.Querier) auth.Repos {
 	return auth.Repos{
-		User:   user.New(q),
-		Org:    organization.New(q),
-		Member: membership.New(q),
-		Sub:    subscription.New(q),
-		Verify: auth.NewVerificationRepository(q),
-		Audit:  auditlog.New(q),
+		User:         user.New(q),
+		Org:          organization.New(q),
+		Member:       membership.New(q),
+		Sub:          subscription.New(q),
+		Verify:       auth.NewVerificationRepository(q),
+		Audit:        auditlog.New(q),
+		RefreshToken: auth.NewRefreshTokenRepository(q),
+		ResetToken:   auth.NewPasswordResetRepository(q),
+	}
+}
+
+// testTokenConfig is a fixed TokenConfig for tests — a real secret isn't
+// needed for security, only for accesstoken.Issue/Parse to round-trip.
+func testTokenConfig() auth.TokenConfig {
+	return auth.TokenConfig{
+		JWTSecret:                []byte("test-jwt-secret-at-least-32-bytes-long"),
+		AccessTokenTTL:           15 * time.Minute,
+		RefreshTokenTTLDashboard: 720 * time.Hour,
+		RefreshTokenTTLMobile:    2160 * time.Hour,
 	}
 }
 
@@ -123,7 +136,7 @@ func TestRegister_CreatesFourRowsAtomically(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	out, err := svc.Register(ctx, validInput("owner@example.com"))
 	if err != nil {
@@ -175,7 +188,7 @@ func TestRegister_CreatesFourRowsAtomically(t *testing.T) {
 func TestRegister_DuplicateEmail_LeavesNothingBehind(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
-	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	if _, err := svc.Register(ctx, validInput("dup@example.com")); err != nil {
 		t.Fatalf("first registration failed: %v", err)
@@ -220,7 +233,7 @@ func TestRegister_MailerFailure_StillCommits(t *testing.T) {
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
 	m.failNext.Store(true)
-	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	out, err := svc.Register(ctx, validInput("mailfail@example.com"))
 	if err != nil {
@@ -234,7 +247,7 @@ func TestVerifyEmail_ValidToken_MarksVerifiedAndConsumesToken(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	out, err := svc.Register(ctx, validInput("verify@example.com"))
 	if err != nil {
@@ -268,7 +281,7 @@ func TestVerifyEmail_TokenUsedTwice_SecondAttemptFails(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	_, err := svc.Register(ctx, validInput("reuse@example.com"))
 	if err != nil {
@@ -287,7 +300,7 @@ func TestVerifyEmail_TokenUsedTwice_SecondAttemptFails(t *testing.T) {
 func TestVerifyEmail_ExpiredToken_Rejected(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
-	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	out, err := svc.Register(ctx, validInput("expired@example.com"))
 	if err != nil {
@@ -314,7 +327,7 @@ func TestVerifyEmail_ExpiredToken_Rejected(t *testing.T) {
 func TestVerifyEmail_UnknownToken_Rejected(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
-	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	err := svc.VerifyEmail(ctx, "this-token-does-not-exist")
 	assertInvalidToken(t, err)
@@ -324,7 +337,7 @@ func TestResendVerification_UnknownEmail_SendsNothing(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	// Must not panic or error — the handler always answers 202 regardless.
 	svc.ResendVerification(ctx, "nobody@example.com")
@@ -338,7 +351,7 @@ func TestResendVerification_UnverifiedUser_SendsNewToken(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	out, err := svc.Register(ctx, validInput("resend@example.com"))
 	if err != nil {
@@ -364,7 +377,7 @@ func TestResendVerification_AlreadyVerified_SendsNothing(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	_, err := svc.Register(ctx, validInput("already-verified@example.com"))
 	if err != nil {
@@ -386,7 +399,7 @@ func TestResendVerification_AlreadyVerified_SendsNothing(t *testing.T) {
 func TestRegister_WeakPassword_Rejected(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
-	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	in := validInput("weak@example.com")
 	in.Password = "short"
@@ -403,7 +416,7 @@ func TestRegister_WeakPassword_Rejected(t *testing.T) {
 func TestPassword_HashIsNeverPlaintext(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
-	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), &spyMailer{}, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	in := validInput("hash-check@example.com")
 	out, err := svc.Register(ctx, in)

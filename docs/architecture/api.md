@@ -104,6 +104,28 @@ Bertambah seiring fitur. Setiap kode baru dicatat di sini.
 | 422 | `invalid_status_transition` | Transisi status lead tidak diizinkan |
 | 429 | `rate_limited` | Melebihi batas; sertakan `Retry-After` |
 | 500 | `internal_error` | Tidak pernah membocorkan detail internal |
+| 401 | `invalid_credentials` | Login gagal — email atau password salah, atau refresh token tidak valid/kedaluwarsa/sudah dirotasi (issue #10) |
+| 403 | `email_not_verified` | Login dengan akun yang belum verifikasi email (issue #10) |
+| 409 | `organization_selection_required` | Login: user punya >1 membership aktif dan belum memilih organization — lihat perluasan envelope di bawah (issue #10) |
+| 400 | `invalid_token` | Token verifikasi/reset/undangan tidak valid atau kedaluwarsa (issue #9, #10) |
+| 401 | `authentication_required` | Endpoint terautentikasi diakses tanpa kredensial valid (issue #10) |
+| 403 | `csrf_token_invalid` | Request cookie non-GET tanpa `X-CSRF-Token` yang cocok (issue #10) |
+
+### Perluasan envelope — `organization_selection_required`
+
+TD phase 1 §6.2 mengizinkan pengecualian sadar terhadap bentuk error di atas: respons `409 organization_selection_required` membawa field tambahan `organizations`, bukan hanya `code`/`message`/`details`.
+
+```json
+{
+  "error": {
+    "code": "organization_selection_required",
+    "message": "Pilih organization untuk melanjutkan.",
+    "organizations": [{ "id": "01931f2e-...", "name": "Toko ABC" }]
+  }
+}
+```
+
+Ini **satu-satunya** tempat di API ini sebuah error membawa field domain di luar `code`/`message`/`details` — bukan preseden untuk payload error bebas. Alternatif (alur dua langkah dengan token seleksi) menambah tabel dan endpoint untuk kasus yang dialami <1% pengguna (ADR-007); tidak sepadan.
 
 ### Aturan 404 vs 403
 

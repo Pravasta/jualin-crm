@@ -110,6 +110,18 @@ func (r *Repository) MarkEmailVerified(ctx context.Context, id uuid.UUID) error 
 	return nil
 }
 
+// UpdatePassword overwrites passwordHash — called once per accepted
+// password reset, inside the same transaction that marks the reset
+// token used and revokes every refresh token the user held.
+func (r *Repository) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
+	const q = `UPDATE users SET password_hash = $1 WHERE id = $2`
+	_, err := r.q.Exec(ctx, q, passwordHash, id)
+	if err != nil {
+		return fmt.Errorf("user: update password: %w", err)
+	}
+	return nil
+}
+
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
