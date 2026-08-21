@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 21 Agustus 2026 — Issue #10 selesai
-**Phase sekarang:** Phase 1 — Auth & Organization (4/5 issue selesai — #15 ditambahkan di tengah phase)
+**Last updated:** 21 Agustus 2026 — Issue #11 selesai, **Phase 1 selesai**
+**Phase sekarang:** Phase 2 — CRM Core (belum dimulai — PRD+TD berikutnya)
 
 ---
 
@@ -28,6 +28,7 @@
 | **ADR-011 — Layering per-paket + Unit of Work** | — | — | Diminta pemilik produk di tengah Phase 1, diprioritaskan sebelum #10. Merevisi Aturan #8, menegakkan Aturan #11 yang sejak awal dilanggar. |
 | **Issue #15 — Refactor: layering, interface, Unit of Work** | — | 1 | `internal/auth` dipecah jadi `entity/port/usecase/repository_postgres/handler_http.go`. `Store`/`Repos` (Unit of Work) menggantikan `db.InTx` langsung di usecase. Composition root di `cmd/api/auth_store.go`. **7 unit test baru lolos tanpa Docker** (dibuktikan lewat `DOCKER_HOST` tak valid + inspeksi `go list -deps`). 33 test lama lolos tanpa perubahan asersi. |
 | **Issue #10 — Login, refresh rotation, logout, reset password, CSRF, GET /v1/me** | — | 1 | `POST /v1/auth/{login,refresh,logout,password/forgot,password/reset}`, `GET /v1/me`. Access token JWT (`internal/shared/accesstoken`) + refresh token opaque dengan rotasi & deteksi penggunaan ulang (`SELECT ... FOR UPDATE`, revoke seluruh `family_id`). Dashboard = cookie `HttpOnly`; Mobile = body — dibuktikan lewat test HTTP & smoke test manual. CSRF double-submit (`httpx.VerifyCSRF`) untuk request cookie non-GET. `LoginLimiter` (backoff progresif). `docs/architecture/authentication.md` baru. **12 test integrasi + 13 unit test baru** (plus 5 test `LoginLimiter`, 4 test `accesstoken`), semuanya lolos tanpa perubahan asersi lama. |
+| **Issue #11 — RBAC, invitation, penonaktifan membership, harness isolasi tenant** | — | 1 | `internal/shared/{authn,authz}` (session middleware diekstrak dari `auth`, RBAC baru). `internal/membership` naik jadi domain penuh (`port/usecase/handler_http.go`). `internal/invitation` baru — undangan dua cabang (B4), keduanya diuji termasuk test keamanan wajib. `POST/GET/DELETE /v1/invitations`, `GET/PATCH/DELETE /v1/memberships`. Penonaktifan membership mencabut refresh token dalam transaksi yang sama — **dibuktikan lewat smoke test end-to-end**. `docs/architecture/authorization.md` baru. **Harness isolasi tenant (`cmd/api/tenant_isolation_test.go`) dibangun & dibuktikan bisa gagal** (lapis 4, blocking CI). Satu bug nyata (email tidak terverifikasi otomatis saat accept undangan) ditemukan lewat smoke test manual, diperbaiki, dan mendapat test regresi di kedua level. **Phase 1 selesai.** |
 
 ---
 
@@ -39,11 +40,12 @@ _(kosong)_
 
 ## Berikutnya
 
-**Issue #11 — RBAC, invitation, membership deactivation, harness isolasi tenant**
+**Phase 2 — CRM Core**
 
-- Cakupan & acceptance: [issue #11](https://github.com/Pravasta/jualin-crm/issues/11)
-- TD: `docs/phases/01-auth-organization/td.md` §6.1, §6.2, §9, §14 (harness isolasi)
-- Terakhir sebelum Phase 1 ditutup. Memakai `auth.AuthMiddleware` (dari #10) sebagai titik pemasangan RBAC (`authz.Require`) di router chain: `RequestID → Logging → Recovery → Auth → CSRF → RBAC → Handler`. `authorization.md` dibuat di issue ini.
+- Phase 1 (Auth & Organization) selesai — #8, #9, #10, #11, #15, plus ADR-011.
+- Sesuai `docs/workflow.md`/ADR-008: mulai dengan PRD + TD Phase 2, **bukan** langsung issue implementasi. Cakupan Phase 2 per freeze bagian 3.1/4: Lead (CRUD, status + transisi, source, filter, pagination, idempotency, `lead_number`, `version`), Assignment manual ke membership, Activity append-only, Task, Customer (konversi dari Lead), Notification.
+- `cmd/api/tenant_isolation_test.go`'s `[]isolationCase` sudah siap menerima entri `lead` begitu endpoint-nya ada — lihat notes.md `## #11`.
+- `internal/shared/authz`'s matriks baru mencakup Membership; Phase 2 menambah `Action` untuk Lead/Customer/dst mengikuti `architecture_product_review.md` §6.2.
 
 ---
 
@@ -118,7 +120,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | Phase | Nama | PRD | TD | Issues | Selesai |
 |---|---|---|---|---|---|
 | 0 | Foundation | ✅ | ✅ | ✅ #1–#3 | ✅ |
-| 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11, #15 (4/5 selesai) | ⬜ |
+| 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11, #15 | ✅ |
 | 2 | CRM Core | ⬜ | ⬜ | ⬜ | ⬜ |
 | 3 | Owner Dashboard | ⬜ | ⬜ | ⬜ | ⬜ |
 | 4 | Public API | ⬜ | ⬜ | ⬜ | ⬜ |

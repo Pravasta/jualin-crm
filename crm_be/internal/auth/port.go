@@ -85,6 +85,20 @@ type RefreshTokenRepository interface {
 	RevokeAllByUserID(ctx context.Context, userID uuid.UUID) error
 }
 
+// RefreshTokenRevoker exists purely so the composition root can hand
+// internal/membership the one capability it needs from refresh_tokens
+// (revoke every session tied to a specific membership, on deactivation —
+// TD phase 1 §2.3 rule #2) without membership importing internal/auth or
+// internal/auth importing membership. membership/port.go declares its
+// own one-method local interface; auth.NewRefreshTokenRevoker's return
+// value satisfies it structurally. Not part of RefreshTokenRepository
+// above because auth.Usecase itself never calls this method — ADR-011's
+// "hanya method yang dipakai oleh consumer" applies per interface, not
+// per implementation.
+type RefreshTokenRevoker interface {
+	RevokeAllByMembershipID(ctx context.Context, membershipID uuid.UUID) error
+}
+
 // PasswordResetTokenRepository has no consumers outside this package,
 // same reasoning as VerificationTokenRepository.
 type PasswordResetTokenRepository interface {

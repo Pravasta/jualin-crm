@@ -23,3 +23,22 @@ type Membership struct {
 	UpdatedAt      time.Time
 	DeletedAt      *time.Time
 }
+
+// MemberWithUser is Membership plus the display fields GET /v1/memberships
+// needs — a joined read model for Usecase.List, not a second source of
+// truth: the join lives entirely in one query (FindAllByOrgWithUser)
+// rather than an N+1 loop of individual user lookups per member.
+type MemberWithUser struct {
+	Membership
+	Email    string
+	FullName string
+}
+
+// UpdateRoleInput and the two rule violations below are Usecase.UpdateRole's
+// vocabulary — kept here alongside Membership as this package's domain
+// types, matching the auth package's convention of colocating usecase-level
+// input types with entities.
+type UpdateRoleInput struct {
+	MembershipID uuid.UUID
+	NewRole      tenant.Role
+}

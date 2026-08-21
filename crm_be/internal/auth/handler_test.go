@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auth"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authn"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db/dbtest"
 )
 
@@ -22,7 +23,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *spyMailer) {
 	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	r := gin.New()
-	auth.NewHandler(svc, auth.CookieConfig{Domain: "", Secure: false}).RegisterRoutes(r)
+	auth.NewHandler(svc, auth.CookieConfig{Domain: "", Secure: false}).RegisterRoutes(r, authn.Middleware(svc))
 	return r, m
 }
 
