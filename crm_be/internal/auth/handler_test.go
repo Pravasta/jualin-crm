@@ -19,10 +19,10 @@ func newTestRouter(t *testing.T) (*gin.Engine, *spyMailer) {
 	gin.SetMode(gin.TestMode)
 	pool := dbtest.NewPool(t)
 	m := &spyMailer{}
-	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
+	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	r := gin.New()
-	auth.NewHandler(svc).RegisterRoutes(r)
+	auth.NewHandler(svc, auth.CookieConfig{Domain: "", Secure: false}).RegisterRoutes(r)
 	return r, m
 }
 

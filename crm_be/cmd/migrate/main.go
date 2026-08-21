@@ -12,12 +12,21 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/caarlos0/env/v11"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/config"
 	"github.com/Pravasta/jualin-crm/crm_be/migrations"
 )
+
+// migrateConfig is deliberately NOT config.Config — this binary only
+// ever touches DatabaseURL, so it has no business requiring JWT_SECRET
+// or any other setting cmd/api needs. Sharing one Config struct across
+// binaries with different actual dependencies is how "migrate" ends up
+// unable to run without an access-token secret.
+type migrateConfig struct {
+	DatabaseURL string `env:"DATABASE_URL,required"`
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -25,8 +34,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
+	var cfg migrateConfig
+	if err := env.Parse(&cfg); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

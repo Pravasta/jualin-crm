@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 19 Agustus 2026 — Issue #15 selesai
-**Phase sekarang:** Phase 1 — Auth & Organization (3/5 issue selesai — #15 ditambahkan di tengah phase, diprioritaskan sebelum #10)
+**Last updated:** 21 Agustus 2026 — Issue #10 selesai
+**Phase sekarang:** Phase 1 — Auth & Organization (4/5 issue selesai — #15 ditambahkan di tengah phase)
 
 ---
 
@@ -27,6 +27,7 @@
 | **Issue #9 — Registrasi atomik, argon2id, verifikasi email** | — | 1 | `POST /v1/auth/{register,verify-email,verify-email/resend}`. `httpx.DomainError` (mekanisme error domain generik, baru), `internal/{organization,subscription,auditlog,auth}`, `internal/shared/{password,token,mailer,ratelimit}`. Registrasi 6-insert atomik dalam satu `db.InTx`; email di luar transaksi (Aturan #32). Rate limit **dibuktikan aktif** di test HTTP. |
 | **ADR-011 — Layering per-paket + Unit of Work** | — | — | Diminta pemilik produk di tengah Phase 1, diprioritaskan sebelum #10. Merevisi Aturan #8, menegakkan Aturan #11 yang sejak awal dilanggar. |
 | **Issue #15 — Refactor: layering, interface, Unit of Work** | — | 1 | `internal/auth` dipecah jadi `entity/port/usecase/repository_postgres/handler_http.go`. `Store`/`Repos` (Unit of Work) menggantikan `db.InTx` langsung di usecase. Composition root di `cmd/api/auth_store.go`. **7 unit test baru lolos tanpa Docker** (dibuktikan lewat `DOCKER_HOST` tak valid + inspeksi `go list -deps`). 33 test lama lolos tanpa perubahan asersi. |
+| **Issue #10 — Login, refresh rotation, logout, reset password, CSRF, GET /v1/me** | — | 1 | `POST /v1/auth/{login,refresh,logout,password/forgot,password/reset}`, `GET /v1/me`. Access token JWT (`internal/shared/accesstoken`) + refresh token opaque dengan rotasi & deteksi penggunaan ulang (`SELECT ... FOR UPDATE`, revoke seluruh `family_id`). Dashboard = cookie `HttpOnly`; Mobile = body — dibuktikan lewat test HTTP & smoke test manual. CSRF double-submit (`httpx.VerifyCSRF`) untuk request cookie non-GET. `LoginLimiter` (backoff progresif). `docs/architecture/authentication.md` baru. **12 test integrasi + 13 unit test baru** (plus 5 test `LoginLimiter`, 4 test `accesstoken`), semuanya lolos tanpa perubahan asersi lama. |
 
 ---
 
@@ -38,11 +39,11 @@ _(kosong)_
 
 ## Berikutnya
 
-**Issue #10 — Login, refresh rotation, logout, reset password, CSRF**
+**Issue #11 — RBAC, invitation, membership deactivation, harness isolasi tenant**
 
-- Cakupan & acceptance: [issue #10](https://github.com/Pravasta/jualin-crm/issues/10)
-- TD: `docs/phases/01-auth-organization/td.md` §2, §4, §5, §6, §11, §12, §13
-- Bergantung pada #9 dan #15 (keduanya selesai). Memakai `internal/shared/{password,token,mailer,ratelimit}`, `httpx.DomainError`, dan pola `auth.Usecase` + `Store`/`Repos` langsung — endpoint baru (`Login`, `Refresh`, dst.) ditambah ke `Usecase` yang sama, repository baru (mis. `RefreshTokenRepository`) ditambah ke `auth/port.go`. Sebelum #11.
+- Cakupan & acceptance: [issue #11](https://github.com/Pravasta/jualin-crm/issues/11)
+- TD: `docs/phases/01-auth-organization/td.md` §6.1, §6.2, §9, §14 (harness isolasi)
+- Terakhir sebelum Phase 1 ditutup. Memakai `auth.AuthMiddleware` (dari #10) sebagai titik pemasangan RBAC (`authz.Require`) di router chain: `RequestID → Logging → Recovery → Auth → CSRF → RBAC → Handler`. `authorization.md` dibuat di issue ini.
 
 ---
 
@@ -117,7 +118,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | Phase | Nama | PRD | TD | Issues | Selesai |
 |---|---|---|---|---|---|
 | 0 | Foundation | ✅ | ✅ | ✅ #1–#3 | ✅ |
-| 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11, #15 | ⬜ |
+| 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11, #15 (4/5 selesai) | ⬜ |
 | 2 | CRM Core | ⬜ | ⬜ | ⬜ | ⬜ |
 | 3 | Owner Dashboard | ⬜ | ⬜ | ⬜ | ⬜ |
 | 4 | Public API | ⬜ | ⬜ | ⬜ | ⬜ |
