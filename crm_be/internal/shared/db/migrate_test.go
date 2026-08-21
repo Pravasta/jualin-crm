@@ -89,11 +89,63 @@ func TestMigrationRoundTrip_0002Identity(t *testing.T) {
 	restoreLatest(t, sqlDB)
 }
 
+func TestMigrationRoundTrip_0003CrmCore(t *testing.T) {
+	sqlDB := openGooseDB(t)
+
+	// Land on exactly version 2 first, so UpTo(3) below is a real
+	// migration of 0003 alone rather than a no-op against an
+	// already-fully-migrated shared container.
+	if err := goose.DownTo(sqlDB, ".", 2); err != nil {
+		t.Fatalf("goose down to 2 failed: %v", err)
+	}
+	if columnExists(t, sqlDB, "organizations", "next_lead_number") {
+		t.Fatal("expected organizations.next_lead_number to be absent before migrating to version 3")
+	}
+
+	if err := goose.UpTo(sqlDB, ".", 3); err != nil {
+		t.Fatalf("goose up to 3 failed: %v", err)
+	}
+	for _, table := range crmCoreTables {
+		if !tableExists(t, sqlDB, table) {
+			t.Errorf("expected table %q to exist after migrating to version 3", table)
+		}
+	}
+	if !columnExists(t, sqlDB, "organizations", "next_lead_number") {
+		t.Error("expected organizations.next_lead_number to exist after migrating to version 3")
+	}
+
+	if err := goose.DownTo(sqlDB, ".", 2); err != nil {
+		t.Fatalf("goose down to 2 failed: %v", err)
+	}
+	for _, table := range crmCoreTables {
+		if tableExists(t, sqlDB, table) {
+			t.Errorf("expected table %q to be gone after rolling back to version 2 — nothing should be left behind", table)
+		}
+	}
+	if columnExists(t, sqlDB, "organizations", "next_lead_number") {
+		t.Error("expected organizations.next_lead_number to be gone after rolling back to version 2")
+	}
+	// 0001's function and 0002's tables must survive rolling back 0003 —
+	// down only undoes its own migration, not everything beneath it.
+	if !functionExists(t, sqlDB, "set_updated_at") {
+		t.Fatal("expected set_updated_at() (from 0001) to survive rolling back 0003")
+	}
+	for _, table := range identityTables {
+		if !tableExists(t, sqlDB, table) {
+			t.Errorf("expected table %q (from 0002) to survive rolling back 0003", table)
+		}
+	}
+
+	restoreLatest(t, sqlDB)
+}
+
 var identityTables = []string{
 	"organizations", "users", "memberships", "subscriptions",
 	"invitations", "email_verification_tokens", "password_reset_tokens",
 	"refresh_tokens", "audit_logs",
 }
+
+var crmCoreTables = []string{"leads", "customers", "activities", "tasks"}
 
 func openGooseDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -151,6 +203,19 @@ func tableExists(t *testing.T, db *sql.DB, name string) bool {
 	).Scan(&exists)
 	if err != nil {
 		t.Fatalf("failed to check table existence: %v", err)
+	}
+	return exists
+}
+
+func columnExists(t *testing.T, db *sql.DB, table, column string) bool {
+	t.Helper()
+	var exists bool
+	err := db.QueryRow(
+		`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2)`,
+		table, column,
+	).Scan(&exists)
+	if err != nil {
+		t.Fatalf("failed to check column existence: %v", err)
 	}
 	return exists
 }
