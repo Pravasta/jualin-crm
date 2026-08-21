@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 21 Agustus 2026 — Issue #11 selesai, **Phase 1 selesai**
-**Phase sekarang:** Phase 2 — CRM Core (belum dimulai — PRD+TD berikutnya)
+**Last updated:** 21 Agustus 2026 — PRD + TD Phase 2 dibuka, B6–B9 ditutup
+**Phase sekarang:** Phase 2 — CRM Core (0/5 issue selesai — implementasi dimulai di #19)
 
 ---
 
@@ -40,12 +40,12 @@ _(kosong)_
 
 ## Berikutnya
 
-**Phase 2 — CRM Core**
+**Issue #19 — Schema 0003, repository lead, alokasi `lead_number`, optimistic locking**
 
-- Phase 1 (Auth & Organization) selesai — #8, #9, #10, #11, #15, plus ADR-011.
-- Sesuai `docs/workflow.md`/ADR-008: mulai dengan PRD + TD Phase 2, **bukan** langsung issue implementasi. Cakupan Phase 2 per freeze bagian 3.1/4: Lead (CRUD, status + transisi, source, filter, pagination, idempotency, `lead_number`, `version`), Assignment manual ke membership, Activity append-only, Task, Customer (konversi dari Lead), Notification.
-- `cmd/api/tenant_isolation_test.go`'s `[]isolationCase` sudah siap menerima entri `lead` begitu endpoint-nya ada — lihat notes.md `## #11`.
-- `internal/shared/authz`'s matriks baru mencakup Membership; Phase 2 menambah `Action` untuk Lead/Customer/dst mengikuti `architecture_product_review.md` §6.2.
+- Cakupan & acceptance: [issue #19](https://github.com/Pravasta/jualin-crm/issues/19)
+- TD: `docs/phases/02-crm-core/td.md` §1, §3, §4, §9, §16
+- Issue pertama Phase 2, **tanpa endpoint sama sekali** — menetapkan dua mekanisme paling halus di phase ini (serialisasi `lead_number` per organization, optimistic locking `version`) yang keduanya hanya bisa dipercaya bila diuji di bawah konkurensi nyata.
+- Berurutan: #19 → #20 → #21 → #22 → #23. Rincian di `docs/phases/02-crm-core/issues.md`.
 
 ---
 
@@ -70,10 +70,6 @@ Tidak ada yang memblokir. Semuanya diputuskan saat fitur terkait dikerjakan.
 
 | Kode | Keputusan | Diputuskan sebelum |
 |---|---|---|
-| B6 | Daftar `lost_reason` final | Phase 2 |
-| B7 | Boleh mengubah status lead mundur? | Phase 2 |
-| B8 | Task boleh berdiri tanpa Lead? | Phase 2 |
-| B9 | Konversi ke Customer otomatis saat `won`? | Phase 2 |
 | — | Email provider (Resend / Postmark / SES) | Phase 1 — ⏳ *lead time, lihat bawah* |
 | — | Domain final & branding | Phase 1 — ⏳ *lead time, lihat bawah* |
 | — | Hosting & managed PostgreSQL | Phase 0 akhir |
@@ -84,6 +80,8 @@ Tidak ada yang memblokir. Semuanya diputuskan saat fitur terkait dikerjakan.
 | — | Kontrak integrasi payment service | Sebelum Phase 8 |
 
 Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 dan `docs/brainstorming/architecture_product_review.md` bagian 12.
+
+> **B6–B9 ditutup** saat PRD Phase 2 dibuka (21 Agustus 2026), seluruhnya mengikuti rekomendasi freeze: `lost_reason` 6 nilai · mundur satu langkah · `tasks.lead_id NOT NULL` · konversi ke Customer adalah aksi eksplisit. Alasan tiap keputusan ada di `docs/phases/02-crm-core/prd.md` bagian *Keputusan yang ditutup di phase ini*.
 
 ---
 
@@ -121,7 +119,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 |---|---|---|---|---|---|
 | 0 | Foundation | ✅ | ✅ | ✅ #1–#3 | ✅ |
 | 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11, #15 | ✅ |
-| 2 | CRM Core | ⬜ | ⬜ | ⬜ | ⬜ |
+| 2 | CRM Core | ✅ | ✅ | ✅ #19–#23 | ⬜ |
 | 3 | Owner Dashboard | ⬜ | ⬜ | ⬜ | ⬜ |
 | 4 | Public API | ⬜ | ⬜ | ⬜ | ⬜ |
 | 5 | Employee Mobile | ⬜ | ⬜ | ⬜ | ⬜ |
