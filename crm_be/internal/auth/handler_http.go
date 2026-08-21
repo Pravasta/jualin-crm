@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authn"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/ratelimit"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/token"
@@ -71,7 +72,10 @@ func NewHandler(usecase *Usecase, cookies CookieConfig) *Handler {
 }
 
 // RegisterRoutes mounts every /v1/auth/* endpoint plus GET /v1/me.
-func (h *Handler) RegisterRoutes(r gin.IRouter) {
+// authMW is built once at the composition root (authn.Middleware) and
+// shared across every domain's protected routes — auth does not
+// construct its own; see internal/shared/authn.
+func (h *Handler) RegisterRoutes(r gin.IRouter, authMW gin.HandlerFunc) {
 	g := r.Group("/v1/auth")
 	g.POST("/register", h.register)
 	g.POST("/verify-email", h.verifyEmail)
@@ -83,7 +87,7 @@ func (h *Handler) RegisterRoutes(r gin.IRouter) {
 	g.POST("/password/reset", h.resetPassword)
 
 	protected := r.Group("/v1")
-	protected.Use(AuthMiddleware(h.usecase))
+	protected.Use(authMW)
 	protected.GET("/me", h.me)
 }
 
@@ -314,7 +318,7 @@ func (h *Handler) resetPassword(c *gin.Context) {
 }
 
 func (h *Handler) me(c *gin.Context) {
-	t := TenantFromContext(c)
+	t := authn.TenantFromContext(c)
 
 	out, err := h.usecase.Me(c.Request.Context(), t)
 	if err != nil {
@@ -334,8 +338,8 @@ func (h *Handler) me(c *gin.Context) {
 }
 
 // readRefreshToken prefers the refresh_token cookie (dashboard) over the
-// request body (mobile) — mirrors extractAccessToken's bearer-over-cookie
-// preference in middleware.go, applied to the opposite credential.
+// request body (mobile) — mirrors authn's bearer-over-cookie preference
+// for the access token, applied to the opposite credential.
 func (h *Handler) readRefreshToken(c *gin.Context) (raw string, viaCookie bool) {
 	if cookie, err := c.Cookie(refreshTokenCookieName); err == nil && cookie != "" {
 		return cookie, true
@@ -372,7 +376,7 @@ const refreshTokenCookieName = "refresh_token"
 
 func (h *Handler) setAuthCookies(c *gin.Context, accessToken, refreshToken string, accessTTL, refreshTTL time.Duration) {
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(accessTokenCookieName, accessToken, int(accessTTL.Seconds()), "/", h.cookies.Domain, h.cookies.Secure, true)
+	c.SetCookie(authn.AccessTokenCookieName, accessToken, int(accessTTL.Seconds()), "/", h.cookies.Domain, h.cookies.Secure, true)
 	c.SetCookie(refreshTokenCookieName, refreshToken, int(refreshTTL.Seconds()), "/", h.cookies.Domain, h.cookies.Secure, true)
 
 	// csrf_token is deliberately NOT HttpOnly — JavaScript must read it
@@ -385,7 +389,7 @@ func (h *Handler) setAuthCookies(c *gin.Context, accessToken, refreshToken strin
 
 func (h *Handler) clearAuthCookies(c *gin.Context) {
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(accessTokenCookieName, "", -1, "/", h.cookies.Domain, h.cookies.Secure, true)
+	c.SetCookie(authn.AccessTokenCookieName, "", -1, "/", h.cookies.Domain, h.cookies.Secure, true)
 	c.SetCookie(refreshTokenCookieName, "", -1, "/", h.cookies.Domain, h.cookies.Secure, true)
 	c.SetCookie(httpx.CSRFCookieName, "", -1, "/", h.cookies.Domain, h.cookies.Secure, false)
 }

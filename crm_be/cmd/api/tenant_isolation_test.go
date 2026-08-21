@@ -1,0 +1,227 @@
+package main
+
+// TestTenantIsolation_* is multi-tenancy.md's lapis 4 — the generic,
+// CI-blocking harness proving cross-tenant access returns 404 (never
+// 403 — Rule #6). It runs against the FULLY wired router (newRouter,
+// real Postgres via dbtest), the same composition production traffic
+// goes through, because that's the only way "generic over the route
+// list" means anything: testing each domain's Usecase in isolation (as
+// the internal/membership and internal/invitation test suites already
+// do) can't catch a routing or wiring mistake that only shows up when
+// everything is assembled together.
+//
+// Table-driven over isolationCase — short today (three entries), built
+// so Phase 2 appends `lead` cases to the same slice rather than writing
+// a new harness.
+//
+// Quality bar (freeze bagian 5, lapis 4): this harness must be provably
+// able to fail. Verified manually during #11's implementation by
+// temporarily removing the "AND organization_id = $2" predicate from
+// membership.postgresRepository.FindByID and re-running this file — it
+// went red. See docs/phases/01-auth-organization/notes.md's "## #11"
+// section for the exact procedure and output; the change itself was
+// never committed.
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Pravasta/jualin-crm/crm_be/internal/invitation"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/membership"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/accesstoken"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/config"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db/dbtest"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
+)
+
+const isolationJWTSecret = "isolation-test-jwt-secret-32-bytes-long"
+
+func isolationTestConfig() *config.Config {
+	return &config.Config{
+		AppEnv:                   "development",
+		MailProvider:             "log",
+		AppBaseURL:               "http://localhost:3000",
+		JWTSecret:                isolationJWTSecret,
+		AccessTokenTTL:           15 * time.Minute,
+		RefreshTokenTTLDashboard: 720 * time.Hour,
+		RefreshTokenTTLMobile:    2160 * time.Hour,
+	}
+}
+
+// newIsolationRouter builds the exact production router (newRouter) —
+// every domain wired — against a fresh dbtest Postgres instance.
+func newIsolationRouter(t *testing.T) (*gin.Engine, *pgxpool.Pool) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	pool := dbtest.NewPool(t)
+	return newRouter(testLogger(), pool, isolationTestConfig()), pool
+}
+
+// mintBearerToken issues a real access token signed with the same
+// secret newRouter's AuthMiddleware verifies against — bypassing the
+// register/verify-email/login HTTP round trip, which isn't what this
+// harness is testing. Bearer (not cookie) so CSRF never enters into it.
+func mintBearerToken(t *testing.T, userID, orgID, membershipID uuid.UUID, role tenant.Role) string {
+	t.Helper()
+	tok, err := accesstoken.Issue([]byte(isolationJWTSecret), 15*time.Minute, userID, orgID, membershipID, role)
+	if err != nil {
+		t.Fatalf("mint access token: %v", err)
+	}
+	return tok
+}
+
+func doIsolationRequest(r *gin.Engine, method, path, bearer string, body any) *httptest.ResponseRecorder {
+	var reader *bytes.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		reader = bytes.NewReader(b)
+	} else {
+		reader = bytes.NewReader(nil)
+	}
+	req := httptest.NewRequest(method, path, reader)
+	req.Header.Set("Content-Type", "application/json")
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// seedOrgOwner creates an organization with one owner membership,
+// directly via each domain's repository — no HTTP round trip, since
+// registration itself is #9's concern, already covered there.
+func seedOrgOwner(t *testing.T, pool *pgxpool.Pool, orgName, email string) (orgID, userID, membershipID uuid.UUID) {
+	t.Helper()
+	ctx := t.Context()
+	orgID = uuid.Must(uuid.NewV7())
+	if _, err := pool.Exec(ctx, `INSERT INTO organizations (id, name) VALUES ($1, $2)`, orgID, orgName); err != nil {
+		t.Fatalf("seed org: %v", err)
+	}
+	userID = uuid.Must(uuid.NewV7())
+	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email, password_hash, full_name, email_verified_at) VALUES ($1, $2, 'x', 'Owner', now())`, userID, email); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	repo := membership.New(pool)
+	m, err := repo.Create(ctx, tenant.Context{OrganizationID: orgID}, uuid.Must(uuid.NewV7()), userID, tenant.RoleOwner)
+	if err != nil {
+		t.Fatalf("seed owner membership: %v", err)
+	}
+	return orgID, userID, m.ID
+}
+
+// isolationCase is one entry in the generic route table — a mutating
+// by-id endpoint that must 404 (never 403) when the id belongs to
+// another organization.
+type isolationCase struct {
+	name   string
+	method string
+	path   func(targetID uuid.UUID) string
+	body   any
+}
+
+func TestTenantIsolation_CrossOrgMutatingByID_Returns404(t *testing.T) {
+	r, pool := newIsolationRouter(t)
+
+	orgA, _, ownerAMembershipID := seedOrgOwner(t, pool, "Org A", "owner-a@example.com")
+	tokenA := mintBearerToken(t, uuid.Must(uuid.NewV7()), orgA, ownerAMembershipID, tenant.RoleOwner)
+
+	orgB, targetUserB, targetMembershipB := seedOrgOwner(t, pool, "Org B", "owner-b@example.com")
+	_ = targetUserB
+
+	invRepo := invitation.New(pool)
+	invB := &invitation.Invitation{
+		ID:                    uuid.Must(uuid.NewV7()),
+		OrganizationID:        orgB,
+		Email:                 "invitee-b@example.com",
+		Role:                  tenant.RoleEmployee,
+		TokenHash:             "isolation-test-hash-" + uuid.Must(uuid.NewV7()).String(),
+		InvitedByMembershipID: targetMembershipB,
+		ExpiresAt:             time.Now().Add(24 * time.Hour),
+	}
+	if err := invRepo.Create(t.Context(), invB); err != nil {
+		t.Fatalf("seed invitation in org B: %v", err)
+	}
+
+	cases := []isolationCase{
+		{
+			name:   "PATCH /v1/memberships/{id} on another org's membership",
+			method: http.MethodPatch,
+			path:   func(id uuid.UUID) string { return "/v1/memberships/" + id.String() },
+			body:   map[string]string{"role": "manager"},
+		},
+		{
+			name:   "DELETE /v1/memberships/{id} on another org's membership",
+			method: http.MethodDelete,
+			path:   func(id uuid.UUID) string { return "/v1/memberships/" + id.String() },
+		},
+		{
+			name:   "DELETE /v1/invitations/{id} on another org's invitation",
+			method: http.MethodDelete,
+			path:   func(id uuid.UUID) string { return "/v1/invitations/" + id.String() },
+		},
+	}
+
+	targetIDs := map[string]uuid.UUID{
+		"PATCH /v1/memberships/{id} on another org's membership":  targetMembershipB,
+		"DELETE /v1/memberships/{id} on another org's membership": targetMembershipB,
+		"DELETE /v1/invitations/{id} on another org's invitation": invB.ID,
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := doIsolationRequest(r, tc.method, tc.path(targetIDs[tc.name]), tokenA, tc.body)
+			if w.Code != http.StatusNotFound {
+				t.Fatalf("expected 404 for cross-org access, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestTenantIsolation_MultiMembership_OnlySeesActiveOrgInToken is
+// multi-tenancy.md lapis 4 case #5 (ADR-007) — a user with memberships
+// in two organizations must not see the other organization's data
+// through the one currently active in their token, even though the
+// schema permits both memberships to exist simultaneously.
+func TestTenantIsolation_MultiMembership_OnlySeesActiveOrgInToken(t *testing.T) {
+	r, pool := newIsolationRouter(t)
+	ctx := t.Context()
+
+	orgA, sharedUserID, membershipInA := seedOrgOwner(t, pool, "Shared Org A", "shared-user@example.com")
+
+	orgB := uuid.Must(uuid.NewV7())
+	if _, err := pool.Exec(ctx, `INSERT INTO organizations (id, name) VALUES ($1, 'Shared Org B')`, orgB); err != nil {
+		t.Fatalf("seed org B: %v", err)
+	}
+	repo := membership.New(pool)
+	if _, err := repo.Create(ctx, tenant.Context{OrganizationID: orgB}, uuid.Must(uuid.NewV7()), sharedUserID, tenant.RoleEmployee); err != nil {
+		t.Fatalf("seed membership in org B for the same user: %v", err)
+	}
+
+	tokenScopedToA := mintBearerToken(t, sharedUserID, orgA, membershipInA, tenant.RoleOwner)
+
+	w := doIsolationRequest(r, http.MethodGet, "/v1/memberships", tokenScopedToA, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Data) != 1 {
+		t.Fatalf("expected exactly 1 member visible (org A's owner only), got %d: %s", len(body.Data), w.Body.String())
+	}
+}

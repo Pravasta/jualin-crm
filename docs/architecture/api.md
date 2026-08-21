@@ -110,6 +110,8 @@ Bertambah seiring fitur. Setiap kode baru dicatat di sini.
 | 400 | `invalid_token` | Token verifikasi/reset/undangan tidak valid atau kedaluwarsa (issue #9, #10) |
 | 401 | `authentication_required` | Endpoint terautentikasi diakses tanpa kredensial valid (issue #10) |
 | 403 | `csrf_token_invalid` | Request cookie non-GET tanpa `X-CSRF-Token` yang cocok (issue #10) |
+| 409 | `last_owner_cannot_be_removed` | Owner terakhir organization mencoba menonaktifkan dirinya sendiri (issue #11) |
+| 409 | `invitation_already_accepted` | Undangan yang tokennya valid tapi sudah pernah diterima (issue #11) |
 
 ### Perluasan envelope — `organization_selection_required`
 

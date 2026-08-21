@@ -219,6 +219,29 @@ func (r *postgresRefreshTokenRepository) RevokeAllByUserID(ctx context.Context, 
 	return nil
 }
 
+// NewRefreshTokenRevoker exposes the same concrete implementation as
+// NewRefreshTokenRepository, but typed as the narrower
+// RefreshTokenRevoker — see that interface's doc comment in port.go for
+// why this exists as a second constructor rather than widening
+// RefreshTokenRepository itself.
+func NewRefreshTokenRevoker(q db.Querier) RefreshTokenRevoker {
+	return &postgresRefreshTokenRepository{q: q}
+}
+
+// RevokeAllByMembershipID revokes every refresh token issued for one
+// membership — used when that membership is deactivated. Unlike
+// RevokeAllByUserID (password reset, cross-organization by design), this
+// stays within a single organization: deactivating a user's membership
+// in Org A must not touch their session in Org B.
+func (r *postgresRefreshTokenRepository) RevokeAllByMembershipID(ctx context.Context, membershipID uuid.UUID) error {
+	const q = `UPDATE refresh_tokens SET revoked_at = now() WHERE membership_id = $1 AND revoked_at IS NULL`
+	_, err := r.q.Exec(ctx, q, membershipID)
+	if err != nil {
+		return fmt.Errorf("auth: revoke all refresh tokens for membership: %w", err)
+	}
+	return nil
+}
+
 type refreshTokenScanner interface {
 	Scan(dest ...any) error
 }

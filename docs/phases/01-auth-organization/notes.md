@@ -231,4 +231,85 @@ Seluruh acceptance criteria issue #10 (checklist & acceptance criteria di GitHub
 
 - **Jangan tambahkan field `required` baru ke `internal/shared/config.Config` tanpa memeriksa `cmd/migrate`.** Kejadian di atas (JWT_SECRET) kemungkinan besar akan terulang untuk field wajib berikutnya kalau tidak diperiksa — pertimbangkan pola `migrateConfig` yang sama untuk binary lain yang mungkin muncul (`cmd/worker`, dst.) bila mereka juga tidak butuh seluruh `Config`.
 - **Issue #11 (RBAC, invitation, membership deactivation, harness isolasi tenant) adalah penutup Phase 1.** `authorization.md` dibuat di sana, bukan di sini — `authentication.md` (issue #10) sudah menyebutkan `AuthMiddleware` tapi belum ada RBAC di atasnya.
-- **`AuthMiddleware` hanya melindungi `GET /v1/me` saat ini** — satu-satunya endpoint terautentikasi di Phase 1. Endpoint terautentikasi berikutnya (Phase 2 CRM Core) tinggal masuk grup `protected` yang sama di `RegisterRoutes`.
+- **`AuthMiddleware` hanya melindungi `GET /v1/me` saat ini** — satu-satunya endpoint terautentikasi di Phase 1. Endpoint terautentikasi berikutnya (Phase 2 CRM Core) tinggal masuk grup `protected` yang sama di `RegisterRoutes`. **Superseded di #11** — lihat bagian `## #11` di bawah: middleware ini dipindah ke `internal/shared/authn` begitu domain kedua/ketiga membutuhkannya.
+
+---
+
+## #11 — RBAC, invitation, penonaktifan membership, harness isolasi tenant
+
+**Phase 1 selesai dengan issue ini.**
+
+### Menyimpang dari rencana issue
+
+| Yang berbeda | Alasan |
+|---|---|
+| `internal/auth/middleware.go` (`AuthMiddleware`/`TenantFromContext`, dari #10) **dipindah** ke `internal/shared/authn` sebelum `internal/membership`/`internal/invitation` ditulis | Direncanakan sejak awal issue ini (lihat catatan di atas), bukan penyimpangan murni — dicatat di sini karena inilah realisasinya: begitu dua domain baru butuh middleware sesi yang sama, itu literally "implementasi kedua yang nyata" (Aturan #27) yang jadi alasan ekstraksi. `internal/auth` tidak lagi mengekspor middleware apapun; `authn.ClaimsParser` (satu method, `ParseAccessToken`) adalah satu-satunya kontak antara `authn` dan `auth.Usecase`, dan `authn` sendiri tidak pernah mengimpor `internal/auth`. |
+| Rujukan "freeze bagian 6.2 (matriks)" di issue #11 dan TD §9 **salah** — freeze §6.2 adalah kerangka `docs/STATUS.md` | Ditemukan saat menyusun `authorization.md`. Matriks permission yang sebenarnya ada di `docs/brainstorming/architecture_product_review.md` §6.2. Dilaporkan (Aturan #30), bukan diam-diam diperbaiki di freeze — freeze hanya boleh berubah lewat ADR baru, dan ini bukan keputusan arsitektur, hanya rujukan yang salah ketik. |
+| Acceptance criterion "Employee mengakses resource employee lain → 404" **belum punya kasus nyata** di Phase 1 | `leads` (resource milik Employee) adalah Phase 2. Employee memang mendapat akses nol ke membership/invitation (403 untuk semua percobaan, bukan 404 — tidak ada resource untuk diakses sama sekali). Harness (`cmd/api/tenant_isolation_test.go`) dibangun generik atas `[]isolationCase` justru supaya Phase 2 tinggal menambah entri `lead`, bukan menulis ulang. Didokumentasikan di `multi-tenancy.md`'s tabel "Status Phase 1", bukan dipaksakan dengan resource buatan. |
+| `RefreshTokenRepository.RevokeAllByMembershipID` diekspos dari `internal/auth` lewat interface baru `RefreshTokenRevoker` + constructor `NewRefreshTokenRevoker`, bukan menambah method ke `RefreshTokenRepository` yang sudah ada | `auth.Usecase` sendiri tidak pernah memanggil method ini — menambahkannya ke `RefreshTokenRepository` akan melanggar "interface hanya berisi method yang dipakai consumer"-nya ADR-011 per-interface. Interface kedua yang sempit, khusus dikonsumsi `membership` lewat composition root, menjaga kedua interface tetap jujur soal siapa memakai apa. |
+
+### Keputusan implementasi
+
+- **`authz.Require` sengaja tidak menangani aturan #2/#3/#4** (owner terakhir, ubah role sendiri, admin vs owner) — hanya pertanyaan "role X boleh aksi kelas Y?". Aturan-aturan itu bergantung pada relasi actor-vs-target (baris database, bukan sekadar role), jadi tinggal sebagai pengecekan eksplisit di `membership.Usecase`. Alasan lengkap ada di `authorization.md`.
+- **Owner boleh mengangkat membership lain menjadi co-owner** — footnote matriks hanya membatasi Admin ("tidak boleh mengangkat siapapun jadi Owner"), dan schema tidak punya `UNIQUE` pada jumlah owner per organization. Dibuktikan lewat `TestUnit_UpdateRole_OwnerCanPromoteToCoOwner`.
+- **Rule #2 (owner terakhir) dicek dengan `CountActiveOwners` di dalam transaksi yang sama dengan write** — bukan baca-lalu-tulis terpisah, supaya tidak ada race dua request deactivate bersamaan yang sama-sama lolos pengecekan "masih ada owner lain".
+- **Bug nyata ditemukan lewat smoke test manual, bukan test otomatis**: user baru dari `invitation.Accept` (cabang user baru) gagal login dengan `email_not_verified` — `acceptNewUser` tidak pernah memanggil `User.MarkEmailVerified`, padahal B3 eksplisit menyatakan menerima undangan sekaligus memverifikasi email. Ditemukan setelah accept berhasil (201) tapi login berikutnya gagal saat smoke test `docker compose up`. Diperbaiki dengan menambah `MarkEmailVerified` ke `invitation.UserRepository` dan memanggilnya di dalam `InTx` yang sama dengan `User.Create`. **Test regresi ditambahkan di kedua level** (`TestUnit_Accept_NewUser_Success` dan `TestUsecase_AcceptNewUser_CreatesUserMembershipAndMarksAccepted`) — sebelum perbaikan ini, keduanya akan tetap hijau karena tidak pernah mengecek `email_verified_at` sama sekali. Dicatat sebagai pengingat: unit/integration test yang lengkap secara sintaksis masih bisa melewatkan bug lintas-Usecase yang hanya kelihatan lewat alur end-to-end sungguhan.
+- **Harness isolasi tenant dijalankan lewat router produksi sungguhan (`newRouter`)**, bukan Usecase per paket — satu-satunya cara "generik atas daftar route" berarti sesuatu: kesalahan wiring/routing yang hanya muncul saat semua domain dirakit bersama tidak akan tertangkap oleh test per-paket.
+- **Token akses untuk harness diterbitkan langsung lewat `accesstoken.Issue`**, bukan lewat alur register→verify→login sungguhan — alur itu sudah diuji tuntas di #9/#10; harness ini menguji isolasi tenant, bukan alur auth.
+
+### Verifikasi
+
+```
+go build ./...                              → bersih
+go vet ./...                                → bersih
+golangci-lint run                           → 0 issues
+gofmt -l .                                  → bersih
+go test -race -count=1 ./... (2x)           → semua PASS
+
+DOCKER_HOST=unix:///tmp/nonexistent-docker.sock \
+  go test ./internal/... -run 'TestUnit|TestRequire|TestLoginLimiter' -count=1
+                                             → PASS tanpa Docker (authz, membership, invitation, auth)
+
+go list -deps ./cmd/api | grep -i docker
+                                             → kosong
+```
+
+**Harness terbukti bisa gagal** (kriteria kualitas wajib, `multi-tenancy.md` lapis 4): predikat
+`AND organization_id = $2` dihapus sementara dari `membership.postgresRepository.FindByID`, harness
+dijalankan ulang:
+
+```
+=== RUN   TestTenantIsolation_CrossOrgMutatingByID_Returns404/PATCH_.../v1/memberships/{id}...
+    tenant_isolation_test.go:183: expected 404 for cross-org access, got 500
+=== RUN   TestTenantIsolation_CrossOrgMutatingByID_Returns404/DELETE_.../v1/memberships/{id}...
+    tenant_isolation_test.go:183: expected 404 for cross-org access, got 500
+--- FAIL: TestTenantIsolation_CrossOrgMutatingByID_Returns404 (3.16s)
+```
+
+Predikat dikembalikan sebelum commit; perubahan itu sendiri tidak pernah masuk riwayat git.
+
+**Smoke test manual** (`docker compose up --build`): register+verify+login owner → buat undangan
+(role employee) → ambil token dari log `LogMailer` → terima sebagai user baru → **login gagal
+`email_not_verified`** (bug, lihat di atas) → perbaiki → rebuild → ulangi: accept → login berhasil →
+`GET /v1/memberships` menampilkan 3 anggota → `DELETE /v1/memberships/{id}` pada employee yang baru →
+204 → refresh token employee itu dicoba lagi → `401 invalid_credentials`.
+
+Seluruh acceptance criteria issue #11 terpenuhi, termasuk seluruh test keamanan TD §14 yang relevan.
+
+### Utang teknis
+
+- Tidak ada item baru. `docs/STATUS.md` bagian Utang Teknis tetap seperti sebelumnya.
+- Kasus #1 dan #4 harness isolasi tenant (baca resource lintas tenant, employee vs resource employee
+  lain) belum punya kasus nyata sampai Phase 2 (`leads`) — dicatat di `multi-tenancy.md`, bukan
+  diabaikan diam-diam.
+
+### Catatan untuk session berikutnya
+
+- **Phase 1 (Auth & Organization) selesai.** Phase 2 (CRM Core) berikutnya — mulai dengan PRD+TD
+  Phase 2, bukan langsung issue implementasi (ADR-008).
+- **`cmd/api/tenant_isolation_test.go`'s `[]isolationCase`** adalah tempat menambah kasus isolasi
+  endpoint baru — jangan buat harness terpisah per domain. Kasus `lead` (Phase 2) menambah entri di
+  sini, sekaligus mengaktifkan kasus #1 dan #4 yang masih kosong di atas.
+- **`internal/shared/authz`'s `permissions` map** adalah tempat menambah `Action` baru saat Phase 2
+  memperkenalkan resource dengan RBAC (Lead, dst.) — ikuti matriks penuh di
+  `architecture_product_review.md` §6.2, bukan menebak ulang.

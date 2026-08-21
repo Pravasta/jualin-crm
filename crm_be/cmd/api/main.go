@@ -16,6 +16,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auth"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/invitation"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/membership"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authn"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/config"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
@@ -86,7 +89,20 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	}
 	authUsecase := auth.NewUsecase(authStore, mail, log, cfg.AppBaseURL, tokenCfg)
 	cookieCfg := auth.CookieConfig{Domain: cfg.CookieDomain, Secure: cfg.CookieSecure}
-	auth.NewHandler(authUsecase, cookieCfg).RegisterRoutes(r)
+
+	// authMW is built once here and shared across every domain's
+	// protected routes (internal/shared/authn) — no domain package
+	// imports internal/auth just to check who's logged in.
+	authMW := authn.Middleware(authUsecase)
+	optionalAuthMW := authn.OptionalMiddleware(authUsecase)
+
+	auth.NewHandler(authUsecase, cookieCfg).RegisterRoutes(r, authMW)
+
+	membershipUsecase := membership.NewUsecase(newMembershipStore(pool))
+	membership.NewHandler(membershipUsecase).RegisterRoutes(r, authMW)
+
+	invitationUsecase := invitation.NewUsecase(newInvitationStore(pool), mail, log, cfg.AppBaseURL)
+	invitation.NewHandler(invitationUsecase).RegisterRoutes(r, authMW, optionalAuthMW)
 
 	r.NoRoute(func(c *gin.Context) {
 		httpx.RespondError(c, http.StatusNotFound, "not_found", "Route tidak ditemukan.")

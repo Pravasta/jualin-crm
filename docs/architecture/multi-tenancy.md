@@ -100,7 +100,7 @@ RLS PostgreSQL dengan `SET LOCAL app.current_org_id` + policy per tabel.
 
 ## Lapis 4 — Test suite isolasi tenant
 
-**Wajib. Blocking di CI.**
+**Wajib. Blocking di CI.** Dibangun di issue #11 — `cmd/api/tenant_isolation_test.go`.
 
 ### Bentuknya generik, bukan per endpoint
 
@@ -117,14 +117,19 @@ Untuk setiap endpoint tenant-scoped:
 
 ### Kasus wajib
 
-| # | Kasus | Menjaga |
-|---|---|---|
-| 1 | Baca resource tenant lain → 404 | Lapis 1 |
-| 2 | Ubah/hapus resource tenant lain → 404 | Lapis 1 |
-| 3 | Menunjuk membership tenant lain di body → ditolak **database** | Lapis 2 |
-| 4 | Employee membaca lead employee lain di org yang sama → 404 | Otorisasi |
-| 5 | **User dengan dua membership** tidak bisa melihat data org yang tidak sedang aktif di token | ADR-007 |
-| 6 | Katalog: setiap tabel tenant-scoped punya `organization_id` + `UNIQUE (id, organization_id)` | Aturan #1, #2 |
+| # | Kasus | Menjaga | Status Phase 1 |
+|---|---|---|---|
+| 1 | Baca resource tenant lain → 404 | Lapis 1 | Tidak ada endpoint GET-by-id lintas tenant di Phase 1 (hanya list yang di-scope query, dan `GET /v1/invitations/token/{token}` yang memang publik by design) — belum ada kasus nyata |
+| 2 | Ubah/hapus resource tenant lain → 404 | Lapis 1 | ✅ `PATCH`/`DELETE /v1/memberships/{id}`, `DELETE /v1/invitations/{id}` — `TestTenantIsolation_CrossOrgMutatingByID_Returns404` |
+| 3 | Menunjuk membership tenant lain di body → ditolak **database** | Lapis 2 | Ditegakkan lewat composite FK sejak #8; belum ada endpoint Phase 1 yang menerima id membership lewat body request (invitation accept menunjuk lewat token, bukan id) |
+| 4 | Employee membaca lead employee lain di org yang sama → 404 | Otorisasi | Belum berlaku — `leads` adalah Phase 2. `authz` sudah memberi Employee akses nol ke membership/invitation, jadi belum ada resource untuk diuji kasus ini |
+| 5 | **User dengan dua membership** tidak bisa melihat data org yang tidak sedang aktif di token | ADR-007 | ✅ `TestTenantIsolation_MultiMembership_OnlySeesActiveOrgInToken` |
+| 6 | Katalog: setiap tabel tenant-scoped punya `organization_id` + `UNIQUE (id, organization_id)` | Aturan #1, #2 | ✅ Sejak #8 |
+
+**Kasus #1 dan #4 belum punya kasus nyata di Phase 1** — dicatat secara jujur di sini, bukan
+dipaksakan dengan resource buatan. Harness (`cmd/api/tenant_isolation_test.go`) sudah generik atas
+sebuah slice `[]isolationCase` — Phase 2 menambah entri untuk `lead` (yang akan mengaktifkan kasus #1
+dan #4 sekaligus) ke slice yang sama, bukan menulis harness baru.
 
 **Kasus #5 tidak boleh dilewatkan.** Schema mengizinkan multi-membership yang tidak diekspos UI; satu-satunya penjaganya adalah test ini.
 
@@ -135,6 +140,12 @@ Untuk setiap endpoint tenant-scoped:
 > Harness harus terbukti **bisa gagal**. Hapus `organization_id` dari satu query secara sengaja; kalau test tetap hijau, harness-nya belum benar.
 >
 > Test isolasi yang selalu hijau karena tidak benar-benar menguji apapun **lebih berbahaya daripada tidak ada test** — ia memberi rasa aman palsu pada semua session berikutnya.
+
+**Dibuktikan di #11**: predikat `AND organization_id = $2` dihapus sementara dari
+`membership.postgresRepository.FindByID`, harness dijalankan ulang — dua dari tiga subtest
+`TestTenantIsolation_CrossOrgMutatingByID_Returns404` langsung merah (500, bukan 404). Predikat
+dikembalikan sebelum commit; tidak pernah masuk riwayat git. Detail lengkap di
+`docs/phases/01-auth-organization/notes.md`'s `## #11`.
 
 ---
 
