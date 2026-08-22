@@ -4,27 +4,32 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
 )
 
-// Repository is a plain concrete type — no interface — mirroring
-// internal/membership's shape before #11 gave it a real usecase.
-// Interface-at-consumer (ADR-011) only makes sense once a consumer
-// exists to declare it; #20 adds port.go + usecase.go and renames this
-// to postgresRepository at that point, same migration membership already
-// went through.
-type Repository struct {
+const idempotencyUniqueConstraint = "uq_leads_org_idempotency"
+const assigneeFKConstraint = "fk_leads_assignee"
+
+// postgresRepository is the concrete implementation behind the
+// Repository interface (port.go). Unexported since #20 — callers depend
+// on the interface, not this type, so Usecase can be tested with a fake
+// (ADR-011). Through #19 this was the exported concrete type
+// (Repository); cross-package consumers never existed yet (there were
+// none), so this rename is invisible outside the package.
+type postgresRepository struct {
 	q db.Querier
 }
 
-func New(q db.Querier) *Repository {
-	return &Repository{q: q}
+func New(q db.Querier) Repository {
+	return &postgresRepository{q: q}
 }
 
 // Create allocates the next lead_number for t.OrganizationID and inserts
@@ -41,7 +46,7 @@ func New(q db.Querier) *Repository {
 // requires the transactional form. See
 // TestCreate_FailedInsertInsideInTx_DoesNotBurnLeadNumber in
 // repository_test.go for the proof of that specific guarantee.
-func (r *Repository) Create(ctx context.Context, t tenant.Context, in CreateInput) (*Lead, error) {
+func (r *postgresRepository) Create(ctx context.Context, t tenant.Context, in CreateInput) (*Lead, error) {
 	const allocQ = `
 		UPDATE organizations SET next_lead_number = next_lead_number + 1
 		WHERE id = $1
@@ -67,9 +72,42 @@ func (r *Repository) Create(ctx context.Context, t tenant.Context, in CreateInpu
 	)
 	created, err := scanLead(row)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			if pgErr.Code == "23505" && pgErr.ConstraintName == idempotencyUniqueConstraint {
+				return nil, ErrIdempotencyKeyExists
+			}
+			// 23503 = FK violation. Found via a test that (by mistake)
+			// assigned a lead to a membership id that didn't exist —
+			// which surfaced as a bare 500 before this check existed.
+			// assigned_to_membership_id is the only nullable FK a
+			// caller-supplied value can violate here.
+			if pgErr.Code == "23503" && pgErr.ConstraintName == assigneeFKConstraint {
+				return nil, ErrAssigneeNotFound
+			}
+		}
 		return nil, fmt.Errorf("lead: create: %w", err)
 	}
 	return created, nil
+}
+
+// FindByIdempotencyKey is how the usecase resolves ErrIdempotencyKeyExists
+// into the existing lead to return instead of erroring.
+func (r *postgresRepository) FindByIdempotencyKey(ctx context.Context, t tenant.Context, key string) (*Lead, error) {
+	const q = `
+		SELECT ` + leadColumns + `
+		FROM leads
+		WHERE organization_id = $1 AND idempotency_key = $2 AND deleted_at IS NULL`
+
+	row := r.q.QueryRow(ctx, q, t.OrganizationID, key)
+	found, err := scanLead(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, httpx.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lead: find by idempotency key: %w", err)
+	}
+	return found, nil
 }
 
 // FindByID is tenant-scoped (Rule #6: cross-org → httpx.ErrNotFound) and,
@@ -77,7 +115,7 @@ func (r *Repository) Create(ctx context.Context, t tenant.Context, in CreateInpu
 // t.MembershipID (TD §9 — the PRD's core requirement for this issue,
 // enforced here once rather than in every future usecase method that
 // touches a single lead).
-func (r *Repository) FindByID(ctx context.Context, t tenant.Context, id uuid.UUID) (*Lead, error) {
+func (r *postgresRepository) FindByID(ctx context.Context, t tenant.Context, id uuid.UUID) (*Lead, error) {
 	const q = `
 		SELECT ` + leadColumns + `
 		FROM leads
@@ -107,7 +145,7 @@ func (r *Repository) FindByID(ctx context.Context, t tenant.Context, id uuid.UUI
 // row not visible in this scope → httpx.ErrNotFound; row visible but
 // version differs → (current state, ErrVersionConflict), so the future
 // usecase can build TD §4's 409 body without a second round trip.
-func (r *Repository) Update(ctx context.Context, t tenant.Context, id uuid.UUID, expectedVersion int, in UpdateInput) (*Lead, error) {
+func (r *postgresRepository) Update(ctx context.Context, t tenant.Context, id uuid.UUID, expectedVersion int, in UpdateInput) (*Lead, error) {
 	const q = `
 		UPDATE leads
 		SET version = version + 1,
@@ -137,6 +175,129 @@ func (r *Repository) Update(ctx context.Context, t tenant.Context, id uuid.UUID,
 		return nil, fmt.Errorf("lead: update: %w", err)
 	}
 	return updated, nil
+}
+
+// FindAllByOrg builds its WHERE clause by hand (no query-builder
+// library — sqlc/pgx, not an ORM) from whichever filter fields are set,
+// sharing one args slice between the count query and the paginated
+// select so the two never drift apart. Employee scoping is applied
+// UNCONDITIONALLY when t.Role is employee, regardless of filter.AssignedTo
+// — an employee's own filter can only narrow their view further, never
+// widen past their own leads (same rule FindByID/Update already enforce).
+func (r *postgresRepository) FindAllByOrg(ctx context.Context, t tenant.Context, filter ListFilter) ([]*Lead, int, error) {
+	conditions := []string{"organization_id = $1", "deleted_at IS NULL"}
+	args := []any{t.OrganizationID}
+
+	arg := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	if isEmployee(t) {
+		conditions = append(conditions, "assigned_to_membership_id = "+arg(membershipIDOrNil(t)))
+	} else if filter.AssignedToNone {
+		conditions = append(conditions, "assigned_to_membership_id IS NULL")
+	} else if filter.AssignedTo != nil {
+		conditions = append(conditions, "assigned_to_membership_id = "+arg(*filter.AssignedTo))
+	}
+
+	if len(filter.Status) > 0 {
+		conditions = append(conditions, "status = ANY("+arg(filter.Status)+")")
+	}
+	if len(filter.Source) > 0 {
+		conditions = append(conditions, "source = ANY("+arg(filter.Source)+")")
+	}
+	if filter.Query != "" {
+		p := arg("%" + filter.Query + "%")
+		conditions = append(conditions, fmt.Sprintf("(name ILIKE %s OR email ILIKE %s OR phone_e164 ILIKE %s)", p, p, p))
+	}
+	if filter.CreatedFrom != nil {
+		conditions = append(conditions, "created_at >= "+arg(*filter.CreatedFrom))
+	}
+	if filter.CreatedTo != nil {
+		conditions = append(conditions, "created_at <= "+arg(*filter.CreatedTo))
+	}
+
+	where := strings.Join(conditions, " AND ")
+
+	var total int
+	countQ := "SELECT count(*) FROM leads WHERE " + where
+	if err := r.q.QueryRow(ctx, countQ, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("lead: count: %w", err)
+	}
+
+	perPage := filter.PerPage
+	offset := (filter.Page - 1) * perPage
+	listQ := "SELECT " + leadColumns + " FROM leads WHERE " + where +
+		" ORDER BY created_at DESC LIMIT " + arg(perPage) + " OFFSET " + arg(offset)
+
+	rows, err := r.q.Query(ctx, listQ, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("lead: find all by org: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*Lead
+	for rows.Next() {
+		l, err := scanLead(rows)
+		if err != nil {
+			return nil, 0, fmt.Errorf("lead: scan: %w", err)
+		}
+		out = append(out, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("lead: find all by org: %w", err)
+	}
+	return out, total, nil
+}
+
+// UpdateStatus mirrors Update's version+scope-gated shape exactly, but
+// only ever touches status/lost_reason/version — the transition
+// validity check itself lives in Usecase.UpdateStatus (TD §5 is
+// business logic, not a repository concern).
+func (r *postgresRepository) UpdateStatus(ctx context.Context, t tenant.Context, id uuid.UUID, expectedVersion int, status string, lostReason *string) (*Lead, error) {
+	const q = `
+		UPDATE leads
+		SET version = version + 1, status = $5, lost_reason = $6
+		WHERE id = $1 AND organization_id = $2 AND version = $3 AND deleted_at IS NULL
+		  AND (NOT $4 OR assigned_to_membership_id = $7)
+		RETURNING ` + leadColumns
+
+	row := r.q.QueryRow(ctx, q,
+		id, t.OrganizationID, expectedVersion, isEmployee(t),
+		status, lostReason, membershipIDOrNil(t),
+	)
+	updated, err := scanLead(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		current, findErr := r.FindByID(ctx, t, id)
+		if findErr != nil {
+			return nil, findErr
+		}
+		return current, ErrVersionConflict
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lead: update status: %w", err)
+	}
+	return updated, nil
+}
+
+// Delete soft-deletes id within t's scope (Rule #18). No version check —
+// TD doesn't gate delete on optimistic locking the way it does field/status
+// updates; deleting an already-stale-looking row is still a safe delete.
+func (r *postgresRepository) Delete(ctx context.Context, t tenant.Context, id uuid.UUID) error {
+	const q = `
+		UPDATE leads SET deleted_at = now()
+		WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+		  AND (NOT $3 OR assigned_to_membership_id = $4)`
+
+	tag, err := r.q.Exec(ctx, q, id, t.OrganizationID, isEmployee(t), membershipIDOrNil(t))
+	if err != nil {
+		return fmt.Errorf("lead: delete: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return httpx.ErrNotFound
+	}
+	return nil
 }
 
 func isEmployee(t tenant.Context) bool {
