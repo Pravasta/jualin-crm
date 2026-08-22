@@ -21,6 +21,10 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleOwner, authz.ActionInvitationCreate, true},
 		{tenant.RoleOwner, authz.ActionInvitationList, true},
 		{tenant.RoleOwner, authz.ActionInvitationRevoke, true},
+		{tenant.RoleOwner, authz.ActionLeadCreate, true},
+		{tenant.RoleOwner, authz.ActionLeadRead, true},
+		{tenant.RoleOwner, authz.ActionLeadUpdate, true},
+		{tenant.RoleOwner, authz.ActionLeadDelete, true},
 
 		{tenant.RoleAdmin, authz.ActionMembershipList, true},
 		{tenant.RoleAdmin, authz.ActionMembershipUpdateRole, true},
@@ -28,6 +32,10 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleAdmin, authz.ActionInvitationCreate, true},
 		{tenant.RoleAdmin, authz.ActionInvitationList, true},
 		{tenant.RoleAdmin, authz.ActionInvitationRevoke, true},
+		{tenant.RoleAdmin, authz.ActionLeadCreate, true},
+		{tenant.RoleAdmin, authz.ActionLeadRead, true},
+		{tenant.RoleAdmin, authz.ActionLeadUpdate, true},
+		{tenant.RoleAdmin, authz.ActionLeadDelete, true},
 
 		{tenant.RoleManager, authz.ActionMembershipList, true},
 		{tenant.RoleManager, authz.ActionMembershipUpdateRole, false},
@@ -35,6 +43,10 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleManager, authz.ActionInvitationCreate, false},
 		{tenant.RoleManager, authz.ActionInvitationList, false},
 		{tenant.RoleManager, authz.ActionInvitationRevoke, false},
+		{tenant.RoleManager, authz.ActionLeadCreate, true},
+		{tenant.RoleManager, authz.ActionLeadRead, true},
+		{tenant.RoleManager, authz.ActionLeadUpdate, true},
+		{tenant.RoleManager, authz.ActionLeadDelete, false},
 
 		{tenant.RoleEmployee, authz.ActionMembershipList, false},
 		{tenant.RoleEmployee, authz.ActionMembershipUpdateRole, false},
@@ -42,6 +54,10 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleEmployee, authz.ActionInvitationCreate, false},
 		{tenant.RoleEmployee, authz.ActionInvitationList, false},
 		{tenant.RoleEmployee, authz.ActionInvitationRevoke, false},
+		{tenant.RoleEmployee, authz.ActionLeadCreate, false},
+		{tenant.RoleEmployee, authz.ActionLeadRead, true}, // repository further restricts to own leads
+		{tenant.RoleEmployee, authz.ActionLeadUpdate, true},
+		{tenant.RoleEmployee, authz.ActionLeadDelete, false},
 	}
 
 	for _, c := range cases {

@@ -1,0 +1,299 @@
+package lead
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authz"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/phone"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
+)
+
+const (
+	defaultPerPage = 25
+	maxPerPage     = 100
+)
+
+var validSources = map[string]bool{"manual": true, "api": true, "form": true, "webhook": true}
+
+// Usecase depends only on Store (port.go), never on *pgxpool.Pool or
+// pgx.Tx directly (ADR-011). No mailer, no logger — leads don't send
+// email.
+type Usecase struct {
+	store Store
+}
+
+func NewUsecase(store Store) *Usecase {
+	return &Usecase{store: store}
+}
+
+// Create validates and normalizes in, then persists it. isNew is false
+// when in.IdempotencyKey collided with an existing lead — the caller
+// gets that lead back instead of an error, and the handler responds 200
+// instead of 201 (TD §7: idempotent replay returns the ORIGINAL
+// response, never a second lead and never an error).
+func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateLeadInput) (result *Lead, isNew bool, err error) {
+	if err := authz.Require(t, authz.ActionLeadCreate); err != nil {
+		return nil, false, err
+	}
+
+	if in.Name == "" {
+		return nil, false, httpx.NewValidationError(httpx.ErrorDetail{Field: "name", Code: "required"})
+	}
+	source := in.Source
+	if source == "" {
+		source = "manual"
+	} else if !validSources[source] {
+		return nil, false, httpx.NewValidationError(httpx.ErrorDetail{Field: "source", Code: "invalid_value"})
+	}
+
+	email := normalizeEmail(in.Email)
+	phoneE164 := normalizePhone(in.Phone)
+
+	repoIn := CreateInput{
+		Name:                   in.Name,
+		Email:                  email,
+		Phone:                  in.Phone,
+		PhoneE164:              phoneE164,
+		Company:                in.Company,
+		Notes:                  in.Notes,
+		Source:                 source,
+		AssignedToMembershipID: in.AssignedToMembershipID,
+		CreatedByMembershipID:  t.MembershipID,
+		IdempotencyKey:         in.IdempotencyKey,
+	}
+
+	var created *Lead
+	txErr := u.store.InTx(ctx, func(r Repos) error {
+		c, err := r.Lead.Create(ctx, t, repoIn)
+		if err != nil {
+			return err
+		}
+		created = c
+		return nil
+	})
+	if txErr != nil {
+		if errors.Is(txErr, ErrIdempotencyKeyExists) {
+			existing, err := u.store.Repos().Lead.FindByIdempotencyKey(ctx, t, *in.IdempotencyKey)
+			if err != nil {
+				return nil, false, fmt.Errorf("lead: create: resolve idempotent replay: %w", err)
+			}
+			return existing, false, nil
+		}
+		if errors.Is(txErr, ErrAssigneeNotFound) {
+			return nil, false, httpx.NewValidationError(httpx.ErrorDetail{Field: "assigned_to_membership_id", Code: "not_found"})
+		}
+		return nil, false, fmt.Errorf("lead: create: %w", txErr)
+	}
+	return created, true, nil
+}
+
+func (u *Usecase) Get(ctx context.Context, t tenant.Context, id uuid.UUID) (*Lead, error) {
+	if err := authz.Require(t, authz.ActionLeadRead); err != nil {
+		return nil, err
+	}
+	found, err := u.store.Repos().Lead.FindByID(ctx, t, id)
+	if err != nil {
+		return nil, err
+	}
+	return found, nil
+}
+
+// ListInput is List's argument — raw query-param values; List clamps
+// Page/PerPage before delegating to the repository.
+type ListInput struct {
+	Status         []string
+	Source         []string
+	AssignedTo     *uuid.UUID
+	AssignedToNone bool
+	Query          string
+	CreatedFrom    *time.Time
+	CreatedTo      *time.Time
+	Page           int
+	PerPage        int
+}
+
+func (u *Usecase) List(ctx context.Context, t tenant.Context, in ListInput) ([]*Lead, httpx.Meta, error) {
+	if err := authz.Require(t, authz.ActionLeadRead); err != nil {
+		return nil, httpx.Meta{}, err
+	}
+
+	page := in.Page
+	if page < 1 {
+		page = 1
+	}
+	perPage := in.PerPage
+	if perPage <= 0 {
+		perPage = defaultPerPage
+	} else if perPage > maxPerPage {
+		perPage = maxPerPage
+	}
+
+	filter := ListFilter{
+		Status:         in.Status,
+		Source:         in.Source,
+		AssignedTo:     in.AssignedTo,
+		AssignedToNone: in.AssignedToNone,
+		Query:          in.Query,
+		CreatedFrom:    in.CreatedFrom,
+		CreatedTo:      in.CreatedTo,
+		Page:           page,
+		PerPage:        perPage,
+	}
+
+	leads, total, err := u.store.Repos().Lead.FindAllByOrg(ctx, t, filter)
+	if err != nil {
+		return nil, httpx.Meta{}, fmt.Errorf("lead: list: %w", err)
+	}
+	return leads, httpx.Meta{Page: page, PerPage: perPage, Total: total}, nil
+}
+
+func (u *Usecase) Update(ctx context.Context, t tenant.Context, id uuid.UUID, in UpdateLeadInput) (*Lead, error) {
+	if err := authz.Require(t, authz.ActionLeadUpdate); err != nil {
+		return nil, err
+	}
+
+	repoIn := UpdateInput{
+		Name:    in.Name,
+		Email:   normalizeEmail(in.Email),
+		Phone:   in.Phone,
+		Company: in.Company,
+		Notes:   in.Notes,
+	}
+	// Phone normalization only replaces PhoneE164 when the new phone
+	// parses — UpdateInput has no PhoneE164 field (see its doc comment
+	// in entity.go: this minimal Update can't clear a field to NULL,
+	// and phone_e164 has the same limitation for now).
+
+	updated, err := u.store.Repos().Lead.Update(ctx, t, id, in.Version, repoIn)
+	if errors.Is(err, ErrVersionConflict) {
+		return nil, &VersionConflictError{Current: updated}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// UpdateStatus validates the transition (TD §5) before touching the
+// database — loading the current lead first is what makes that possible
+// (transition validity depends on the FROM status, which the client's
+// requested Version alone doesn't tell us).
+func (u *Usecase) UpdateStatus(ctx context.Context, t tenant.Context, id uuid.UUID, in UpdateStatusInput) (*Lead, error) {
+	if err := authz.Require(t, authz.ActionLeadUpdate); err != nil {
+		return nil, err
+	}
+
+	current, err := u.store.Repos().Lead.FindByID(ctx, t, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if !validateStatusTransition(current.Status, in.Status) {
+		return nil, invalidStatusTransitionError()
+	}
+
+	var lostReason *string
+	if in.Status == StatusLost {
+		if in.LostReason == nil || *in.LostReason == "" {
+			return nil, httpx.NewValidationError(httpx.ErrorDetail{Field: "lost_reason", Code: "required"})
+		}
+		lostReason = in.LostReason
+	}
+	// Leaving lost (or any non-lost destination) always clears
+	// lost_reason, regardless of what the client sent — TD §5.
+
+	updated, err := u.store.Repos().Lead.UpdateStatus(ctx, t, id, in.Version, in.Status, lostReason)
+	if errors.Is(err, ErrVersionConflict) {
+		return nil, &VersionConflictError{Current: updated}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func (u *Usecase) Delete(ctx context.Context, t tenant.Context, id uuid.UUID) error {
+	if err := authz.Require(t, authz.ActionLeadDelete); err != nil {
+		return err
+	}
+	return u.store.Repos().Lead.Delete(ctx, t, id)
+}
+
+// validateStatusTransition implements TD §5, with one documented
+// approximation: leaving "lost" allows moving to ANY main-path status,
+// not specifically the one it left from — that requires history only
+// activities (#21) provides, and leads itself never remembers what its
+// status was before the last transition. See notes.md's "## #20" for
+// the full reasoning; none of this issue's acceptance criteria exercise
+// that specific case.
+func validateStatusTransition(from, to string) bool {
+	if from == StatusUnqualified || from == StatusSpam {
+		return false // final — no outgoing transition at all
+	}
+	if to == from {
+		return to == StatusLost // only allowed same-status case: updating lost_reason
+	}
+	if to == StatusUnqualified || to == StatusSpam || to == StatusLost {
+		return true // reachable from any non-final status
+	}
+
+	toIdx := mainPathIndex(to)
+	if toIdx == -1 {
+		return false // not a real status at all
+	}
+	if from == StatusLost {
+		return true // leaving lost — approximation, see doc comment above
+	}
+	fromIdx := mainPathIndex(from)
+	if fromIdx == -1 {
+		return false
+	}
+	diff := toIdx - fromIdx
+	return diff == 1 || diff == -1
+}
+
+func mainPathIndex(status string) int {
+	for i, s := range mainPath {
+		if s == status {
+			return i
+		}
+	}
+	return -1
+}
+
+func normalizeEmail(email *string) *string {
+	if email == nil {
+		return nil
+	}
+	lower := strings.ToLower(strings.TrimSpace(*email))
+	return &lower
+}
+
+// normalizePhone returns the E.164 form when phone parses, nil
+// otherwise — never an error (freeze bagian 2.3, TD §6).
+func normalizePhone(raw *string) *string {
+	if raw == nil {
+		return nil
+	}
+	e164, ok := phone.ToE164(*raw)
+	if !ok {
+		return nil
+	}
+	return &e164
+}
+
+func invalidStatusTransitionError() error {
+	return &httpx.DomainError{
+		Status:  http.StatusUnprocessableEntity,
+		Code:    "invalid_status_transition",
+		Message: "Transisi status tidak diizinkan.",
+	}
+}

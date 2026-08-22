@@ -33,6 +33,17 @@ const (
 	ActionInvitationCreate     Action = "invitation.create"
 	ActionInvitationList       Action = "invitation.list"
 	ActionInvitationRevoke     Action = "invitation.revoke"
+
+	// Lead actions cover only what issue #20 ships — list/read share one
+	// action (identical permissions at every role); lead.assign and
+	// lead.convert land with #22/#23. Employee's read/update access is
+	// further restricted to leads assigned to them, enforced in
+	// internal/lead's repository (Rule: authz answers "this class of
+	// action at all", not "which rows").
+	ActionLeadCreate Action = "lead.create"
+	ActionLeadRead   Action = "lead.read"
+	ActionLeadUpdate Action = "lead.update"
+	ActionLeadDelete Action = "lead.delete"
 )
 
 // permissions mirrors docs/architecture/authorization.md's matrix
@@ -46,6 +57,10 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionInvitationCreate:     true,
 		ActionInvitationList:       true,
 		ActionInvitationRevoke:     true,
+		ActionLeadCreate:           true,
+		ActionLeadRead:             true,
+		ActionLeadUpdate:           true,
+		ActionLeadDelete:           true,
 	},
 	tenant.RoleAdmin: {
 		ActionMembershipList:       true,
@@ -54,11 +69,25 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionInvitationCreate:     true,
 		ActionInvitationList:       true,
 		ActionInvitationRevoke:     true,
+		ActionLeadCreate:           true,
+		ActionLeadRead:             true,
+		ActionLeadUpdate:           true,
+		ActionLeadDelete:           true,
 	},
 	tenant.RoleManager: {
 		ActionMembershipList: true,
+		ActionLeadCreate:     true,
+		ActionLeadRead:       true,
+		ActionLeadUpdate:     true,
+		// ActionLeadDelete deliberately absent — matrix gives delete to
+		// Owner/Admin only.
 	},
-	tenant.RoleEmployee: {},
+	tenant.RoleEmployee: {
+		// Read/update granted here; the repository further restricts
+		// both to leads assigned to this employee.
+		ActionLeadRead:   true,
+		ActionLeadUpdate: true,
+	},
 }
 
 // Require reports whether t.Role may perform action, returning a
