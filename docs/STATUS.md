@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 21 Agustus 2026 — PRD + TD Phase 2 dibuka, B6–B9 ditutup
-**Phase sekarang:** Phase 2 — CRM Core (0/5 issue selesai — implementasi dimulai di #19)
+**Last updated:** 21 Agustus 2026 — Issue #19 selesai
+**Phase sekarang:** Phase 2 — CRM Core (1/5 issue selesai)
 
 ---
 
@@ -29,6 +29,7 @@
 | **Issue #15 — Refactor: layering, interface, Unit of Work** | — | 1 | `internal/auth` dipecah jadi `entity/port/usecase/repository_postgres/handler_http.go`. `Store`/`Repos` (Unit of Work) menggantikan `db.InTx` langsung di usecase. Composition root di `cmd/api/auth_store.go`. **7 unit test baru lolos tanpa Docker** (dibuktikan lewat `DOCKER_HOST` tak valid + inspeksi `go list -deps`). 33 test lama lolos tanpa perubahan asersi. |
 | **Issue #10 — Login, refresh rotation, logout, reset password, CSRF, GET /v1/me** | — | 1 | `POST /v1/auth/{login,refresh,logout,password/forgot,password/reset}`, `GET /v1/me`. Access token JWT (`internal/shared/accesstoken`) + refresh token opaque dengan rotasi & deteksi penggunaan ulang (`SELECT ... FOR UPDATE`, revoke seluruh `family_id`). Dashboard = cookie `HttpOnly`; Mobile = body — dibuktikan lewat test HTTP & smoke test manual. CSRF double-submit (`httpx.VerifyCSRF`) untuk request cookie non-GET. `LoginLimiter` (backoff progresif). `docs/architecture/authentication.md` baru. **12 test integrasi + 13 unit test baru** (plus 5 test `LoginLimiter`, 4 test `accesstoken`), semuanya lolos tanpa perubahan asersi lama. |
 | **Issue #11 — RBAC, invitation, penonaktifan membership, harness isolasi tenant** | — | 1 | `internal/shared/{authn,authz}` (session middleware diekstrak dari `auth`, RBAC baru). `internal/membership` naik jadi domain penuh (`port/usecase/handler_http.go`). `internal/invitation` baru — undangan dua cabang (B4), keduanya diuji termasuk test keamanan wajib. `POST/GET/DELETE /v1/invitations`, `GET/PATCH/DELETE /v1/memberships`. Penonaktifan membership mencabut refresh token dalam transaksi yang sama — **dibuktikan lewat smoke test end-to-end**. `docs/architecture/authorization.md` baru. **Harness isolasi tenant (`cmd/api/tenant_isolation_test.go`) dibangun & dibuktikan bisa gagal** (lapis 4, blocking CI). Satu bug nyata (email tidak terverifikasi otomatis saat accept undangan) ditemukan lewat smoke test manual, diperbaiki, dan mendapat test regresi di kedua level. **Phase 1 selesai.** |
+| **Issue #19 — Schema 0003, repository lead, alokasi `lead_number`, optimistic locking** | — | 2 | Migration `0003_crm_core` (`leads`, `customers`, `activities`, `tasks` + `organizations.next_lead_number`). `internal/lead` — repository murni (`entity.go`+`repository_postgres.go`, tanpa `port.go`/usecase — pola `membership` pra-#11). Alokasi `lead_number` berurutan per organization dan optimistic locking `version`, **dibuktikan di bawah konkurensi nyata** (20 goroutine bersamaan). Visibilitas employee ditegakkan di repository. Klaim awal soal kebutuhan `db.InTx` sempat berlebihan di komentar kode — diuji langsung sebelum commit, ternyata test konkurensi tidak membuktikannya; ditulis test terpisah (`TestCreate_FailedInsertInsideInTx_DoesNotBurnLeadNumber`) yang benar-benar membuktikan. Test katalog (dari #8) otomatis mencakup keempat tabel baru **tanpa perubahan**. |
 
 ---
 
@@ -40,12 +41,12 @@ _(kosong)_
 
 ## Berikutnya
 
-**Issue #19 — Schema 0003, repository lead, alokasi `lead_number`, optimistic locking**
+**Issue #20 — Lead CRUD, transisi status, filter, pagination, idempotency, E.164**
 
-- Cakupan & acceptance: [issue #19](https://github.com/Pravasta/jualin-crm/issues/19)
-- TD: `docs/phases/02-crm-core/td.md` §1, §3, §4, §9, §16
-- Issue pertama Phase 2, **tanpa endpoint sama sekali** — menetapkan dua mekanisme paling halus di phase ini (serialisasi `lead_number` per organization, optimistic locking `version`) yang keduanya hanya bisa dipercaya bila diuji di bawah konkurensi nyata.
-- Berurutan: #19 → #20 → #21 → #22 → #23. Rincian di `docs/phases/02-crm-core/issues.md`.
+- Cakupan & acceptance: [issue #20](https://github.com/Pravasta/jualin-crm/issues/20)
+- TD: `docs/phases/02-crm-core/td.md` §4, §5, §6, §7, §8, §8.1, §9
+- Menambahkan `port.go` + `usecase.go` ke `internal/lead` — pada titik ini `Repository` di `repository_postgres.go` berganti jadi interface dan struct konkretnya berganti nama `postgresRepository`, persis migrasi `membership` di #11 (lihat notes.md `## #19`).
+- Berurutan: #19 (selesai) → #20 → #21 → #22 → #23. Rincian di `docs/phases/02-crm-core/issues.md`.
 
 ---
 
