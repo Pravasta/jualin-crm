@@ -29,8 +29,10 @@ func (u *Usecase) Deactivate(ctx context.Context, t tenant.Context, targetID uui
 
 ## Matriks (Phase 1)
 
-Matriks lengkap ada di `architecture_product_review.md` §6.2 dan mencakup resource yang belum ada
-sampai Phase 2+ (Lead, Customer, Deal, dst — kosong sampai tabelnya ada). Baris yang **nyata di Phase 1**:
+Matriks lengkap ada di `architecture_product_review.md` §6.2 dan mencakup resource yang saat itu belum
+ada (Lead, Customer, Deal, dst — kosong sampai tabelnya ada). Lead/Activity/Task/Customer terwujud di
+Phase 2, lihat bagian "Matriks (Phase 2)" di bawah; Deal masih menunggu (pasca-Phase 5). Baris yang
+**nyata di Phase 1**:
 
 | Resource | Owner | Admin | Manager | Employee |
 |---|---|---|---|---|
@@ -55,6 +57,54 @@ bagian berikutnya.
 
 ---
 
+## Matriks (Phase 2) — realisasi Aturan #1
+
+Ditambahkan issue #20–#23. Baris `Lead`/`Activity`/`Task`/`Customer` yang disebut "belum ada" di bagian
+Phase 1 sekarang **nyata**:
+
+| Resource | Owner | Admin | Manager | Employee |
+|---|---|---|---|---|
+| Lead: buat / baca / ubah | CRU | CRU | CRU | RU¹ |
+| Lead: hapus | ✅ | ✅ | — | — |
+| Lead: assign | ✅ | ✅ | ✅ | — |
+| Lead: convert ke Customer | ✅ | ✅ | — | — |
+| Activity: buat (tipe pengguna) / baca | CR | CR | CR | CR¹ |
+| Task: buat / ubah / selesaikan | CRU | CRU | CRU | CRU¹ |
+| Task: hapus | ✅ | ✅ | ✅ | — |
+| Customer: baca | ✅ | ✅ | ✅ | ✅¹ |
+| Customer: ubah / hapus | ✅ | ✅ | — | — |
+
+¹ Dibatasi repository ke lead yang di-assign kepadanya, dan turunannya: activity, task, customer dari
+lead itu (`converted_from_lead_id`-nya). Lihat bagian berikutnya.
+
+Diterjemahkan ke `internal/shared/authz`'s `Action` enum:
+
+| Action | Owner | Admin | Manager | Employee |
+|---|---|---|---|---|
+| `lead.create` | ✅ | ✅ | ✅ | — |
+| `lead.read` | ✅ | ✅ | ✅ | ✅¹ |
+| `lead.update` | ✅ | ✅ | ✅ | ✅¹ |
+| `lead.delete` | ✅ | ✅ | — | — |
+| `lead.assign` | ✅ | ✅ | ✅ | — |
+| `lead.convert` | ✅ | ✅ | — | — |
+| `activity.create` | ✅ | ✅ | ✅ | ✅¹ |
+| `activity.list` | ✅ | ✅ | ✅ | ✅¹ |
+| `task.create` | ✅ | ✅ | ✅ | ✅¹ |
+| `task.read` | ✅ | ✅ | ✅ | ✅¹ |
+| `task.update` | ✅ | ✅ | ✅ | ✅¹ |
+| `task.complete` | ✅ | ✅ | ✅ | ✅¹ |
+| `task.delete` | ✅ | ✅ | ✅ | — |
+| `customer.read` | ✅ | ✅ | ✅ | ✅¹ |
+| `customer.update` | ✅ | ✅ | — | — |
+| `customer.delete` | ✅ | ✅ | — | — |
+
+Dua asimetri yang layak dicatat, bukan kebetulan: `lead.assign` memberi Manager akses yang `lead.delete`
+tidak (Manager bisa memindahkan kepemilikan lead tapi tidak menghapusnya); `customer.update`/`delete`
+lebih ketat daripada `lead.update`/`delete` yang setara — Manager kehilangan akses tulis begitu sebuah
+lead selesai dikonversi.
+
+---
+
 ## Empat aturan yang harus ditulis eksplisit
 
 Sumber: `architecture_product_review.md` §6.2. Tiga dari empat bergantung pada relasi actor-vs-target,
@@ -64,7 +114,7 @@ ditegakkan langsung di `internal/membership.Usecase` (`UpdateRole`/`Deactivate`)
 
 | # | Aturan | Ditegakkan di | Kode error |
 |---|---|---|---|
-| 1 | Employee hanya melihat resource miliknya | Repository (belum berlaku — belum ada resource milik Employee di Phase 1; Lead di Phase 2) | — |
+| 1 | Employee hanya melihat resource miliknya | Repository — `lead.FindByID`/`FindAllByOrg`/`Update`/`UpdateStatus`/`UpdateAssignment`/`Delete`, dan turunannya (`activity`, `task`, `customer`) lewat `EXISTS (SELECT 1 FROM leads ...)` terhadap lead yang sama — **terwujud sejak #20–#23** | 404 `not_found` (Aturan #6 — bukan 403) |
 | 2 | Owner terakhir tidak bisa menghapus atau menurunkan dirinya sendiri | `membership.Usecase.Deactivate` — cek `CountActiveOwners` di dalam `Store.InTx` yang sama dengan write, mencegah race baca-lalu-tulis | 409 `last_owner_cannot_be_removed` |
 | 3 | Tidak ada yang bisa mengubah role dirinya sendiri — **tanpa kecuali**, termasuk Owner | `membership.Usecase.UpdateRole` | 403 `forbidden` |
 | 4 | Admin tidak bisa menyentuh Owner, tidak bisa mengangkat Owner | `membership.Usecase.UpdateRole` & `Deactivate` | 403 `forbidden` |
@@ -73,12 +123,17 @@ ditegakkan langsung di `internal/membership.Usecase` (`UpdateRole`/`Deactivate`)
 matriks hanya membatasi Admin, dan schema tidak punya `UNIQUE` pada jumlah owner. Lihat
 `internal/membership/usecase.go`'s `UpdateRole` untuk logikanya persis.
 
-**Catatan Aturan #1:** belum berlaku secara harfiah di Phase 1 — tidak ada resource yang dimiliki
-Employee sampai `leads` ada (Phase 2). `internal/membership`/`internal/invitation` sendiri memberi
-Employee akses **nol** ke keduanya (bukan "hanya miliknya" — tidak ada sama sekali), jadi aturan ini
-belum punya kasus uji yang berarti; harness isolasi tenant (`cmd/api/tenant_isolation_test.go`) sudah
-dibangun generik atas daftar route sehingga kasus Lead tinggal ditambahkan sebagai entri baru saat
-Phase 2, bukan harness baru.
+**Catatan Aturan #1:** belum berlaku secara harfiah di Phase 1 — `internal/membership`/`internal/invitation`
+memberi Employee akses **nol** ke keduanya (bukan "hanya miliknya" — tidak ada sama sekali). Terwujud di
+Phase 2: setiap query `lead` yang menyentuh satu baris menerapkan `(NOT $isEmployee OR
+assigned_to_membership_id = $membershipID)`; `activity`/`task`/`customer` mewarisi batas yang sama lewat
+`EXISTS` terhadap lead yang sama, bukan kolom kepemilikan masing-masing (`customer` bahkan tidak punya
+kolom assignee — visibilitasnya murni lewat `converted_from_lead_id`). Dibuktikan di dua lapis: test per
+domain (mis. `internal/lead/handler_test.go`'s `TestHandler_Get_Employee_OtherPersonsLead_Returns404`,
+dan padanannya di `task`/`activity`/`customer`) dan harness isolasi tenant generik
+(`cmd/api/tenant_isolation_test.go`) yang sejak #23 mencakup `lead`/`task`/`activity`/`customer` — lihat
+`multi-tenancy.md` lapis 4 untuk kasus #1/#4 dan `docs/phases/02-crm-core/notes.md`'s `## #23` untuk
+prosedur "harness terbukti bisa gagal".
 
 ---
 

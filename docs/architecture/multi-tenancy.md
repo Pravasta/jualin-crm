@@ -119,17 +119,17 @@ Untuk setiap endpoint tenant-scoped:
 
 | # | Kasus | Menjaga | Status Phase 1 |
 |---|---|---|---|
-| 1 | Baca resource tenant lain → 404 | Lapis 1 | Tidak ada endpoint GET-by-id lintas tenant di Phase 1 (hanya list yang di-scope query, dan `GET /v1/invitations/token/{token}` yang memang publik by design) — belum ada kasus nyata |
-| 2 | Ubah/hapus resource tenant lain → 404 | Lapis 1 | ✅ `PATCH`/`DELETE /v1/memberships/{id}`, `DELETE /v1/invitations/{id}` — `TestTenantIsolation_CrossOrgMutatingByID_Returns404` |
+| 1 | Baca resource tenant lain → 404 | Lapis 1 | ✅ `GET /v1/leads/{id}`, `GET /v1/leads/{id}/activities`, `GET /v1/customers/{id}` (dan `PATCH`/`DELETE` yang setara) — `TestTenantIsolation_CrossOrgMutatingByID_Returns404`, ditambah issue #23. Tidak ada endpoint GET-by-id lintas tenant di Phase 1 sendiri (hanya list yang di-scope query, dan `GET /v1/invitations/token/{token}` yang memang publik by design) |
+| 2 | Ubah/hapus resource tenant lain → 404 | Lapis 1 | ✅ `PATCH`/`DELETE /v1/memberships/{id}`, `DELETE /v1/invitations/{id}` (Phase 1); `PATCH`/`DELETE /v1/leads/{id}`, `PATCH`/`DELETE /v1/tasks/{id}`, `PATCH`/`DELETE /v1/customers/{id}` (Phase 2, #23) — `TestTenantIsolation_CrossOrgMutatingByID_Returns404` |
 | 3 | Menunjuk membership tenant lain di body → ditolak **database** | Lapis 2 | Ditegakkan lewat composite FK sejak #8; belum ada endpoint Phase 1 yang menerima id membership lewat body request (invitation accept menunjuk lewat token, bukan id) |
-| 4 | Employee membaca lead employee lain di org yang sama → 404 | Otorisasi | Belum berlaku — `leads` adalah Phase 2. `authz` sudah memberi Employee akses nol ke membership/invitation, jadi belum ada resource untuk diuji kasus ini |
+| 4 | Employee membaca lead employee lain di org yang sama → 404 | Otorisasi | ✅ `internal/lead/handler_test.go`'s `TestHandler_Get_Employee_OtherPersonsLead_Returns404`, dan padanannya di `internal/task`, `internal/activity`, `internal/customer` (#20–#23) — `authz` sudah memberi Employee akses nol ke membership/invitation sejak Phase 1, `leads` adalah tempat pertama aturan ini punya kasus nyata |
 | 5 | **User dengan dua membership** tidak bisa melihat data org yang tidak sedang aktif di token | ADR-007 | ✅ `TestTenantIsolation_MultiMembership_OnlySeesActiveOrgInToken` |
 | 6 | Katalog: setiap tabel tenant-scoped punya `organization_id` + `UNIQUE (id, organization_id)` | Aturan #1, #2 | ✅ Sejak #8 |
 
-**Kasus #1 dan #4 belum punya kasus nyata di Phase 1** — dicatat secara jujur di sini, bukan
-dipaksakan dengan resource buatan. Harness (`cmd/api/tenant_isolation_test.go`) sudah generik atas
-sebuah slice `[]isolationCase` — Phase 2 menambah entri untuk `lead` (yang akan mengaktifkan kasus #1
-dan #4 sekaligus) ke slice yang sama, bukan menulis harness baru.
+**Kasus #1 dan #4 sekarang ✅ — ditutup di issue #23**, penutup Phase 2. Harness
+(`cmd/api/tenant_isolation_test.go`) tetap satu slice `[]isolationCase` generik yang sama sejak #11;
+#23 menambah entri untuk `lead`/`task`/`activity`/`customer` ke slice itu, bukan harness baru — persis
+seperti direncanakan.
 
 **Kasus #5 tidak boleh dilewatkan.** Schema mengizinkan multi-membership yang tidak diekspos UI; satu-satunya penjaganya adalah test ini.
 
@@ -146,6 +146,12 @@ dan #4 sekaligus) ke slice yang sama, bukan menulis harness baru.
 `TestTenantIsolation_CrossOrgMutatingByID_Returns404` langsung merah (500, bukan 404). Predikat
 dikembalikan sebelum commit; tidak pernah masuk riwayat git. Detail lengkap di
 `docs/phases/01-auth-organization/notes.md`'s `## #11`.
+
+**Diulang di #23** untuk resource Phase 2: predikat tenant-scoping yang sama dihapus sementara dari
+`lead.postgresRepository.FindByID`, harness dijalankan ulang — `GET /v1/leads/{id} on another org's
+lead` langsung merah, bocor **200 dengan data lengkap** lead org lain (bukan sekadar 500); subtest
+`PATCH` juga merah (409 `version_conflict` alih-alih 404, karena baris jadi terlihat lintas tenant).
+Predikat dikembalikan sebelum commit. Detail lengkap di `docs/phases/02-crm-core/notes.md`'s `## #23`.
 
 ---
 

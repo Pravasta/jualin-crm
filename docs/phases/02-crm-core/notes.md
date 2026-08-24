@@ -206,3 +206,122 @@ Seluruh acceptance criteria issue #22 terpenuhi. Jalur `reassign` diverifikasi o
 - **Pola "sentinel domain diterjemahkan di usecase paket sendiri, tapi bridge lintas paket menerjemahkan langsung ke `httpx`"** sekarang punya satu contoh konkret (`lead.ReassignOpen`). Berlaku untuk bridge serupa yang akan datang — kapan pun sebuah method HANYA melayani sebagai jembatan `OpenLeadRepository`-style, jangan berasumsi errors.Is sentinel domain bisa dikenali pemanggil.
 - **`docs/architecture/authorization.md`'s matrix masih belum diperbarui** — tetap ditunda ke #23 (penutup Phase 2), sekarang bertambah `lead.assign` dan seluruh baris `activity.*`/`task.*` dari #21 yang juga belum masuk.
 - **Retensi `notifications` belum ada** — sama seperti `idempotency_key` (dicatat di `## #20`), TD tidak menyebut kebijakan retensi untuk notifikasi lama, dan Phase 2 tidak punya scheduler untuk membersihkannya. Tidak mendesak di volume MVP; dicatat di sini agar tidak terlupa saat volume bertambah.
+
+---
+
+## #23 — Customer, konversi dari lead, kasus `lead` pada harness isolasi tenant — **penutup Phase 2**
+
+### Keputusan implementasi
+
+- **Konversi ditaruh sepenuhnya di `internal/customer`, bukan `internal/lead`** — deviasi sadar dari
+  kesan literal TD §12 ("berada di bawah `/v1/leads/{id}`", yang hanya bicara soal path URL, bukan
+  paket pemilik). Alasannya struktural: `POST .../convert` harus mengembalikan customer yang baru
+  dibuat (TD §8) — customer punya ~10 field, dan bridge lintas paket (`ActivityRecorder`,
+  `NotificationSender`) selama ini hanya bisa memakai tipe primitif di signature-nya (`uuid.UUID`,
+  `string`, `map[string]any`). Tidak ada cara mengembalikan struct penuh lewat bridge semacam itu tanpa
+  salah satu paket mengimpor tipe domain paket lain. Solusinya: `internal/customer` punya akses `db.Querier`
+  langsung ke database yang sama dengan `leads`, jadi `Convert` cukup satu `INSERT ... SELECT ... FROM
+  leads WHERE status = 'won'` — pola "`WHERE EXISTS` terhadap `leads`, tanpa interface Go" yang sama
+  yang `activity`/`task` sudah pakai untuk cek visibilitas lead, diperluas jadi COPY data, bukan sekadar
+  cek. `internal/lead` sendiri **tidak disentuh** issue ini di luar kebutuhan harness (tidak ada field
+  `Repos` baru, tidak ada method usecase baru) — prediksi di notes.md `## #22` yang bilang `Repos` akan
+  bertambah field lagi ternyata **tidak terjadi**, dan itu dicatat di sini karena penting: desain
+  awal yang masuk akal kadang terbukti salah begitu detail konkretnya (tipe balikan) diperhitungkan.
+- **Baris zero-row `Convert` diurai lewat cek eksistensi susulan** — persis pola disambiguasi
+  optimistic-locking di tempat lain (`lead.Update`, `task.Update`, dst.): `INSERT ... SELECT ... WHERE
+  status = 'won'` yang mengembalikan nol baris **ambigu** antara "lead tidak terlihat" dan "lead
+  terlihat tapi bukan `won`" — keduanya menghasilkan nol baris yang sama. `leadVisible` query terpisah
+  (`SELECT EXISTS(...)` tanpa syarat status) memisahkan keduanya: tidak terlihat → 404, terlihat →
+  `ErrLeadNotWon` → 422. Kode `422`-nya **memakai ulang** `invalid_status_transition` yang sudah ada —
+  TD §14 tidak mencantumkan kode baru untuk kasus ini, jadi tidak diciptakan satu.
+- **`customerColumns` sengaja TANPA alias tabel** — jebakan kecil yang tertangkap sebelum test pertama
+  dijalankan: `Convert`'s `RETURNING` clause pada `INSERT` tidak punya alias `c` dalam scope (statement
+  `INSERT` tidak pernah mengalias tabel targetnya), sementara `FindByID`/`FindAllByOrg`/`Update`/`Delete`
+  mengalias `customers` sebagai `c` untuk klausa `EXISTS` mereka. Kolom tanpa alias bekerja di kedua
+  konteks (Postgres meresolusinya terhadap satu-satunya tabel yang relevan tanpa ambiguitas), jadi satu
+  daftar kolom cukup — tidak perlu dua versi.
+- **Employee visibility untuk `customer` lewat lead ASAL, bukan kolom di `customers`** — tabel
+  `customers` sama sekali tidak punya `assigned_to_membership_id`. `FindByID`/`FindAllByOrg` menerapkan
+  `EXISTS (SELECT 1 FROM leads l WHERE l.id = c.converted_from_lead_id AND
+  l.assigned_to_membership_id = $employee)` — pola identik dengan visibilitas `task` lewat lead
+  pemiliknya (#21), diterapkan instansi ketiga di sini.
+- **`ActionCustomerUpdate`/`ActionCustomerDelete` mengecualikan Manager** — asimetri yang sengaja
+  dicatat eksplisit di kode dan di `authorization.md`: Manager punya `lead.update`/`lead.delete` (untuk
+  lead yang belum dikonversi) tapi tidak `customer.update`/`delete` (setelah dikonversi). TD §9's
+  matriks menggambar batas ini secara sadar, bukan sesuatu yang bisa disimpulkan dari pola lead.
+- **Harness isolasi tenant ditutup — kasus #1 dan #4 lapis 4 sekarang punya kasus nyata.** Entri baru
+  ditambahkan ke `[]isolationCase` yang **sama** sejak #11 (bukan harness baru): `GET`/`PATCH`/`DELETE`
+  untuk `lead` dan `customer`, `PATCH`/`DELETE` untuk `task` (tidak ada `GET /v1/tasks/{id}` — TD tidak
+  pernah mendefinisikan endpoint itu, hanya list dan list-per-lead; percobaan pertama menambahkannya
+  gagal kompilasi dengan jelas lewat 405, bukan lolos diam-diam), dan `GET` untuk
+  `/v1/leads/{id}/activities`. Kasus #4 (Employee vs Employee lead yang sama) sudah punya bukti nyata
+  sejak #20/#21 lewat test per-domain (`TestHandler_Get_..._OtherPersonsLead_Returns404` dan
+  padanannya) — issue ini melengkapi set itu dengan versi `customer`-nya.
+- **Harness terbukti bisa gagal, diulang untuk `lead`** (prosedur yang sama seperti #11): predikat
+  `organization_id = $2 AND (NOT $3 OR assigned_to_membership_id = $4)` dihapus sementara dari
+  `lead.postgresRepository.FindByID`, harness dijalankan ulang. Hasilnya **lebih parah** dari #11's
+  temuan (500 generik) — subtest `GET /v1/leads/{id} on another org's lead` kembali **200 dengan body
+  lead lengkap milik organization lain** (kebocoran data nyata, bukan sekadar error internal), dan
+  subtest `PATCH` kembali `409 version_conflict` (karena baris jadi "terlihat" lintas tenant, `UPDATE`-nya
+  gagal karena `version` bukan alasan tenant tapi tetap bukan 404). Predikat dikembalikan sebelum
+  commit; `git diff` dikonfirmasi kosong pada berkas itu sebelum staging.
+
+### Verifikasi
+
+```
+go build ./...                              → bersih
+go vet ./...                                → bersih
+golangci-lint run                           → 0 issues
+gofmt -l .                                  → bersih
+go test -race -count=1 ./... (2x)           → semua PASS
+
+DOCKER_HOST=unix:///nonexistent/docker.sock \
+  go test ./internal/... -run TestUnit -count=1
+                                             → PASS tanpa Docker (customer + semua paket lama)
+
+go list -deps ./cmd/api | grep docker       → kosong
+```
+
+**Harness isolasi tenant** (`cmd/api/tenant_isolation_test.go`): 13 subtest lintas-tenant, semuanya
+`404`, termasuk seluruh resource baru Phase 2. Prosedur "terbukti bisa gagal" dijalankan ulang untuk
+`lead` (lihat di atas) — merah sebagaimana mestinya, dikembalikan sebelum commit.
+
+**Smoke test manual** (`docker compose up --build`): register+verify+login owner → buat lead → naikkan
+status berurutan `new→contacted→qualified→proposal→won` → `POST .../convert` → `201`, seluruh field
+(nama, email, telepon, `phone_e164`) tersalin persis dari lead → `GET activities` menunjukkan
+`lead_converted` dengan `metadata.customer_id` yang benar, di atas keempat `status_changed` dan
+`lead_created` — riwayat lengkap tidak terganggu → `GET` lead asal → `status` tetap `won`, lead tetap
+ada → konversi kedua pada lead yang sama → `409 lead_already_converted` → `PATCH` nama customer →
+`GET` lead asal lagi → nama **tidak berubah** (data disalin, bukan dirujuk — dibuktikan langsung, bukan
+diasumsikan) → buat lead baru berstatus `new`, coba konversi → `422 invalid_status_transition` →
+`GET /v1/customers` menampilkan customer yang sudah dikonversi dengan `meta.total` benar.
+
+Seluruh acceptance criteria issue #23 terpenuhi — termasuk **seluruh 6 acceptance criteria Phase 2**
+di `prd.md` (dicek ulang satu per satu terhadap test yang ada, bukan diasumsikan lolos karena issue
+individualnya lolos).
+
+### Utang teknis
+
+- Tidak ada item baru dari issue ini sendiri. Retensi `idempotency_key` (#20) dan `notifications` (#22)
+  tetap seperti tercatat sebelumnya — dipindahkan ke `STATUS.md` bagian Utang Teknis sebagai penutup
+  Phase 2, bukan diulang di sini.
+
+### Phase 2 — CRM Core: selesai
+
+Kelima issue (#19–#23) tuntas, berurutan seperti direncanakan `issues.md`, tanpa issue yang dilewati
+atau dikerjakan di luar urutan. Ringkasan yang tidak sudah jelas dari tabel `STATUS.md`:
+
+- **Pola bridge lintas paket** (`ActivityRecorder`/`NotificationSender`/`OpenLeadRepository`, semuanya
+  turunan `auth.RefreshTokenRevoker` dari #11) dipakai **delapan kali** sepanjang phase ini — cukup
+  sering untuk menjadi idiom, tidak cukup sering (atau cukup seragam — lihat catatan
+  `ReassignOpen`/`Convert` di atas) untuk diabstraksi jadi satu tipe generik. Setiap instansi tetap tiga
+  baris yang diketik ulang, bukan diimpor — sesuai ADR-011.
+- **Pola "database-constraint-sebagai-sinyal"** (`user.ErrEmailTaken` dari Phase 1, lalu
+  `ErrIdempotencyKeyExists`/`ErrAssigneeNotFound`/`ErrAlreadyConverted`) muncul di **lima** tempat
+  berbeda di phase ini sendiri — tidak pernah `SELECT`-lalu-tulis di manapun kode tenant-scoped yang
+  ditulis phase ini.
+- **`docker compose up` manual menemukan 1 bug produksi nyata** di seluruh phase ini (assignee tak
+  valid → 500, issue #20) — dibandingkan dengan Phase 1 yang menemukan 1 juga (email tidak
+  terverifikasi, issue #11). Pola yang konsisten dua phase berturut-turut: smoke test manual bukan
+  formalitas, ia benar-benar menangkap sesuatu yang test otomatis (yang ditulis sebelum bug-nya
+  diketahui) tidak mencakup.
