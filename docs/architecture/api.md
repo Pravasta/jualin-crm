@@ -112,6 +112,14 @@ Bertambah seiring fitur. Setiap kode baru dicatat di sini.
 | 403 | `csrf_token_invalid` | Request cookie non-GET tanpa `X-CSRF-Token` yang cocok (issue #10) |
 | 409 | `last_owner_cannot_be_removed` | Owner terakhir organization mencoba menonaktifkan dirinya sendiri (issue #11) |
 | 409 | `invitation_already_accepted` | Undangan yang tokennya valid tapi sudah pernah diterima (issue #11) |
+| 422 | `invalid_activity_type` | Client mengirim tipe activity sistem (`lead_created`, `status_changed`, dst.) ke `POST /v1/leads/{id}/activities` (issue #21) |
+| 409 | `membership_has_open_leads` | Penonaktifan membership ditolak karena masih ada lead terbuka; body memuat `open_lead_count` (issue #22) |
+| 409 | `lead_already_converted` | `POST /v1/leads/{id}/convert` pada lead yang sudah pernah dikonversi — ditegakkan `uq_customers_org_lead` (issue #23) |
+
+> `invalid_activity_type` dan `membership_has_open_leads` seharusnya masuk katalog ini saat issue #21
+> dan #22 selesai ("setiap kode baru dicatat di sini") — luput saat itu, ditambahkan di sini saat
+> mengerjakan #23 sambil menambah `lead_already_converted`. Dicatat sebagai celah yang tertangkap, bukan
+> diperbaiki diam-diam (Aturan #30).
 
 ### Perluasan envelope — `organization_selection_required`
 

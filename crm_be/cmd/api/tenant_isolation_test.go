@@ -151,6 +151,15 @@ func TestTenantIsolation_CrossOrgMutatingByID_Returns404(t *testing.T) {
 		t.Fatalf("seed invitation in org B: %v", err)
 	}
 
+	// Phase 2 resources — activates lapis 4 case #1 (cross-org GET-by-id;
+	// no domain before Phase 2 had a real one — membership only ever
+	// exposed list, not get-by-id) alongside case #2 (mutate), which the
+	// three cases above already cover for Phase 1's resources.
+	leadB := seedIsolationLead(t, pool, orgB, "new")
+	wonLeadB := seedIsolationLead(t, pool, orgB, "won")
+	taskB := seedIsolationTask(t, pool, orgB, leadB)
+	customerB := seedIsolationCustomer(t, pool, orgB, wonLeadB)
+
 	cases := []isolationCase{
 		{
 			name:   "PATCH /v1/memberships/{id} on another org's membership",
@@ -168,12 +177,69 @@ func TestTenantIsolation_CrossOrgMutatingByID_Returns404(t *testing.T) {
 			method: http.MethodDelete,
 			path:   func(id uuid.UUID) string { return "/v1/invitations/" + id.String() },
 		},
+		{
+			name:   "GET /v1/leads/{id} on another org's lead",
+			method: http.MethodGet,
+			path:   func(id uuid.UUID) string { return "/v1/leads/" + id.String() },
+		},
+		{
+			name:   "PATCH /v1/leads/{id} on another org's lead",
+			method: http.MethodPatch,
+			path:   func(id uuid.UUID) string { return "/v1/leads/" + id.String() },
+			body:   map[string]any{"version": 1, "name": "Hijacked"},
+		},
+		{
+			name:   "DELETE /v1/leads/{id} on another org's lead",
+			method: http.MethodDelete,
+			path:   func(id uuid.UUID) string { return "/v1/leads/" + id.String() },
+		},
+		{
+			name:   "GET /v1/leads/{id}/activities on another org's lead",
+			method: http.MethodGet,
+			path:   func(id uuid.UUID) string { return "/v1/leads/" + id.String() + "/activities" },
+		},
+		{
+			name:   "PATCH /v1/tasks/{id} on another org's task",
+			method: http.MethodPatch,
+			path:   func(id uuid.UUID) string { return "/v1/tasks/" + id.String() },
+			body:   map[string]any{"version": 1, "title": "Hijacked"},
+		},
+		{
+			name:   "DELETE /v1/tasks/{id} on another org's task",
+			method: http.MethodDelete,
+			path:   func(id uuid.UUID) string { return "/v1/tasks/" + id.String() },
+		},
+		{
+			name:   "GET /v1/customers/{id} on another org's customer",
+			method: http.MethodGet,
+			path:   func(id uuid.UUID) string { return "/v1/customers/" + id.String() },
+		},
+		{
+			name:   "PATCH /v1/customers/{id} on another org's customer",
+			method: http.MethodPatch,
+			path:   func(id uuid.UUID) string { return "/v1/customers/" + id.String() },
+			body:   map[string]any{"name": "Hijacked"},
+		},
+		{
+			name:   "DELETE /v1/customers/{id} on another org's customer",
+			method: http.MethodDelete,
+			path:   func(id uuid.UUID) string { return "/v1/customers/" + id.String() },
+		},
 	}
 
 	targetIDs := map[string]uuid.UUID{
 		"PATCH /v1/memberships/{id} on another org's membership":  targetMembershipB,
 		"DELETE /v1/memberships/{id} on another org's membership": targetMembershipB,
 		"DELETE /v1/invitations/{id} on another org's invitation": invB.ID,
+		"GET /v1/leads/{id} on another org's lead":                leadB,
+		"PATCH /v1/leads/{id} on another org's lead":              leadB,
+		"DELETE /v1/leads/{id} on another org's lead":             leadB,
+		"GET /v1/leads/{id}/activities on another org's lead":     leadB,
+		"PATCH /v1/tasks/{id} on another org's task":              taskB,
+		"DELETE /v1/tasks/{id} on another org's task":             taskB,
+		"GET /v1/customers/{id} on another org's customer":        customerB,
+		"PATCH /v1/customers/{id} on another org's customer":      customerB,
+		"DELETE /v1/customers/{id} on another org's customer":     customerB,
 	}
 
 	for _, tc := range cases {
@@ -184,6 +250,50 @@ func TestTenantIsolation_CrossOrgMutatingByID_Returns404(t *testing.T) {
 			}
 		})
 	}
+}
+
+// seedIsolationLead inserts a minimal lead row directly via SQL — this
+// file doesn't import internal/lead's repository beyond what's already
+// wired into newRouter, and status is easiest to set directly since
+// lead.Repository.Create always defaults to 'new'.
+func seedIsolationLead(t *testing.T, pool *pgxpool.Pool, org uuid.UUID, status string) uuid.UUID {
+	t.Helper()
+	ctx := t.Context()
+	id := uuid.Must(uuid.NewV7())
+	const q = `
+		INSERT INTO leads (id, organization_id, lead_number, name, source, status)
+		VALUES ($1, $2, (SELECT next_lead_number FROM organizations WHERE id = $2), 'Isolation Test Lead', 'manual', $3)`
+	if _, err := pool.Exec(ctx, q, id, org, status); err != nil {
+		t.Fatalf("seed isolation lead: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE organizations SET next_lead_number = next_lead_number + 1 WHERE id = $1`, org); err != nil {
+		t.Fatalf("bump next_lead_number: %v", err)
+	}
+	return id
+}
+
+func seedIsolationTask(t *testing.T, pool *pgxpool.Pool, org, leadID uuid.UUID) uuid.UUID {
+	t.Helper()
+	ctx := t.Context()
+	id := uuid.Must(uuid.NewV7())
+	const q = `INSERT INTO tasks (id, organization_id, lead_id, title) VALUES ($1, $2, $3, 'Isolation Test Task')`
+	if _, err := pool.Exec(ctx, q, id, org, leadID); err != nil {
+		t.Fatalf("seed isolation task: %v", err)
+	}
+	return id
+}
+
+func seedIsolationCustomer(t *testing.T, pool *pgxpool.Pool, org, wonLeadID uuid.UUID) uuid.UUID {
+	t.Helper()
+	ctx := t.Context()
+	id := uuid.Must(uuid.NewV7())
+	const q = `
+		INSERT INTO customers (id, organization_id, name, converted_from_lead_id)
+		VALUES ($1, $2, 'Isolation Test Customer', $3)`
+	if _, err := pool.Exec(ctx, q, id, org, wonLeadID); err != nil {
+		t.Fatalf("seed isolation customer: %v", err)
+	}
+	return id
 }
 
 // TestTenantIsolation_MultiMembership_OnlySeesActiveOrgInToken is

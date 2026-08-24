@@ -17,6 +17,7 @@ import (
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/activity"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auth"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/customer"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/invitation"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/lead"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/membership"
@@ -119,6 +120,9 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 
 	notificationUsecase := notification.NewUsecase(newNotificationStore(pool))
 	notification.NewHandler(notificationUsecase).RegisterRoutes(r, authMW)
+
+	customerUsecase := customer.NewUsecase(newCustomerStore(pool))
+	customer.NewHandler(customerUsecase).RegisterRoutes(r, authMW)
 
 	r.NoRoute(func(c *gin.Context) {
 		httpx.RespondError(c, http.StatusNotFound, "not_found", "Route tidak ditemukan.")

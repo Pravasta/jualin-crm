@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 24 Agustus 2026 — Issue #22 selesai
-**Phase sekarang:** Phase 2 — CRM Core (4/5 issue selesai)
+**Last updated:** 24 Agustus 2026 — Issue #23 selesai — **Phase 2 tutup**
+**Phase sekarang:** Phase 3 — Owner Dashboard (belum dimulai — PRD/TD belum dibuka)
 
 ---
 
@@ -33,6 +33,7 @@
 | **Issue #20 — Lead CRUD, transisi status, filter, pagination, idempotency, E.164** | — | 2 | `internal/lead` naik jadi domain penuh (`port/usecase/handler_http.go`, `Repository` jadi interface — migrasi yang sama seperti `membership` di #11). `POST/GET/PATCH/DELETE /v1/leads`, `PATCH /v1/leads/{id}/status`. `internal/shared/phone.ToE164` (Indonesia-first). Idempotency-Key dideteksi lewat unique-violation database, **dibuktikan dengan 10 POST bersamaan → tepat 1 lead**. Optimistic locking `409` membawa keadaan terkini di body. Dua `Action` RBAC baru (`lead.create/read/update/delete`). **Bug nyata ditemukan lewat test yang salah pakai** (assignee tak valid → 500 diam-diam) — diperbaiki jadi `400` bersih + test regresi. Satu penyimpangan TD didokumentasikan (keluar dari `lost` belum bisa "satu langkah tepat" tanpa riwayat dari #21). 34 test baru di `internal/lead`, semuanya lolos tanpa perubahan asersi lama. |
 | **Issue #21 — Activity append-only + auto-log, dan Task** | — | 2 | `internal/activity` dan `internal/task` baru — dua domain penuh. `ActivityRecorder` dideklarasikan konsumen (`lead`, `task`), dijembatani `activity.NewRecorder(q)` di composition root — pola `auth.RefreshTokenRevoker` (#11). `lead_created`, `status_changed` (`metadata={from,to}`), `task_created`, `task_completed` ditulis **di dalam `Store.InTx` yang sama** dengan pemicunya — `lead.Usecase.UpdateStatus` kini juga dibungkus `InTx`. `GET/POST /v1/leads/{id}/activities` (append-only — **tidak ada** `PATCH`/`DELETE`, diverifikasi lewat daftar route sungguhan). Tipe sistem dari client → `422`. `internal/task`: visibilitas employee lewat kepemilikan **lead**, bukan assignee task sendiri — dibuktikan test khusus. jsonb pertama yang benar-benar ditulis di codebase ini (`activities.metadata`), diverifikasi round-trip langsung terhadap Postgres asli. Atomisitas dibuktikan dua lapis: fake (unit) dan transaksi Postgres sungguhan (`repository_atomicity_test.go`, membuktikan rollback nyata + `lead_number` tidak "terbakar"). Satu bug desain (visibilitas `task.FindAllByLead`) ketahuan dan diperbaiki sebelum commit. Enam `Action` RBAC baru. Smoke test manual end-to-end lolos seluruh acceptance criteria. |
 | **Issue #22 — Assignment, notification (`0004`), penutupan kewajiban penonaktifan membership** | — | 2 | Migration `0004_notifications`. `internal/notification` baru — satu-satunya resource di codebase ini tanpa akses lebih luas untuk Owner/Admin, selalu di-scope ke `t.MembershipID`. `PATCH /v1/leads/{id}/assignment` — activity `lead_assigned`/`lead_unassigned` **dan** notification (kecuali assign ke diri sendiri) dalam satu `Store.InTx`. **Menutup kewajiban warisan Phase 1**: `DELETE /v1/memberships/{id}` menolak default (`409 membership_has_open_leads`) bila masih ada lead terbuka; `?on_open_leads=unassign\|reassign` sebagai jalan keluar, atomik dengan pencabutan refresh token yang sudah ada sejak #11 — **dibuktikan lewat test Postgres sungguhan**, bukan hanya fake (`internal/membership/handler_test.go`, baru). `internal/lead.OpenLeadRepository` (bridge terpisah, bukan bagian `Repository`) dipakai `internal/membership` lewat interface lokalnya sendiri — `membership` tetap tidak pernah mengimpor `lead`. Satu batu sandungan arsitektural nyata: sentinel error domain (`lead.ErrAssigneeNotFound`) tidak bisa dikenali lintas paket tanpa melanggar ADR-011 — diselesaikan dengan mengembalikan `*httpx.ValidationError` langsung dari bridge method itu sendiri. Satu `Action` RBAC baru (`lead.assign`). Smoke test manual end-to-end lolos, termasuk verifikasi refresh token benar-benar mati via `/v1/auth/refresh`. |
+| **Issue #23 — Customer, konversi dari lead, kasus `lead` pada harness isolasi tenant** | — | 2 | `internal/customer` baru — `POST /v1/leads/{id}/convert` (satu `INSERT ... SELECT ... FROM leads WHERE status='won'`, menyalin field lead ke customer baru dalam satu statement, bukan lewat bridge Go — deviasi sadar dari asumsi awal bahwa konversi akan menambah field ke `lead.Repos`, yang ternyata tidak diperlukan). `uq_customers_org_lead` menegakkan konversi tunggal (`409 lead_already_converted`); lead bukan `won` → `422` (memakai ulang `invalid_status_transition`, tidak ada kode baru). Lead **tidak pernah** berubah oleh konversi atau oleh edit customer setelahnya — dibuktikan langsung, bukan diasumsikan. **Penutup Phase 2**: harness isolasi tenant (`cmd/api/tenant_isolation_test.go`) bertambah entri `lead`/`task`/`customer`/`activity` ke slice `[]isolationCase` yang sama sejak #11 (13 subtest, semua `404`), **terbukti bisa gagal** diulang untuk `lead` (predikat tenant-scoping dihapus sementara → kebocoran data nyata 200, bukan sekadar 500). `docs/architecture/authorization.md` matriks Phase 2 ditulis lengkap (Aturan #1 "belum berlaku" → terwujud); `multi-tenancy.md` lapis 4 kasus #1 & #4 → ✅; `api.md` menambah `lead_already_converted` plus membackfill dua kode yang luput dicatat di #21/#22. Empat `Action` RBAC baru. Smoke test manual end-to-end lolos seluruh acceptance criteria Phase 2. **Phase 2 selesai.** |
 
 ---
 
@@ -44,14 +45,19 @@ _(kosong)_
 
 ## Berikutnya
 
-**Issue #23 — Customer, konversi dari lead, kasus `lead` pada harness isolasi tenant**
+**Buka Phase 3 — Owner Dashboard: PRD + TD, pecah issue**
 
-- Cakupan & acceptance: [issue #23](https://github.com/Pravasta/jualin-crm/issues/23)
-- TD: `docs/phases/02-crm-core/td.md` §1.2, §8, §12, §16, §18
-- **Penutup Phase 2.** `internal/lead/port.go`'s `Repos` kemungkinan menambah field lagi untuk menulis `customers` + activity `lead_converted` dalam satu transaksi (TD §12).
-- `cmd/api/tenant_isolation_test.go`'s `[]isolationCase` bertambah entri `lead`/`task`/`customer`/`activity` — **sengaja ditutup di sini**, bukan sejak #19, supaya mencakup seluruh endpoint Phase 2 sekaligus (lihat `issues.md`).
-- Setelah #23 selesai: `docs/architecture/authorization.md` matriks diperbarui (menjadi nyata, bukan lagi "belum berlaku") mencakup seluruh `Action` yang ditambahkan #20–#23; `multi-tenancy.md` lapis 4 kasus #1 dan #4 jadi ✅; `STATUS.md` mencatat Phase 2 selesai + utang teknis (retensi `idempotency_key`, retensi `notifications`); Phase 3 (Owner Dashboard) dibuka.
-- Berurutan: #19 (selesai) → #20 (selesai) → #21 (selesai) → #22 (selesai) → #23. Rincian di `docs/phases/02-crm-core/issues.md`.
+- Phase 2 tutup dengan seluruh 5 issue (#19–#23) selesai berurutan, tanpa dilewati. Tidak ada pekerjaan
+  Phase 2 yang tersisa.
+- Phase 3 adalah **demo pertama** (freeze bagian 4) — produk bisa dipakai tanpa `curl`. Juga phase
+  pertama di luar `crm_be`, jadi PRD-nya perlu membahas hal yang belum pernah dibahas di repo ini: setup
+  Next.js (`crm_dashboard/`), penyimpanan token di sisi client, bentuk error yang ditampilkan ke
+  pengguna.
+- Awal session berikutnya: baca `CLAUDE.md` → dokumen ini → `docs/workflow.md` → skill →
+  `docs/architecture/*` yang relevan (`multi-tenancy.md` hampir selalu relevan) → mulai PRD Phase 3
+  mengikuti pola `docs/phases/02-crm-core/prd.md`.
+- Belum ada keputusan terbuka yang memblokir Phase 3 — lihat bagian "Keputusan Belum Diambil" di bawah
+  untuk yang masih menunggu (Bahasa UI ditutup **di** Phase 3, bukan sebelumnya).
 
 ---
 
@@ -63,6 +69,8 @@ _(kosong)_
 | Tidak ada auto-migrate saat container `api` start | Issue #2 | `make migrate-up` dijalankan manual. Sengaja dipisah dari entrypoint `api` — migration dan serving punya kelas kegagalan berbeda. |
 | `ratelimit.FixedWindow` tidak pernah membersihkan key lama | Issue #9 | Map tumbuh tanpa batas seiring IP/email baru muncul. Tidak masalah di volume MVP; perlu eviction sebelum traffic produksi nyata. |
 | Angka rate limit (register 5/jam, resend 3/jam+10/jam) belum final | Issue #9 | Cukup untuk membuktikan mekanisme aktif, bukan hasil tuning. Freeze mencatat "strategi rate limit final" sebagai keputusan terbuka hingga Phase 4. |
+| `leads.idempotency_key` tidak punya retensi | Issue #20, TD §7 | Disimpan selamanya — key yang dipakai ulang setahun kemudian mengembalikan lead lama. Tidak berbahaya (tidak pernah membuat duplikat), tetapi salah. Baru relevan saat Phase 4 (API publik) membuat integrator sungguhan mulai mengirim key. |
+| `notifications` tidak punya retensi | Issue #22, TD §2 | Sama seperti `idempotency_key` — tidak ada scheduler di Phase 2 untuk membersihkan notifikasi lama. Tidak mendesak di volume MVP. |
 
 > ~~Test otomatis `db.InTx` dan migration round-trip~~ — selesai di issue #3.
 
@@ -125,7 +133,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 |---|---|---|---|---|---|
 | 0 | Foundation | ✅ | ✅ | ✅ #1–#3 | ✅ |
 | 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11, #15 | ✅ |
-| 2 | CRM Core | ✅ | ✅ | ✅ #19–#23 | ⬜ |
+| 2 | CRM Core | ✅ | ✅ | ✅ #19–#23 | ✅ |
 | 3 | Owner Dashboard | ⬜ | ⬜ | ⬜ | ⬜ |
 | 4 | Public API | ⬜ | ⬜ | ⬜ | ⬜ |
 | 5 | Employee Mobile | ⬜ | ⬜ | ⬜ | ⬜ |
