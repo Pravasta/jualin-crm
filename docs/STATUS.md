@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 24 Agustus 2026 — Issue #23 selesai — **Phase 2 tutup**
-**Phase sekarang:** Phase 3 — Owner Dashboard (belum dimulai — PRD/TD belum dibuka)
+**Last updated:** 24 Agustus 2026 — Phase 3 dibuka (PRD + TD + issue #30–#35)
+**Phase sekarang:** Phase 3 — Owner Dashboard (0/6 issue selesai)
 
 ---
 
@@ -45,19 +45,16 @@ _(kosong)_
 
 ## Berikutnya
 
-**Buka Phase 3 — Owner Dashboard: PRD + TD, pecah issue**
+**Issue #30 — CORS + endpoint metrik** (backend, pembuka Phase 3)
 
-- Phase 2 tutup dengan seluruh 5 issue (#19–#23) selesai berurutan, tanpa dilewati. Tidak ada pekerjaan
-  Phase 2 yang tersisa.
-- Phase 3 adalah **demo pertama** (freeze bagian 4) — produk bisa dipakai tanpa `curl`. Juga phase
-  pertama di luar `crm_be`, jadi PRD-nya perlu membahas hal yang belum pernah dibahas di repo ini: setup
-  Next.js (`crm_dashboard/`), penyimpanan token di sisi client, bentuk error yang ditampilkan ke
-  pengguna.
-- Awal session berikutnya: baca `CLAUDE.md` → dokumen ini → `docs/workflow.md` → skill →
-  `docs/architecture/*` yang relevan (`multi-tenancy.md` hampir selalu relevan) → mulai PRD Phase 3
-  mengikuti pola `docs/phases/02-crm-core/prd.md`.
-- Belum ada keputusan terbuka yang memblokir Phase 3 — lihat bagian "Keputusan Belum Diambil" di bawah
-  untuk yang masih menunggu (Bahasa UI ditutup **di** Phase 3, bukan sebelumnya).
+- Cakupan & acceptance: [issue #30](https://github.com/Pravasta/jualin-crm/issues/30)
+- TD: `docs/phases/03-owner-dashboard/td.md` §1, §2
+- **Phase 3 bukan phase frontend murni.** Dua pekerjaan Go mendahului layar manapun: middleware CORS
+  (belum ada sama sekali — tanpanya tidak ada request browser yang sampai ke handler) dan endpoint
+  metrik agregat (`02-crm-core/td.md` §5 sudah mencatatnya sebagai milik Phase 3).
+- `internal/metrics` adalah paket **read-only** — tidak punya `Store`/`InTx`, karena tidak pernah
+  menulis. Penyimpangan sadar dari bentuk lima berkas, dicatat di TD §2.
+- Berurutan: #30 → #31 → #32 → #33 → #34 → #35. Rincian di `docs/phases/03-owner-dashboard/issues.md`.
 
 ---
 
@@ -87,7 +84,6 @@ Tidak ada yang memblokir. Semuanya diputuskan saat fitur terkait dikerjakan.
 | — | Email provider (Resend / Postmark / SES) | Phase 1 — ⏳ *lead time, lihat bawah* |
 | — | Domain final & branding | Phase 1 — ⏳ *lead time, lihat bawah* |
 | — | Hosting & managed PostgreSQL | Phase 0 akhir |
-| — | Bahasa UI (ID / EN / dwibahasa) | Phase 3 |
 | — | Retensi data free tier | Phase 8 |
 | — | Push provider detail | Phase 5 — ⏳ *lead time, lihat bawah* |
 | — | Pricing final & limit free tier | Phase 8 |
@@ -96,6 +92,8 @@ Tidak ada yang memblokir. Semuanya diputuskan saat fitur terkait dikerjakan.
 Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 dan `docs/brainstorming/architecture_product_review.md` bagian 12.
 
 > **B6–B9 ditutup** saat PRD Phase 2 dibuka (21 Agustus 2026), seluruhnya mengikuti rekomendasi freeze: `lost_reason` 6 nilai · mundur satu langkah · `tasks.lead_id NOT NULL` · konversi ke Customer adalah aksi eksplisit. Alasan tiap keputusan ada di `docs/phases/02-crm-core/prd.md` bagian *Keputusan yang ditutup di phase ini*.
+
+> **C1–C3 ditutup** saat PRD Phase 3 dibuka (24 Agustus 2026): **Bahasa UI Indonesia saja, tanpa i18n** (C1 — satu-satunya dari ketiganya yang memang tercatat di tabel ini) · **browser → Go langsung dengan CORS**, bukan BFF (C2) · **shadcn/ui + Tailwind** (C3). C2 dan C3 ternyata belum pernah diputuskan di dokumen manapun; keduanya ditutup di muka, bukan di tengah implementasi. Alasan tiap keputusan ada di `docs/phases/03-owner-dashboard/prd.md`.
 
 ---
 
@@ -134,7 +132,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 0 | Foundation | ✅ | ✅ | ✅ #1–#3 | ✅ |
 | 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11, #15 | ✅ |
 | 2 | CRM Core | ✅ | ✅ | ✅ #19–#23 | ✅ |
-| 3 | Owner Dashboard | ⬜ | ⬜ | ⬜ | ⬜ |
+| 3 | Owner Dashboard | ✅ | ✅ | ✅ #30–#35 | ⬜ |
 | 4 | Public API | ⬜ | ⬜ | ⬜ | ⬜ |
 | 5 | Employee Mobile | ⬜ | ⬜ | ⬜ | ⬜ |
 
