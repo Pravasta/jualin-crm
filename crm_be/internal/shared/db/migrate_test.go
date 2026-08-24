@@ -139,6 +139,43 @@ func TestMigrationRoundTrip_0003CrmCore(t *testing.T) {
 	restoreLatest(t, sqlDB)
 }
 
+func TestMigrationRoundTrip_0004Notifications(t *testing.T) {
+	sqlDB := openGooseDB(t)
+
+	// Land on exactly version 3 first, so UpTo(4) below is a real
+	// migration of 0004 alone rather than a no-op against an
+	// already-fully-migrated shared container.
+	if err := goose.DownTo(sqlDB, ".", 3); err != nil {
+		t.Fatalf("goose down to 3 failed: %v", err)
+	}
+	if tableExists(t, sqlDB, "notifications") {
+		t.Fatal("expected notifications to be absent before migrating to version 4")
+	}
+
+	if err := goose.UpTo(sqlDB, ".", 4); err != nil {
+		t.Fatalf("goose up to 4 failed: %v", err)
+	}
+	if !tableExists(t, sqlDB, "notifications") {
+		t.Error("expected notifications to exist after migrating to version 4")
+	}
+
+	if err := goose.DownTo(sqlDB, ".", 3); err != nil {
+		t.Fatalf("goose down to 3 failed: %v", err)
+	}
+	if tableExists(t, sqlDB, "notifications") {
+		t.Error("expected notifications to be gone after rolling back to version 3")
+	}
+	// 0003's tables must survive rolling back 0004 — down only undoes its
+	// own migration, not everything beneath it.
+	for _, table := range crmCoreTables {
+		if !tableExists(t, sqlDB, table) {
+			t.Errorf("expected table %q (from 0003) to survive rolling back 0004", table)
+		}
+	}
+
+	restoreLatest(t, sqlDB)
+}
+
 var identityTables = []string{
 	"organizations", "users", "memberships", "subscriptions",
 	"invitations", "email_verification_tokens", "password_reset_tokens",

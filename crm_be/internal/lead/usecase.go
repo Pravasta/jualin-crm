@@ -251,6 +251,64 @@ func (u *Usecase) UpdateStatus(ctx context.Context, t tenant.Context, id uuid.UU
 	return updated, nil
 }
 
+// UpdateAssignment sets or clears id's assignee and records the
+// resulting activity (lead_assigned or lead_unassigned) atomically with
+// it (TD §11), plus a notification when assigning to someone other than
+// the actor — assigning to yourself is deliberately silent (TD §11:
+// "memberi tahu seseorang tentang tindakannya sendiri hanya menambah
+// bising").
+func (u *Usecase) UpdateAssignment(ctx context.Context, t tenant.Context, id uuid.UUID, in UpdateAssignmentInput) (*Lead, error) {
+	if err := authz.Require(t, authz.ActionLeadAssign); err != nil {
+		return nil, err
+	}
+
+	var updated *Lead
+	var conflict bool
+	txErr := u.store.InTx(ctx, func(r Repos) error {
+		current, err := r.Lead.FindByID(ctx, t, id)
+		if err != nil {
+			return err
+		}
+		fromAssignee := current.AssignedToMembershipID
+
+		result, err := r.Lead.UpdateAssignment(ctx, t, id, in.Version, in.AssignedToMembershipID)
+		if errors.Is(err, ErrVersionConflict) {
+			updated = result
+			conflict = true
+			return ErrVersionConflict
+		}
+		if err != nil {
+			return err
+		}
+		updated = result
+
+		if in.AssignedToMembershipID == nil {
+			return r.Activity.Record(ctx, t, id, "lead_unassigned", t.MembershipID, map[string]any{"from": fromAssignee})
+		}
+
+		newAssignee := *in.AssignedToMembershipID
+		if err := r.Activity.Record(ctx, t, id, "lead_assigned", t.MembershipID, map[string]any{"from": fromAssignee, "to": newAssignee}); err != nil {
+			return err
+		}
+
+		if t.MembershipID != nil && newAssignee == *t.MembershipID {
+			return nil // self-assignment — no notification
+		}
+		title := fmt.Sprintf("Lead #%d ditugaskan kepada Anda", updated.LeadNumber)
+		return r.Notification.Notify(ctx, t, newAssignee, "lead_assigned", &id, nil, title, &updated.Name)
+	})
+	if conflict {
+		return nil, &VersionConflictError{Current: updated}
+	}
+	if errors.Is(txErr, ErrAssigneeNotFound) {
+		return nil, httpx.NewValidationError(httpx.ErrorDetail{Field: "assigned_to_membership_id", Code: "not_found"})
+	}
+	if txErr != nil {
+		return nil, txErr
+	}
+	return updated, nil
+}
+
 func (u *Usecase) Delete(ctx context.Context, t tenant.Context, id uuid.UUID) error {
 	if err := authz.Require(t, authz.ActionLeadDelete); err != nil {
 		return err

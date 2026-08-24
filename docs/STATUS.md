@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 24 Agustus 2026 — Issue #21 selesai
-**Phase sekarang:** Phase 2 — CRM Core (3/5 issue selesai)
+**Last updated:** 24 Agustus 2026 — Issue #22 selesai
+**Phase sekarang:** Phase 2 — CRM Core (4/5 issue selesai)
 
 ---
 
@@ -32,6 +32,7 @@
 | **Issue #19 — Schema 0003, repository lead, alokasi `lead_number`, optimistic locking** | — | 2 | Migration `0003_crm_core` (`leads`, `customers`, `activities`, `tasks` + `organizations.next_lead_number`). `internal/lead` — repository murni (`entity.go`+`repository_postgres.go`, tanpa `port.go`/usecase — pola `membership` pra-#11). Alokasi `lead_number` berurutan per organization dan optimistic locking `version`, **dibuktikan di bawah konkurensi nyata** (20 goroutine bersamaan). Visibilitas employee ditegakkan di repository. Klaim awal soal kebutuhan `db.InTx` sempat berlebihan di komentar kode — diuji langsung sebelum commit, ternyata test konkurensi tidak membuktikannya; ditulis test terpisah (`TestCreate_FailedInsertInsideInTx_DoesNotBurnLeadNumber`) yang benar-benar membuktikan. Test katalog (dari #8) otomatis mencakup keempat tabel baru **tanpa perubahan**. |
 | **Issue #20 — Lead CRUD, transisi status, filter, pagination, idempotency, E.164** | — | 2 | `internal/lead` naik jadi domain penuh (`port/usecase/handler_http.go`, `Repository` jadi interface — migrasi yang sama seperti `membership` di #11). `POST/GET/PATCH/DELETE /v1/leads`, `PATCH /v1/leads/{id}/status`. `internal/shared/phone.ToE164` (Indonesia-first). Idempotency-Key dideteksi lewat unique-violation database, **dibuktikan dengan 10 POST bersamaan → tepat 1 lead**. Optimistic locking `409` membawa keadaan terkini di body. Dua `Action` RBAC baru (`lead.create/read/update/delete`). **Bug nyata ditemukan lewat test yang salah pakai** (assignee tak valid → 500 diam-diam) — diperbaiki jadi `400` bersih + test regresi. Satu penyimpangan TD didokumentasikan (keluar dari `lost` belum bisa "satu langkah tepat" tanpa riwayat dari #21). 34 test baru di `internal/lead`, semuanya lolos tanpa perubahan asersi lama. |
 | **Issue #21 — Activity append-only + auto-log, dan Task** | — | 2 | `internal/activity` dan `internal/task` baru — dua domain penuh. `ActivityRecorder` dideklarasikan konsumen (`lead`, `task`), dijembatani `activity.NewRecorder(q)` di composition root — pola `auth.RefreshTokenRevoker` (#11). `lead_created`, `status_changed` (`metadata={from,to}`), `task_created`, `task_completed` ditulis **di dalam `Store.InTx` yang sama** dengan pemicunya — `lead.Usecase.UpdateStatus` kini juga dibungkus `InTx`. `GET/POST /v1/leads/{id}/activities` (append-only — **tidak ada** `PATCH`/`DELETE`, diverifikasi lewat daftar route sungguhan). Tipe sistem dari client → `422`. `internal/task`: visibilitas employee lewat kepemilikan **lead**, bukan assignee task sendiri — dibuktikan test khusus. jsonb pertama yang benar-benar ditulis di codebase ini (`activities.metadata`), diverifikasi round-trip langsung terhadap Postgres asli. Atomisitas dibuktikan dua lapis: fake (unit) dan transaksi Postgres sungguhan (`repository_atomicity_test.go`, membuktikan rollback nyata + `lead_number` tidak "terbakar"). Satu bug desain (visibilitas `task.FindAllByLead`) ketahuan dan diperbaiki sebelum commit. Enam `Action` RBAC baru. Smoke test manual end-to-end lolos seluruh acceptance criteria. |
+| **Issue #22 — Assignment, notification (`0004`), penutupan kewajiban penonaktifan membership** | — | 2 | Migration `0004_notifications`. `internal/notification` baru — satu-satunya resource di codebase ini tanpa akses lebih luas untuk Owner/Admin, selalu di-scope ke `t.MembershipID`. `PATCH /v1/leads/{id}/assignment` — activity `lead_assigned`/`lead_unassigned` **dan** notification (kecuali assign ke diri sendiri) dalam satu `Store.InTx`. **Menutup kewajiban warisan Phase 1**: `DELETE /v1/memberships/{id}` menolak default (`409 membership_has_open_leads`) bila masih ada lead terbuka; `?on_open_leads=unassign\|reassign` sebagai jalan keluar, atomik dengan pencabutan refresh token yang sudah ada sejak #11 — **dibuktikan lewat test Postgres sungguhan**, bukan hanya fake (`internal/membership/handler_test.go`, baru). `internal/lead.OpenLeadRepository` (bridge terpisah, bukan bagian `Repository`) dipakai `internal/membership` lewat interface lokalnya sendiri — `membership` tetap tidak pernah mengimpor `lead`. Satu batu sandungan arsitektural nyata: sentinel error domain (`lead.ErrAssigneeNotFound`) tidak bisa dikenali lintas paket tanpa melanggar ADR-011 — diselesaikan dengan mengembalikan `*httpx.ValidationError` langsung dari bridge method itu sendiri. Satu `Action` RBAC baru (`lead.assign`). Smoke test manual end-to-end lolos, termasuk verifikasi refresh token benar-benar mati via `/v1/auth/refresh`. |
 
 ---
 
@@ -43,13 +44,14 @@ _(kosong)_
 
 ## Berikutnya
 
-**Issue #22 — Assignment, notification (`0004`), penutupan kewajiban penonaktifan membership**
+**Issue #23 — Customer, konversi dari lead, kasus `lead` pada harness isolasi tenant**
 
-- Cakupan & acceptance: [issue #22](https://github.com/Pravasta/jualin-crm/issues/22)
-- TD: `docs/phases/02-crm-core/td.md` §2, §8, §11, §13
-- `internal/lead/port.go`'s `Repos` kemungkinan menambah field lagi (mis. `Notification`) — assignment menulis `lead_assigned`/`lead_unassigned` (activity) **dan** notification dalam satu `Store.InTx` (TD §11).
-- Menutup kewajiban warisan Phase 1 (`docs/phases/01-auth-organization/td.md` §17): `DELETE /v1/memberships/{id}` menolak default bila ada lead terbuka — `internal/membership` akan butuh interface sempit ke `lead` (`OpenLeadRepository`), didekralasikan `membership`, diimplementasikan `lead`, dirakit di composition root — pola yang sama `auth.RefreshTokenRevoker`/`activity.Recorder` sudah pakai dua kali.
-- Berurutan: #19 (selesai) → #20 (selesai) → #21 (selesai) → #22 → #23. Rincian di `docs/phases/02-crm-core/issues.md`.
+- Cakupan & acceptance: [issue #23](https://github.com/Pravasta/jualin-crm/issues/23)
+- TD: `docs/phases/02-crm-core/td.md` §1.2, §8, §12, §16, §18
+- **Penutup Phase 2.** `internal/lead/port.go`'s `Repos` kemungkinan menambah field lagi untuk menulis `customers` + activity `lead_converted` dalam satu transaksi (TD §12).
+- `cmd/api/tenant_isolation_test.go`'s `[]isolationCase` bertambah entri `lead`/`task`/`customer`/`activity` — **sengaja ditutup di sini**, bukan sejak #19, supaya mencakup seluruh endpoint Phase 2 sekaligus (lihat `issues.md`).
+- Setelah #23 selesai: `docs/architecture/authorization.md` matriks diperbarui (menjadi nyata, bukan lagi "belum berlaku") mencakup seluruh `Action` yang ditambahkan #20–#23; `multi-tenancy.md` lapis 4 kasus #1 dan #4 jadi ✅; `STATUS.md` mencatat Phase 2 selesai + utang teknis (retensi `idempotency_key`, retensi `notifications`); Phase 3 (Owner Dashboard) dibuka.
+- Berurutan: #19 (selesai) → #20 (selesai) → #21 (selesai) → #22 (selesai) → #23. Rincian di `docs/phases/02-crm-core/issues.md`.
 
 ---
 

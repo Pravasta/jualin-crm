@@ -32,6 +32,14 @@ func New(q db.Querier) Repository {
 	return &postgresRepository{q: q}
 }
 
+// NewOpenLeadRepository exposes the same concrete implementation as
+// New, typed through OpenLeadRepository — see that interface's doc
+// comment in port.go for why this exists (same pattern as
+// auth.NewRefreshTokenRevoker).
+func NewOpenLeadRepository(q db.Querier) OpenLeadRepository {
+	return &postgresRepository{q: q}
+}
+
 // Create allocates the next lead_number for t.OrganizationID and inserts
 // the row using the SAME r.q for both statements. The allocating
 // UPDATE ... RETURNING is a single atomic statement, so concurrent
@@ -281,6 +289,42 @@ func (r *postgresRepository) UpdateStatus(ctx context.Context, t tenant.Context,
 	return updated, nil
 }
 
+// UpdateAssignment mirrors UpdateStatus's exact shape, touching only
+// assigned_to_membership_id/version. A nil assignedTo clears it
+// (unassign). The employee-scope guard is kept for consistency with
+// every other mutating method here even though authz.ActionLeadAssign
+// already blocks Employee from ever reaching this — same precedent
+// Delete already set.
+func (r *postgresRepository) UpdateAssignment(ctx context.Context, t tenant.Context, id uuid.UUID, expectedVersion int, assignedTo *uuid.UUID) (*Lead, error) {
+	const q = `
+		UPDATE leads
+		SET version = version + 1, assigned_to_membership_id = $5
+		WHERE id = $1 AND organization_id = $2 AND version = $3 AND deleted_at IS NULL
+		  AND (NOT $4 OR assigned_to_membership_id = $6)
+		RETURNING ` + leadColumns
+
+	row := r.q.QueryRow(ctx, q,
+		id, t.OrganizationID, expectedVersion, isEmployee(t),
+		assignedTo, membershipIDOrNil(t),
+	)
+	updated, err := scanLead(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		current, findErr := r.FindByID(ctx, t, id)
+		if findErr != nil {
+			return nil, findErr
+		}
+		return current, ErrVersionConflict
+	}
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.ConstraintName == assigneeFKConstraint {
+			return nil, ErrAssigneeNotFound
+		}
+		return nil, fmt.Errorf("lead: update assignment: %w", err)
+	}
+	return updated, nil
+}
+
 // Delete soft-deletes id within t's scope (Rule #18). No version check —
 // TD doesn't gate delete on optimistic locking the way it does field/status
 // updates; deleting an already-stale-looking row is still a safe delete.
@@ -298,6 +342,98 @@ func (r *postgresRepository) Delete(ctx context.Context, t tenant.Context, id uu
 		return httpx.ErrNotFound
 	}
 	return nil
+}
+
+// openLeadCondition is TD §13's definition of "lead terbuka": status
+// not in any of the four final states, and not soft-deleted (the
+// deleted_at check lives in each caller alongside this constant since
+// it's ANDed with other column references there).
+const openLeadCondition = `status NOT IN ('won','lost','unqualified','spam')`
+
+// CountOpen, UnassignOpen, and ReassignOpen back OpenLeadRepository —
+// membership.Usecase.Deactivate's only way to ask "does this membership
+// still own open leads" and act on the answer, without membership
+// importing this package (see OpenLeadRepository's doc comment in
+// port.go). None of these take an employee-scope guard: they operate on
+// ALL leads assigned to a specific membershipID regardless of who's
+// calling — the caller (membership) already gated this to Owner/Admin
+// via its own authz check before ever reaching here.
+
+func (r *postgresRepository) CountOpen(ctx context.Context, t tenant.Context, membershipID uuid.UUID) (int, error) {
+	const q = `
+		SELECT count(*) FROM leads
+		WHERE organization_id = $1 AND assigned_to_membership_id = $2 AND deleted_at IS NULL
+		  AND ` + openLeadCondition
+
+	var count int
+	if err := r.q.QueryRow(ctx, q, t.OrganizationID, membershipID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("lead: count open: %w", err)
+	}
+	return count, nil
+}
+
+// UnassignOpen clears assigned_to_membership_id for every open lead
+// assigned to membershipID, returning their ids so the caller can log
+// one lead_unassigned activity per lead in the same transaction (TD
+// §13).
+func (r *postgresRepository) UnassignOpen(ctx context.Context, t tenant.Context, membershipID uuid.UUID) ([]uuid.UUID, error) {
+	const q = `
+		UPDATE leads SET version = version + 1, assigned_to_membership_id = NULL
+		WHERE organization_id = $1 AND assigned_to_membership_id = $2 AND deleted_at IS NULL
+		  AND ` + openLeadCondition + `
+		RETURNING id`
+
+	return scanLeadIDs(r.q.Query(ctx, q, t.OrganizationID, membershipID))
+}
+
+// ReassignOpen moves every open lead assigned to membershipID to
+// reassignTo, returning their ids for the same reason UnassignOpen
+// does. A reassignTo that isn't a real membership in this organization
+// violates fk_leads_assignee — mapped directly to *httpx.ValidationError
+// here rather than the ErrAssigneeNotFound sentinel Create/
+// UpdateAssignment use: those sentinels are caught and translated by
+// lead's OWN usecase, but this method is only ever called by
+// membership.Usecase.Deactivate through the OpenLeadRepository bridge,
+// which can't import lead to recognize a lead-specific sentinel
+// (ADR-011). httpx is the one neutral package both sides already
+// import, and httpx.MapError already knows how to turn a
+// *httpx.ValidationError into 400 with no extra code in membership.
+func (r *postgresRepository) ReassignOpen(ctx context.Context, t tenant.Context, membershipID, reassignTo uuid.UUID) ([]uuid.UUID, error) {
+	const q = `
+		UPDATE leads SET version = version + 1, assigned_to_membership_id = $3
+		WHERE organization_id = $1 AND assigned_to_membership_id = $2 AND deleted_at IS NULL
+		  AND ` + openLeadCondition + `
+		RETURNING id`
+
+	ids, err := scanLeadIDs(r.q.Query(ctx, q, t.OrganizationID, membershipID, reassignTo))
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.ConstraintName == assigneeFKConstraint {
+			return nil, httpx.NewValidationError(httpx.ErrorDetail{Field: "reassign_to", Code: "not_found"})
+		}
+		return nil, err
+	}
+	return ids, nil
+}
+
+func scanLeadIDs(rows pgx.Rows, queryErr error) ([]uuid.UUID, error) {
+	if queryErr != nil {
+		return nil, fmt.Errorf("lead: query open leads: %w", queryErr)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("lead: scan open lead id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("lead: query open leads: %w", err)
+	}
+	return ids, nil
 }
 
 func isEmployee(t tenant.Context) bool {

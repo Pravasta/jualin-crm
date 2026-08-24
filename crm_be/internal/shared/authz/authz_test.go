@@ -25,6 +25,7 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleOwner, authz.ActionLeadRead, true},
 		{tenant.RoleOwner, authz.ActionLeadUpdate, true},
 		{tenant.RoleOwner, authz.ActionLeadDelete, true},
+		{tenant.RoleOwner, authz.ActionLeadAssign, true},
 		{tenant.RoleOwner, authz.ActionActivityCreate, true},
 		{tenant.RoleOwner, authz.ActionActivityList, true},
 		{tenant.RoleOwner, authz.ActionTaskCreate, true},
@@ -43,6 +44,7 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleAdmin, authz.ActionLeadRead, true},
 		{tenant.RoleAdmin, authz.ActionLeadUpdate, true},
 		{tenant.RoleAdmin, authz.ActionLeadDelete, true},
+		{tenant.RoleAdmin, authz.ActionLeadAssign, true},
 		{tenant.RoleAdmin, authz.ActionActivityCreate, true},
 		{tenant.RoleAdmin, authz.ActionActivityList, true},
 		{tenant.RoleAdmin, authz.ActionTaskCreate, true},
@@ -61,6 +63,7 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleManager, authz.ActionLeadRead, true},
 		{tenant.RoleManager, authz.ActionLeadUpdate, true},
 		{tenant.RoleManager, authz.ActionLeadDelete, false},
+		{tenant.RoleManager, authz.ActionLeadAssign, true},
 		{tenant.RoleManager, authz.ActionActivityCreate, true},
 		{tenant.RoleManager, authz.ActionActivityList, true},
 		{tenant.RoleManager, authz.ActionTaskCreate, true},
@@ -79,6 +82,7 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleEmployee, authz.ActionLeadRead, true}, // repository further restricts to own leads
 		{tenant.RoleEmployee, authz.ActionLeadUpdate, true},
 		{tenant.RoleEmployee, authz.ActionLeadDelete, false},
+		{tenant.RoleEmployee, authz.ActionLeadAssign, false},
 		{tenant.RoleEmployee, authz.ActionActivityCreate, true}, // repository further restricts to own leads
 		{tenant.RoleEmployee, authz.ActionActivityList, true},
 		{tenant.RoleEmployee, authz.ActionTaskCreate, true},
