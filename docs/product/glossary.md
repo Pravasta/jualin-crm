@@ -86,4 +86,4 @@
 
 - **Dokumentasi & komunikasi:** Bahasa Indonesia
 - **Kode, nama kolom, nama endpoint, pesan error `code`:** Bahasa Inggris
-- **Bahasa UI produk:** belum diputuskan (lihat `docs/STATUS.md`)
+- **Bahasa UI produk:** **Bahasa Indonesia**, tanpa i18n — ditutup sebagai keputusan C1 saat PRD Phase 3 dibuka (`docs/phases/03-owner-dashboard/prd.md`). Konsisten dengan `error.message` backend yang sudah Bahasa Indonesia sejak issue #9.
