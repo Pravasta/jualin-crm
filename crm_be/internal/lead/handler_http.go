@@ -32,6 +32,7 @@ func (h *Handler) RegisterRoutes(r gin.IRouter, authMW gin.HandlerFunc) {
 	g.GET("/:id", h.get)
 	g.PATCH("/:id", h.update)
 	g.PATCH("/:id/status", h.updateStatus)
+	g.PATCH("/:id/assignment", h.updateAssignment)
 	g.DELETE("/:id", h.delete)
 }
 
@@ -193,6 +194,39 @@ func (h *Handler) updateStatus(c *gin.Context) {
 	}
 
 	updated, err := h.usecase.UpdateStatus(c.Request.Context(), t, id, UpdateStatusInput(req))
+	if err != nil {
+		respondLeadError(c, err)
+		return
+	}
+	httpx.OK(c, http.StatusOK, leadJSON(updated))
+}
+
+type updateAssignmentRequest struct {
+	Version                int     `json:"version"`
+	AssignedToMembershipID *string `json:"assigned_to_membership_id"`
+}
+
+func (h *Handler) updateAssignment(c *gin.Context) {
+	t := authn.TenantFromContext(c)
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httpx.WriteError(c, httpx.ErrNotFound)
+		return
+	}
+
+	var req updateAssignmentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.WriteError(c, httpx.NewValidationError(httpx.ErrorDetail{Field: "body", Code: "invalid_json"}))
+		return
+	}
+
+	in := UpdateAssignmentInput{Version: req.Version}
+	if assignee, err := parseUUIDPtr(req.AssignedToMembershipID); err == nil {
+		in.AssignedToMembershipID = assignee
+	}
+
+	updated, err := h.usecase.UpdateAssignment(c.Request.Context(), t, id, in)
 	if err != nil {
 		respondLeadError(c, err)
 		return

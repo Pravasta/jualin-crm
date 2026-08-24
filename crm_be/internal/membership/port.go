@@ -36,11 +36,34 @@ type RefreshTokenRepository interface {
 	RevokeAllByMembershipID(ctx context.Context, membershipID uuid.UUID) error
 }
 
+// OpenLeadRepository is declared locally per ADR-011 — membership needs
+// only to count/release/move a membership's open leads (TD §13's own
+// naming: "hitung, lepas, pindahkan"), not lead's full domain type.
+// Satisfied by lead.NewOpenLeadRepository's return value at the
+// composition root; this package never imports internal/lead, same as
+// it never imports internal/auth for RefreshTokenRepository above.
+type OpenLeadRepository interface {
+	CountOpen(ctx context.Context, t tenant.Context, membershipID uuid.UUID) (int, error)
+	UnassignOpen(ctx context.Context, t tenant.Context, membershipID uuid.UUID) ([]uuid.UUID, error)
+	ReassignOpen(ctx context.Context, t tenant.Context, membershipID, reassignTo uuid.UUID) ([]uuid.UUID, error)
+}
+
+// ActivityRecorder is declared locally per ADR-011, same shape as
+// lead's and task's own — satisfied by activity.NewRecorder's return
+// value at the composition root. Deactivation with unassign/reassign
+// logs one lead_assigned/lead_unassigned activity per affected lead
+// (TD §13), atomically with the deactivation itself.
+type ActivityRecorder interface {
+	Record(ctx context.Context, t tenant.Context, leadID uuid.UUID, activityType string, actorMembershipID *uuid.UUID, metadata map[string]any) error
+}
+
 // Repos bundles every repository a single Usecase call needs.
 type Repos struct {
 	Member       Repository
 	Audit        AuditRepository
 	RefreshToken RefreshTokenRepository
+	OpenLead     OpenLeadRepository
+	Activity     ActivityRecorder
 }
 
 // Store is the Unit of Work Usecase depends on — same shape as auth.Store.

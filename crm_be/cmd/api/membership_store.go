@@ -6,17 +6,20 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Pravasta/jualin-crm/crm_be/internal/activity"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auditlog"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auth"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/lead"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/membership"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 )
 
 // membershipStore is the composition root's implementation of
 // membership.Store. Its RefreshToken repository comes from
-// auth.NewRefreshTokenRevoker — internal/membership never imports
-// internal/auth; only this file (and internal/auth itself) knows both
-// packages exist (ADR-011).
+// auth.NewRefreshTokenRevoker and its OpenLead repository from
+// lead.NewOpenLeadRepository (added in #22) — internal/membership never
+// imports internal/auth or internal/lead; only this file (and those
+// packages themselves) know all three exist (ADR-011).
 type membershipStore struct {
 	pool *pgxpool.Pool
 }
@@ -40,5 +43,7 @@ func membershipReposFor(q db.Querier) membership.Repos {
 		Member:       membership.New(q),
 		Audit:        auditlog.New(q),
 		RefreshToken: auth.NewRefreshTokenRevoker(q),
+		OpenLead:     lead.NewOpenLeadRepository(q),
+		Activity:     activity.NewRecorder(q),
 	}
 }

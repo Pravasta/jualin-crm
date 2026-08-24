@@ -42,3 +42,13 @@ type UpdateRoleInput struct {
 	MembershipID uuid.UUID
 	NewRole      tenant.Role
 }
+
+// OpenLeadsError is Deactivate's default-path rejection (TD §13) —
+// carries the count for the 409 body ("body memuat jumlahnya"), which
+// httpx.DomainError can't express. Same envelope-extension pattern as
+// lead.VersionConflictError.
+type OpenLeadsError struct {
+	Count int
+}
+
+func (e *OpenLeadsError) Error() string { return "membership has open leads" }

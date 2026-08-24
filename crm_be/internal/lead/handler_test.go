@@ -24,6 +24,7 @@ import (
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/activity"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/lead"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/notification"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/accesstoken"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authn"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
@@ -45,12 +46,12 @@ func newTestStore(pool *pgxpool.Pool) lead.Store { return &testStore{pool: pool}
 
 func (s *testStore) InTx(ctx context.Context, fn func(lead.Repos) error) error {
 	return db.InTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return fn(lead.Repos{Lead: lead.New(tx), Activity: activity.NewRecorder(tx)})
+		return fn(lead.Repos{Lead: lead.New(tx), Activity: activity.NewRecorder(tx), Notification: notification.NewNotifier(tx)})
 	})
 }
 
 func (s *testStore) Repos() lead.Repos {
-	return lead.Repos{Lead: lead.New(s.pool), Activity: activity.NewRecorder(s.pool)}
+	return lead.Repos{Lead: lead.New(s.pool), Activity: activity.NewRecorder(s.pool), Notification: notification.NewNotifier(s.pool)}
 }
 
 func newTestRouter(t *testing.T) (*gin.Engine, *pgxpool.Pool) {
@@ -397,6 +398,102 @@ func TestHandler_List_FilterAssignedToNone(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if body.Meta.Total != 1 || len(body.Data) != 1 || body.Data[0].Name != "Unassigned" {
 		t.Errorf("expected exactly 1 unassigned lead, got %+v", body)
+	}
+}
+
+// --- assignment tests (TD §11) ---
+
+func TestHandler_UpdateAssignment_ToColleague_CreatesActivityAndNotification(t *testing.T) {
+	r, pool := newTestRouter(t)
+	ctx := context.Background()
+	org, userID, membershipID := seedOrgAndOwner(t, ctx, pool)
+	token := bearerToken(t, userID, org, membershipID, tenant.RoleOwner)
+	colleague := seedEmployeeMembership(t, ctx, pool, org)
+
+	created := doJSON(r, http.MethodPost, "/v1/leads", token, map[string]string{"name": "Budi"}, nil)
+	id, version := extractIDAndVersion(t, created)
+
+	w := doJSON(r, http.MethodPatch, "/v1/leads/"+id+"/assignment", token,
+		map[string]any{"version": version, "assigned_to_membership_id": colleague.String()}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var activityCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM activities WHERE lead_id = $1 AND type = 'lead_assigned'`, id).Scan(&activityCount); err != nil {
+		t.Fatalf("query activities: %v", err)
+	}
+	if activityCount != 1 {
+		t.Errorf("expected 1 lead_assigned activity, got %d", activityCount)
+	}
+
+	var notifCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM notifications WHERE lead_id = $1 AND recipient_membership_id = $2`, id, colleague).Scan(&notifCount); err != nil {
+		t.Fatalf("query notifications: %v", err)
+	}
+	if notifCount != 1 {
+		t.Errorf("expected 1 notification for the colleague, got %d", notifCount)
+	}
+}
+
+func TestHandler_UpdateAssignment_ToSelf_NoNotification(t *testing.T) {
+	r, pool := newTestRouter(t)
+	ctx := context.Background()
+	org, userID, membershipID := seedOrgAndOwner(t, ctx, pool)
+	token := bearerToken(t, userID, org, membershipID, tenant.RoleOwner)
+
+	created := doJSON(r, http.MethodPost, "/v1/leads", token, map[string]string{"name": "Budi"}, nil)
+	id, version := extractIDAndVersion(t, created)
+
+	w := doJSON(r, http.MethodPatch, "/v1/leads/"+id+"/assignment", token,
+		map[string]any{"version": version, "assigned_to_membership_id": membershipID.String()}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var notifCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM notifications WHERE lead_id = $1`, id).Scan(&notifCount); err != nil {
+		t.Fatalf("query notifications: %v", err)
+	}
+	if notifCount != 0 {
+		t.Errorf("expected no notification for self-assignment, got %d", notifCount)
+	}
+}
+
+// TestHandler_UpdateAssignment_InvalidAssignee_Returns400 is the same
+// regression-test discipline as #20's ErrAssigneeNotFound fix — a
+// nonexistent membership must map to a clean 400, not a bare 500.
+func TestHandler_UpdateAssignment_InvalidAssignee_Returns400(t *testing.T) {
+	r, pool := newTestRouter(t)
+	ctx := context.Background()
+	org, userID, membershipID := seedOrgAndOwner(t, ctx, pool)
+	token := bearerToken(t, userID, org, membershipID, tenant.RoleOwner)
+
+	created := doJSON(r, http.MethodPost, "/v1/leads", token, map[string]string{"name": "Budi"}, nil)
+	id, version := extractIDAndVersion(t, created)
+
+	bogus := uuid.Must(uuid.NewV7())
+	w := doJSON(r, http.MethodPatch, "/v1/leads/"+id+"/assignment", token,
+		map[string]any{"version": version, "assigned_to_membership_id": bogus.String()}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a nonexistent assignee, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandler_UpdateAssignment_EmployeeForbidden(t *testing.T) {
+	r, pool := newTestRouter(t)
+	ctx := context.Background()
+	org, userID, membershipID := seedOrgAndOwner(t, ctx, pool)
+	token := bearerToken(t, userID, org, membershipID, tenant.RoleOwner)
+
+	created := doJSON(r, http.MethodPost, "/v1/leads", token, map[string]string{"name": "Budi"}, nil)
+	id, version := extractIDAndVersion(t, created)
+
+	employeeToken := bearerToken(t, uuid.Must(uuid.NewV7()), org, uuid.Must(uuid.NewV7()), tenant.RoleEmployee)
+	w := doJSON(r, http.MethodPatch, "/v1/leads/"+id+"/assignment", employeeToken,
+		map[string]any{"version": version, "assigned_to_membership_id": nil}, nil)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

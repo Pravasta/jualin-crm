@@ -159,3 +159,50 @@ Seluruh acceptance criteria issue #21 terpenuhi. Kasus 404 employee (activity & 
 - **Pola visibilitas-eksplisit-lalu-404 vs filter-diam-diam** sekarang punya preseden jelas: gunakan yang pertama untuk "satu resource spesifik milik satu lead" (`FindByID`, `FindAllByLead`), gunakan yang kedua untuk "daftar lintas-lead yang boleh menyempit" (`FindAllByOrg`). Jangan pakai `buildXWhere` yang sama untuk keduanya tanpa mikir ulang — itu persis kesalahan yang tertangkap di atas.
 - **`docs/architecture/authorization.md`'s matrix belum diperbarui** — tetap ditunda ke #23 seperti sudah dicatat di TD §9, sekarang dengan `activity.*`/`task.*` (termasuk `task.read` yang tidak ada di TD literal) sebagai baris tambahan yang perlu masuk saat itu.
 - **`internal/task`'s `Complete` tidak menolak menyelesaikan task yang sudah `done`** — pada `version` yang benar, memanggil `complete` lagi hanya menimpa ulang `completed_at`/`completed_by` tanpa error. Tidak diuji acceptance criteria manapun; disebutkan di sini supaya bukan kejutan bila suatu saat dianggap perlu perilaku berbeda.
+
+---
+
+## #22 — Assignment, notification (`0004`), penutupan kewajiban penonaktifan membership
+
+### Keputusan implementasi
+
+- **`internal/notification` baru, paket domain penuh** — satu-satunya resource di codebase ini di mana **Owner/Admin pun tidak dapat akses lebih luas** dari role lain: setiap query di-scope tanpa syarat ke `recipient_membership_id = t.MembershipID`, tanpa cabang `isEmployee`. Tidak ada `authz.Require` di `notification.Usecase` sama sekali — tidak ada pertanyaan berbasis role untuk dijawab, sama seperti `GET /v1/me`.
+- **`Repository` milik `notification.Usecase` sengaja tanpa `Create`** — tidak ada `POST /v1/notifications` di TD §8. Pembuatan notifikasi hanya lewat `Notifier` (bridge lintas paket), dipasang di `lead.Repos.Notification` lewat `notification.NewNotifier(q)` — pola yang sama `activity.Recorder` pakai, instansi ketiga dari pola `auth.RefreshTokenRevoker` di #11.
+- **`internal/lead` mendapat `OpenLeadRepository` (bridge terpisah, BUKAN bagian dari `Repository`)** — `CountOpen`/`UnassignOpen`/`ReassignOpen`, dipakai eksklusif oleh `membership.Usecase.Deactivate` lewat interface lokal `membership` sendiri (`OpenLeadRepository`, bentuk identik, dideklarasikan independen). `internal/membership` tetap tidak pernah mengimpor `internal/lead` — persis seperti tidak pernah mengimpor `internal/auth` untuk `RefreshTokenRepository`.
+- **Batu sandungan nyata: sentinel error lintas paket tidak bisa dikenali tanpa impor domain** — rencana awal `ReassignOpen` mengembalikan `lead.ErrAssigneeNotFound` saat `reassign_to` tidak valid (pelanggaran `fk_leads_assignee`), persis pola `Create`/`UpdateAssignment`. Tapi `membership.Usecase` **tidak bisa** melakukan `errors.Is` terhadap sentinel itu tanpa mengimpor `internal/lead` — melanggar ADR-011 tepat di titik yang seharusnya dicegah oleh interface bridge. Diperbaiki dengan mengembalikan `*httpx.ValidationError` **langsung dari `ReassignOpen`** (bukan sentinel domain `lead`) — `internal/shared/httpx` adalah satu-satunya paket netral yang **kedua sisi** sudah impor, dan `httpx.MapError` sudah tahu memetakannya ke `400` tanpa kode tambahan apa pun di `membership`. Pelajaran: method yang HANYA melayani sebagai bridge lintas paket (bukan dipakai usecase paket asalnya sendiri) adalah lapis yang tepat untuk menghasilkan sinyal yang sudah bisa dikenali pemanggil — beda dengan `Create`/`UpdateAssignment` yang sentinel-nya diterjemahkan oleh usecase **di paket yang sama**.
+- **`fromAssignee := current.AssignedToMembershipID` ditangkap sebelum `UpdateAssignment` dipanggil** — disiplin yang sama persis dengan `fromStatus` di `UpdateStatus` (#21), sekarang diterapkan proaktif di `UpdateAssignment` sejak awal (bukan ditemukan lewat test yang gagal seperti sebelumnya) karena polanya sudah dikenal.
+- **Assign ke diri sendiri tetap menulis activity `lead_assigned`, hanya notifikasi yang dilewati** — TD §11 eksplisit hanya menyebut notifikasi ("memberi tahu... menambah bising"), bukan activity. Timeline lead tetap mencatat siapa yang mengambil alih, meski aktor dan penerima adalah orang yang sama.
+- **`task_assigned` sengaja tidak dipicu di issue ini** — nilai enum `ck_notifications_type` sudah menyediakannya (keputusan skema TD §2), tapi tidak ada acceptance criteria issue #22 yang mensyaratkan notifikasi saat task di-assign. Dicatat eksplisit sebagai keputusan cakupan, bukan kelalaian — TD §2 sendiri menyebut ini "perluasan kecil yang disengaja", disiapkan untuk dipakai nanti.
+
+### Verifikasi
+
+```
+go build ./...                              → bersih
+go vet ./...                                → bersih
+golangci-lint run                           → 0 issues
+gofmt -l .                                  → bersih
+go test -race -count=1 ./... (2x)           → semua PASS
+
+DOCKER_HOST=unix:///nonexistent/docker.sock \
+  go test ./internal/... -run TestUnit -count=1
+                                             → PASS tanpa Docker (notification, lead, membership, + semua paket lama)
+
+go list -deps ./cmd/api | grep docker       → kosong
+```
+
+**Test atomisitas (wajib di Definition of Done)**: `internal/membership/handler_test.go` (baru) membuktikan klaim "semuanya atau tidak sama sekali" terhadap transaksi Postgres sungguhan, bukan hanya fake — `on_open_leads=unassign` dengan dua lead terbuka: kedua lead terlepas, dua activity `lead_unassigned` tercatat, membership nonaktif, **dan** refresh token yang sudah ada sebelumnya benar-benar `revoked_at`-nya terisi, semuanya diverifikasi lewat `SELECT` langsung setelah satu panggilan HTTP. Jalur `reject` dibuktikan sebaliknya: `409` dengan jumlah lead terbuka yang benar (mengecualikan lead berstatus `won`), membership **tetap aktif**, refresh token **tetap** tidak revoked — transaksi benar-benar batal, bukan hanya response error yang dikembalikan lebih dulu.
+
+**Smoke test manual** (`docker compose up --build`): register+verify+login owner → undang & terima undangan seorang employee (kolega) → `POST /v1/leads` → `PATCH /assignment` ke kolega → `GET activities` menunjukkan `lead_assigned` dengan `metadata={from:null,to:<kolega>}` → `GET /v1/notifications?unread=true` (sebagai kolega) → tepat satu notifikasi `lead_assigned` dengan title `"Lead #1 ditugaskan kepada Anda"` → `POST .../read` → `204`, hilang dari daftar unread → `PATCH /assignment` ke diri sendiri (owner) → **tidak ada** notifikasi baru → assign ulang lead ke kolega → `DELETE /v1/memberships/{kolega}` tanpa parameter → `409 membership_has_open_leads` dengan `open_lead_count: 1` → `DELETE ...?on_open_leads=unassign` → `204`, lead kembali `assigned_to_membership_id: null` → refresh token kolega (dengan cookie asli + header CSRF yang benar) → `401 invalid_credentials`, membuktikan sesi benar-benar mati. Catatan: `GET /v1/me` dengan access token JWT kolega yang **belum kedaluwarsa** tetap `200` setelah deactivation — ini bukan bug, access token JWT stateless tidak bisa dicabut instan, hanya refresh token opaque yang dicabut; ini konsisten dengan desain sejak #10.
+
+Seluruh acceptance criteria issue #22 terpenuhi. Jalur `reassign` diverifikasi otomatis lewat test Postgres (`TestHandler_Deactivate_OnOpenLeadsReassign_MovesLeadsAndLogsActivity`), tidak diulang manual.
+
+### Utang teknis
+
+- Tidak ada item baru dari issue ini sendiri.
+
+### Catatan untuk session berikutnya
+
+- **`internal/lead/port.go`'s `Repos{Lead, Activity, Notification}` sekarang tiga field.** #23 (konversi ke Customer) kemungkinan menambah field lagi untuk menulis `customers` + activity `lead_converted` dalam satu transaksi.
+- **Pola "sentinel domain diterjemahkan di usecase paket sendiri, tapi bridge lintas paket menerjemahkan langsung ke `httpx`"** sekarang punya satu contoh konkret (`lead.ReassignOpen`). Berlaku untuk bridge serupa yang akan datang — kapan pun sebuah method HANYA melayani sebagai jembatan `OpenLeadRepository`-style, jangan berasumsi errors.Is sentinel domain bisa dikenali pemanggil.
+- **`docs/architecture/authorization.md`'s matrix masih belum diperbarui** — tetap ditunda ke #23 (penutup Phase 2), sekarang bertambah `lead.assign` dan seluruh baris `activity.*`/`task.*` dari #21 yang juga belum masuk.
+- **Retensi `notifications` belum ada** — sama seperti `idempotency_key` (dicatat di `## #20`), TD tidak menyebut kebijakan retensi untuk notifikasi lama, dan Phase 2 tidak punya scheduler untuk membersihkannya. Tidak mendesak di volume MVP; dicatat di sini agar tidak terlupa saat volume bertambah.

@@ -34,16 +34,18 @@ const (
 	ActionInvitationList       Action = "invitation.list"
 	ActionInvitationRevoke     Action = "invitation.revoke"
 
-	// Lead actions cover only what issue #20 ships — list/read share one
-	// action (identical permissions at every role); lead.assign and
-	// lead.convert land with #22/#23. Employee's read/update access is
-	// further restricted to leads assigned to them, enforced in
-	// internal/lead's repository (Rule: authz answers "this class of
-	// action at all", not "which rows").
+	// Lead actions — list/read share one action (identical permissions
+	// at every role); lead.convert lands with #23. Employee's read/
+	// update access is further restricted to leads assigned to them,
+	// enforced in internal/lead's repository (Rule: authz answers "this
+	// class of action at all", not "which rows").
 	ActionLeadCreate Action = "lead.create"
 	ActionLeadRead   Action = "lead.read"
 	ActionLeadUpdate Action = "lead.update"
 	ActionLeadDelete Action = "lead.delete"
+	// ActionLeadAssign is Owner/Admin/Manager only, same shape as
+	// ActionLeadDelete — TD §9's matrix denies Employee both.
+	ActionLeadAssign Action = "lead.assign"
 
 	// Activity and task actions cover only what issue #21 ships.
 	// Employee access is further restricted in the repository to leads
@@ -81,6 +83,7 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionLeadRead:             true,
 		ActionLeadUpdate:           true,
 		ActionLeadDelete:           true,
+		ActionLeadAssign:           true,
 		ActionActivityCreate:       true,
 		ActionActivityList:         true,
 		ActionTaskCreate:           true,
@@ -100,6 +103,7 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionLeadRead:             true,
 		ActionLeadUpdate:           true,
 		ActionLeadDelete:           true,
+		ActionLeadAssign:           true,
 		ActionActivityCreate:       true,
 		ActionActivityList:         true,
 		ActionTaskCreate:           true,
@@ -115,6 +119,7 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionLeadUpdate:     true,
 		// ActionLeadDelete deliberately absent — matrix gives delete to
 		// Owner/Admin only.
+		ActionLeadAssign:     true,
 		ActionActivityCreate: true,
 		ActionActivityList:   true,
 		ActionTaskCreate:     true,

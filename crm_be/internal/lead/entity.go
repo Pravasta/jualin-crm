@@ -153,6 +153,16 @@ type UpdateStatusInput struct {
 	LostReason *string
 }
 
+// UpdateAssignmentInput is Usecase.UpdateAssignment's argument.
+// AssignedToMembershipID nil means unassign — unlike UpdateLeadInput's
+// fields, this one distinguishes "clear it" from "don't touch" because
+// there's no third state to confuse it with (TD §8:
+// {version, assigned_to_membership_id | null}, always present).
+type UpdateAssignmentInput struct {
+	Version                int
+	AssignedToMembershipID *uuid.UUID
+}
+
 // VersionConflictError carries the row's current state — TD §4's 409
 // body requirement ("body memuat keadaan terkini"). Same pattern as
 // auth.OrganizationSelectionError: a documented, narrow extension of the

@@ -1,6 +1,8 @@
 package membership
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -89,12 +91,36 @@ func (h *Handler) deactivate(c *gin.Context) {
 		return
 	}
 
-	if err := h.usecase.Deactivate(c.Request.Context(), t, id); err != nil {
-		httpx.WriteError(c, err)
+	in := DeactivateInput{OnOpenLeads: c.DefaultQuery("on_open_leads", onOpenLeadsReject)}
+	if raw := c.Query("reassign_to"); raw != "" {
+		if reassignTo, err := uuid.Parse(raw); err == nil {
+			in.ReassignTo = &reassignTo
+		}
+	}
+
+	if err := h.usecase.Deactivate(c.Request.Context(), t, id, in); err != nil {
+		respondMembershipError(c, err)
 		return
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+// respondMembershipError type-switches for *OpenLeadsError before
+// falling through to the generic mapper — TD §13's 409 body carries the
+// open-lead count, which httpx.DomainError can't express (same pattern
+// as lead's respondLeadError).
+func respondMembershipError(c *gin.Context, err error) {
+	var openLeads *OpenLeadsError
+	if errors.As(err, &openLeads) {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{
+			"code":            "membership_has_open_leads",
+			"message":         fmt.Sprintf("Membership ini masih memiliki %d lead terbuka.", openLeads.Count),
+			"open_lead_count": openLeads.Count,
+		}})
+		return
+	}
+	httpx.WriteError(c, err)
 }
 
 func isValidRole(role string) bool {

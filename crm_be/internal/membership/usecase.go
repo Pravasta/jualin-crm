@@ -80,13 +80,47 @@ func (u *Usecase) UpdateRole(ctx context.Context, t tenant.Context, in UpdateRol
 	return nil
 }
 
+// DeactivateInput carries the on_open_leads decision (TD §13) — closing
+// the Phase 1 obligation that a membership can't be deactivated while
+// it still owns open leads without an explicit choice about what
+// happens to them.
+type DeactivateInput struct {
+	// OnOpenLeads is "reject" (default, when empty), "unassign", or
+	// "reassign". Anything else is a validation error.
+	OnOpenLeads string
+	// ReassignTo is required when OnOpenLeads is "reassign", ignored
+	// otherwise.
+	ReassignTo *uuid.UUID
+}
+
+const (
+	onOpenLeadsReject   = "reject"
+	onOpenLeadsUnassign = "unassign"
+	onOpenLeadsReassign = "reassign"
+)
+
 // Deactivate soft-deletes a membership and revokes every refresh token
 // issued for it in the same transaction (freeze §2.3 rule #2 — without
 // this, someone who just lost access keeps working sessions until their
-// access token happens to expire).
-func (u *Usecase) Deactivate(ctx context.Context, t tenant.Context, targetID uuid.UUID) error {
+// access token happens to expire). Since #22, the same transaction also
+// settles what happens to leads still assigned to targetID (TD §13):
+// by default the whole deactivation is refused while any are open,
+// closing the obligation freeze 2.3 and 01-auth-organization/td.md §17
+// left open since Phase 1.
+func (u *Usecase) Deactivate(ctx context.Context, t tenant.Context, targetID uuid.UUID, in DeactivateInput) error {
 	if err := authz.Require(t, authz.ActionMembershipDeactivate); err != nil {
 		return err
+	}
+
+	onOpenLeads := in.OnOpenLeads
+	if onOpenLeads == "" {
+		onOpenLeads = onOpenLeadsReject
+	}
+	if onOpenLeads != onOpenLeadsReject && onOpenLeads != onOpenLeadsUnassign && onOpenLeads != onOpenLeadsReassign {
+		return httpx.NewValidationError(httpx.ErrorDetail{Field: "on_open_leads", Code: "invalid_value"})
+	}
+	if onOpenLeads == onOpenLeadsReassign && in.ReassignTo == nil {
+		return httpx.NewValidationError(httpx.ErrorDetail{Field: "reassign_to", Code: "required"})
 	}
 
 	target, err := u.store.Repos().Member.FindByID(ctx, t, targetID)
@@ -113,6 +147,37 @@ func (u *Usecase) Deactivate(ctx context.Context, t tenant.Context, targetID uui
 	}
 
 	return u.store.InTx(ctx, func(r Repos) error {
+		switch onOpenLeads {
+		case onOpenLeadsReject:
+			count, err := r.OpenLead.CountOpen(ctx, t, targetID)
+			if err != nil {
+				return err
+			}
+			if count > 0 {
+				return &OpenLeadsError{Count: count}
+			}
+		case onOpenLeadsUnassign:
+			leadIDs, err := r.OpenLead.UnassignOpen(ctx, t, targetID)
+			if err != nil {
+				return err
+			}
+			for _, leadID := range leadIDs {
+				if err := r.Activity.Record(ctx, t, leadID, "lead_unassigned", t.MembershipID, map[string]any{"from": targetID}); err != nil {
+					return err
+				}
+			}
+		case onOpenLeadsReassign:
+			leadIDs, err := r.OpenLead.ReassignOpen(ctx, t, targetID, *in.ReassignTo)
+			if err != nil {
+				return err
+			}
+			for _, leadID := range leadIDs {
+				if err := r.Activity.Record(ctx, t, leadID, "lead_assigned", t.MembershipID, map[string]any{"from": targetID, "to": *in.ReassignTo}); err != nil {
+					return err
+				}
+			}
+		}
+
 		if err := r.Member.Deactivate(ctx, t, targetID); err != nil {
 			return err
 		}

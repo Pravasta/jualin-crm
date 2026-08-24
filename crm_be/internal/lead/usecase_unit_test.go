@@ -109,6 +109,19 @@ func (f *fakeLeadRepo) UpdateStatus(_ context.Context, t tenant.Context, id uuid
 	return l, nil
 }
 
+func (f *fakeLeadRepo) UpdateAssignment(_ context.Context, t tenant.Context, id uuid.UUID, expectedVersion int, assignedTo *uuid.UUID) (*lead.Lead, error) {
+	l, err := f.FindByID(context.Background(), t, id)
+	if err != nil {
+		return nil, err
+	}
+	if l.Version != expectedVersion {
+		return l, lead.ErrVersionConflict
+	}
+	l.AssignedToMembershipID = assignedTo
+	l.Version++
+	return l, nil
+}
+
 func (f *fakeLeadRepo) Delete(_ context.Context, t tenant.Context, id uuid.UUID) error {
 	l, err := f.FindByID(context.Background(), t, id)
 	if err != nil {
@@ -143,14 +156,41 @@ func (f *fakeActivityRecorder) Record(_ context.Context, _ tenant.Context, leadI
 	return f.err
 }
 
+// recordedNotification captures one fakeNotificationSender.Notify call.
+type recordedNotification struct {
+	recipientMembershipID uuid.UUID
+	notifType             string
+	leadID                *uuid.UUID
+	taskID                *uuid.UUID
+	title                 string
+	body                  *string
+}
+
+// fakeNotificationSender lets tests assert UpdateAssignment calls
+// Notify (or doesn't, for self-assignment) with the right arguments.
+type fakeNotificationSender struct {
+	calls []recordedNotification
+}
+
+func (f *fakeNotificationSender) Notify(_ context.Context, _ tenant.Context, recipientMembershipID uuid.UUID, notifType string, leadID, taskID *uuid.UUID, title string, body *string) error {
+	f.calls = append(f.calls, recordedNotification{recipientMembershipID, notifType, leadID, taskID, title, body})
+	return nil
+}
+
 type fakeStore struct {
-	repos    lead.Repos
-	activity *fakeActivityRecorder
+	repos        lead.Repos
+	activity     *fakeActivityRecorder
+	notification *fakeNotificationSender
 }
 
 func newFakeStore() *fakeStore {
 	rec := &fakeActivityRecorder{}
-	return &fakeStore{repos: lead.Repos{Lead: newFakeLeadRepo(), Activity: rec}, activity: rec}
+	notif := &fakeNotificationSender{}
+	return &fakeStore{
+		repos:        lead.Repos{Lead: newFakeLeadRepo(), Activity: rec, Notification: notif},
+		activity:     rec,
+		notification: notif,
+	}
 }
 
 // newFakeStoreWithFailingActivity is newFakeStore, but Activity.Record
@@ -532,5 +572,123 @@ func TestUnit_UpdateStatus_ActivityRecordFailure_PropagatesError(t *testing.T) {
 	_, err := u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: created.Version, Status: "contacted"})
 	if err == nil {
 		t.Fatal("expected UpdateStatus to fail when recording the activity fails")
+	}
+}
+
+// --- assignment tests (TD §11) ---
+
+func TestUnit_UpdateAssignment_EmployeeForbidden(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	org, ownerMembershipID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	owner := actorContext(org, ownerMembershipID, tenant.RoleOwner)
+	created, _, _ := u.Create(context.Background(), owner, lead.CreateLeadInput{Name: "Budi"})
+
+	employeeCtx := actorContext(org, uuid.Must(uuid.NewV7()), tenant.RoleEmployee)
+	someone := uuid.Must(uuid.NewV7())
+	_, err := u.UpdateAssignment(context.Background(), employeeCtx, created.ID, lead.UpdateAssignmentInput{Version: created.Version, AssignedToMembershipID: &someone})
+
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "forbidden" {
+		t.Fatalf("expected forbidden for employee assignment, got: %v", err)
+	}
+}
+
+func TestUnit_UpdateAssignment_ToOther_RecordsActivityAndNotifies(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	actor, _ := ownerActor()
+	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+	store.activity.calls = nil // drop lead_created
+
+	assignee := uuid.Must(uuid.NewV7())
+	updated, err := u.UpdateAssignment(context.Background(), actor, created.ID, lead.UpdateAssignmentInput{Version: created.Version, AssignedToMembershipID: &assignee})
+	if err != nil {
+		t.Fatalf("update assignment: %v", err)
+	}
+	if updated.AssignedToMembershipID == nil || *updated.AssignedToMembershipID != assignee {
+		t.Errorf("expected assignee %s, got %v", assignee, updated.AssignedToMembershipID)
+	}
+
+	if len(store.activity.calls) != 1 || store.activity.calls[0].activityType != "lead_assigned" {
+		t.Fatalf("expected 1 lead_assigned activity, got %+v", store.activity.calls)
+	}
+	if store.activity.calls[0].metadata["to"] != assignee {
+		t.Errorf("expected metadata.to = %s, got %v", assignee, store.activity.calls[0].metadata)
+	}
+
+	if len(store.notification.calls) != 1 {
+		t.Fatalf("expected exactly 1 notification, got %d", len(store.notification.calls))
+	}
+	if store.notification.calls[0].recipientMembershipID != assignee {
+		t.Errorf("expected notification recipient %s, got %s", assignee, store.notification.calls[0].recipientMembershipID)
+	}
+}
+
+// TestUnit_UpdateAssignment_ToSelf_NoNotification is TD §11's explicit
+// rule: "memberi tahu seseorang tentang tindakannya sendiri hanya
+// menambah bising" — the activity still fires, but Notify must not be
+// called.
+func TestUnit_UpdateAssignment_ToSelf_NoNotification(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	org, ownerMembershipID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	owner := actorContext(org, ownerMembershipID, tenant.RoleOwner)
+	created, _, _ := u.Create(context.Background(), owner, lead.CreateLeadInput{Name: "Budi"})
+	store.activity.calls = nil
+
+	_, err := u.UpdateAssignment(context.Background(), owner, created.ID, lead.UpdateAssignmentInput{Version: created.Version, AssignedToMembershipID: &ownerMembershipID})
+	if err != nil {
+		t.Fatalf("update assignment: %v", err)
+	}
+
+	if len(store.activity.calls) != 1 || store.activity.calls[0].activityType != "lead_assigned" {
+		t.Fatalf("expected the lead_assigned activity to still fire, got %+v", store.activity.calls)
+	}
+	if len(store.notification.calls) != 0 {
+		t.Errorf("expected no notification for self-assignment, got %d", len(store.notification.calls))
+	}
+}
+
+func TestUnit_UpdateAssignment_Unassign_RecordsActivityNoNotification(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	actor, _ := ownerActor()
+	assignee := uuid.Must(uuid.NewV7())
+	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi", AssignedToMembershipID: &assignee})
+	store.activity.calls = nil
+
+	updated, err := u.UpdateAssignment(context.Background(), actor, created.ID, lead.UpdateAssignmentInput{Version: created.Version, AssignedToMembershipID: nil})
+	if err != nil {
+		t.Fatalf("update assignment: %v", err)
+	}
+	if updated.AssignedToMembershipID != nil {
+		t.Error("expected assignment to be cleared")
+	}
+
+	if len(store.activity.calls) != 1 || store.activity.calls[0].activityType != "lead_unassigned" {
+		t.Fatalf("expected 1 lead_unassigned activity, got %+v", store.activity.calls)
+	}
+	fromPtr, ok := store.activity.calls[0].metadata["from"].(*uuid.UUID)
+	if !ok || fromPtr == nil || *fromPtr != assignee {
+		t.Errorf("expected metadata.from = %s, got %v", assignee, store.activity.calls[0].metadata)
+	}
+	if len(store.notification.calls) != 0 {
+		t.Errorf("expected no notification for unassignment, got %d", len(store.notification.calls))
+	}
+}
+
+func TestUnit_UpdateAssignment_StaleVersion_ReturnsVersionConflict(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	actor, _ := ownerActor()
+	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+
+	assignee := uuid.Must(uuid.NewV7())
+	_, err := u.UpdateAssignment(context.Background(), actor, created.ID, lead.UpdateAssignmentInput{Version: created.Version - 1, AssignedToMembershipID: &assignee})
+
+	var conflict *lead.VersionConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected *lead.VersionConflictError, got: %v", err)
 	}
 }

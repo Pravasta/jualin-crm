@@ -14,7 +14,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Pravasta/jualin-crm/crm_be/internal/activity"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auditlog"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/lead"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/membership"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db/dbtest"
@@ -48,6 +50,8 @@ func testRepos(q db.Querier) membership.Repos {
 		Member:       membership.New(q),
 		Audit:        auditlog.New(q),
 		RefreshToken: noopRefreshTokenRepo{},
+		OpenLead:     lead.NewOpenLeadRepository(q),
+		Activity:     activity.NewRecorder(q),
 	}
 }
 
@@ -112,7 +116,7 @@ func TestUsecase_Deactivate_SoftDeletesAgainstRealPostgres(t *testing.T) {
 	targetMembershipID := seedMembership(t, ctx, pool, org, targetUser, tenant.RoleEmployee)
 
 	actor := tenant.Context{OrganizationID: org, PrincipalType: tenant.PrincipalUser, MembershipID: &ownerMembershipID, Role: tenant.RoleOwner}
-	if err := u.Deactivate(ctx, actor, targetMembershipID); err != nil {
+	if err := u.Deactivate(ctx, actor, targetMembershipID, membership.DeactivateInput{}); err != nil {
 		t.Fatalf("deactivate: %v", err)
 	}
 
@@ -143,7 +147,7 @@ func TestUsecase_Deactivate_LastOwner_Returns409AgainstRealPostgres(t *testing.T
 	ownerMembershipID := seedMembership(t, ctx, pool, org, owner, tenant.RoleOwner)
 
 	actor := tenant.Context{OrganizationID: org, PrincipalType: tenant.PrincipalUser, MembershipID: &ownerMembershipID, Role: tenant.RoleOwner}
-	err := u.Deactivate(ctx, actor, ownerMembershipID)
+	err := u.Deactivate(ctx, actor, ownerMembershipID, membership.DeactivateInput{})
 	if err == nil {
 		t.Fatal("expected an error deactivating the last owner")
 	}
