@@ -44,6 +44,26 @@ const (
 	ActionLeadRead   Action = "lead.read"
 	ActionLeadUpdate Action = "lead.update"
 	ActionLeadDelete Action = "lead.delete"
+
+	// Activity and task actions cover only what issue #21 ships.
+	// Employee access is further restricted in the repository to leads
+	// assigned to them (and, for task, to tasks on those leads) — same
+	// split as lead's own read/update.
+	ActionActivityCreate Action = "activity.create"
+	ActionActivityList   Action = "activity.list"
+	ActionTaskCreate     Action = "task.create"
+	// ActionTaskRead has no dedicated row in TD §9's matrix — it's added
+	// here with the same permissions as task.create/update/complete
+	// (all four roles) so GET /v1/tasks and GET /v1/leads/{id}/tasks
+	// have an explicit gate instead of reusing ActionTaskCreate for
+	// reads, mirroring activity.list existing alongside activity.create.
+	ActionTaskRead     Action = "task.read"
+	ActionTaskUpdate   Action = "task.update"
+	ActionTaskComplete Action = "task.complete"
+	// ActionTaskDelete is the one action in this issue Employee does
+	// NOT get, even repo-restricted — TD §9's matrix draws that line
+	// explicitly.
+	ActionTaskDelete Action = "task.delete"
 )
 
 // permissions mirrors docs/architecture/authorization.md's matrix
@@ -61,6 +81,13 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionLeadRead:             true,
 		ActionLeadUpdate:           true,
 		ActionLeadDelete:           true,
+		ActionActivityCreate:       true,
+		ActionActivityList:         true,
+		ActionTaskCreate:           true,
+		ActionTaskRead:             true,
+		ActionTaskUpdate:           true,
+		ActionTaskComplete:         true,
+		ActionTaskDelete:           true,
 	},
 	tenant.RoleAdmin: {
 		ActionMembershipList:       true,
@@ -73,6 +100,13 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionLeadRead:             true,
 		ActionLeadUpdate:           true,
 		ActionLeadDelete:           true,
+		ActionActivityCreate:       true,
+		ActionActivityList:         true,
+		ActionTaskCreate:           true,
+		ActionTaskRead:             true,
+		ActionTaskUpdate:           true,
+		ActionTaskComplete:         true,
+		ActionTaskDelete:           true,
 	},
 	tenant.RoleManager: {
 		ActionMembershipList: true,
@@ -81,12 +115,27 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionLeadUpdate:     true,
 		// ActionLeadDelete deliberately absent — matrix gives delete to
 		// Owner/Admin only.
+		ActionActivityCreate: true,
+		ActionActivityList:   true,
+		ActionTaskCreate:     true,
+		ActionTaskRead:       true,
+		ActionTaskUpdate:     true,
+		ActionTaskComplete:   true,
+		ActionTaskDelete:     true,
 	},
 	tenant.RoleEmployee: {
 		// Read/update granted here; the repository further restricts
 		// both to leads assigned to this employee.
-		ActionLeadRead:   true,
-		ActionLeadUpdate: true,
+		ActionLeadRead:       true,
+		ActionLeadUpdate:     true,
+		ActionActivityCreate: true,
+		ActionActivityList:   true,
+		ActionTaskCreate:     true,
+		ActionTaskRead:       true,
+		ActionTaskUpdate:     true,
+		ActionTaskComplete:   true,
+		// ActionTaskDelete deliberately absent — TD §9's matrix denies
+		// Employee this one, unlike every other activity/task action.
 	},
 }
 

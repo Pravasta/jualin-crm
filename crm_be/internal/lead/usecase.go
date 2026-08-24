@@ -77,7 +77,11 @@ func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateLeadInp
 			return err
 		}
 		created = c
-		return nil
+		// lead_created is written in the SAME transaction as the row
+		// itself (TD §10) — a lead that exists without this activity,
+		// or an activity for a lead that got rolled back, are both
+		// worse than neither existing.
+		return r.Activity.Record(ctx, t, c.ID, "lead_created", repoIn.CreatedByMembershipID, nil)
 	})
 	if txErr != nil {
 		if errors.Is(txErr, ErrIdempotencyKeyExists) {
@@ -185,37 +189,64 @@ func (u *Usecase) Update(ctx context.Context, t tenant.Context, id uuid.UUID, in
 // UpdateStatus validates the transition (TD §5) before touching the
 // database — loading the current lead first is what makes that possible
 // (transition validity depends on the FROM status, which the client's
-// requested Version alone doesn't tell us).
+// requested Version alone doesn't tell us). The whole thing — load,
+// validate, update, record status_changed — runs inside one
+// store.InTx: TD §10 requires the activity to be atomic with the status
+// change it describes, so this can no longer read the current lead via
+// a plain store.Repos() call the way #20 originally wrote it.
 func (u *Usecase) UpdateStatus(ctx context.Context, t tenant.Context, id uuid.UUID, in UpdateStatusInput) (*Lead, error) {
 	if err := authz.Require(t, authz.ActionLeadUpdate); err != nil {
 		return nil, err
 	}
 
-	current, err := u.store.Repos().Lead.FindByID(ctx, t, id)
-	if err != nil {
-		return nil, err
-	}
-
-	if !validateStatusTransition(current.Status, in.Status) {
-		return nil, invalidStatusTransitionError()
-	}
-
-	var lostReason *string
-	if in.Status == StatusLost {
-		if in.LostReason == nil || *in.LostReason == "" {
-			return nil, httpx.NewValidationError(httpx.ErrorDetail{Field: "lost_reason", Code: "required"})
+	var updated *Lead
+	var conflict bool
+	txErr := u.store.InTx(ctx, func(r Repos) error {
+		current, err := r.Lead.FindByID(ctx, t, id)
+		if err != nil {
+			return err
 		}
-		lostReason = in.LostReason
-	}
-	// Leaving lost (or any non-lost destination) always clears
-	// lost_reason, regardless of what the client sent — TD §5.
+		// Captured now, not read from current after UpdateStatus runs:
+		// current may be the same backing struct a subsequent call
+		// mutates in place (true of the in-memory test fake; not
+		// something the real Postgres repository does, but nothing here
+		// should depend on that).
+		fromStatus := current.Status
 
-	updated, err := u.store.Repos().Lead.UpdateStatus(ctx, t, id, in.Version, in.Status, lostReason)
-	if errors.Is(err, ErrVersionConflict) {
+		if !validateStatusTransition(fromStatus, in.Status) {
+			return invalidStatusTransitionError()
+		}
+
+		var lostReason *string
+		if in.Status == StatusLost {
+			if in.LostReason == nil || *in.LostReason == "" {
+				return httpx.NewValidationError(httpx.ErrorDetail{Field: "lost_reason", Code: "required"})
+			}
+			lostReason = in.LostReason
+		}
+		// Leaving lost (or any non-lost destination) always clears
+		// lost_reason, regardless of what the client sent — TD §5.
+
+		result, err := r.Lead.UpdateStatus(ctx, t, id, in.Version, in.Status, lostReason)
+		if errors.Is(err, ErrVersionConflict) {
+			updated = result
+			conflict = true
+			return ErrVersionConflict
+		}
+		if err != nil {
+			return err
+		}
+		updated = result
+
+		return r.Activity.Record(ctx, t, id, "status_changed", t.MembershipID, map[string]any{
+			"from": fromStatus, "to": in.Status,
+		})
+	})
+	if conflict {
 		return nil, &VersionConflictError{Current: updated}
 	}
-	if err != nil {
-		return nil, err
+	if txErr != nil {
+		return nil, txErr
 	}
 	return updated, nil
 }

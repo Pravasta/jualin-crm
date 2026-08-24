@@ -119,10 +119,47 @@ func (f *fakeLeadRepo) Delete(_ context.Context, t tenant.Context, id uuid.UUID)
 	return nil
 }
 
-type fakeStore struct{ repos lead.Repos }
+// recordedActivity captures one fakeActivityRecorder.Record call.
+type recordedActivity struct {
+	leadID            uuid.UUID
+	activityType      string
+	actorMembershipID *uuid.UUID
+	metadata          map[string]any
+}
+
+// fakeActivityRecorder lets tests assert Create/UpdateStatus call
+// Record with the right arguments, and that a Record failure
+// propagates as an error from the whole InTx call (the wiring half of
+// the atomicity acceptance criterion — the other half, that a real
+// Postgres transaction actually rolls back, is proven separately in
+// repository_test.go against a live database).
+type fakeActivityRecorder struct {
+	calls []recordedActivity
+	err   error
+}
+
+func (f *fakeActivityRecorder) Record(_ context.Context, _ tenant.Context, leadID uuid.UUID, activityType string, actorMembershipID *uuid.UUID, metadata map[string]any) error {
+	f.calls = append(f.calls, recordedActivity{leadID, activityType, actorMembershipID, metadata})
+	return f.err
+}
+
+type fakeStore struct {
+	repos    lead.Repos
+	activity *fakeActivityRecorder
+}
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{repos: lead.Repos{Lead: newFakeLeadRepo()}}
+	rec := &fakeActivityRecorder{}
+	return &fakeStore{repos: lead.Repos{Lead: newFakeLeadRepo(), Activity: rec}, activity: rec}
+}
+
+// newFakeStoreWithFailingActivity is newFakeStore, but Activity.Record
+// always fails — used to prove a recording failure aborts the whole
+// operation instead of silently succeeding with no activity written.
+func newFakeStoreWithFailingActivity() *fakeStore {
+	s := newFakeStore()
+	s.activity.err = errors.New("activity: record failed")
+	return s
 }
 
 func (s *fakeStore) InTx(_ context.Context, fn func(lead.Repos) error) error { return fn(s.repos) }
@@ -423,5 +460,77 @@ func TestUnit_UpdateStatus_UnqualifiedIsFinal(t *testing.T) {
 	var derr *httpx.DomainError
 	if !errors.As(err, &derr) || derr.Code != "invalid_status_transition" {
 		t.Fatalf("expected unqualified to be final (invalid_status_transition), got: %v", err)
+	}
+}
+
+// --- auto-log tests (TD §10) ---
+
+func TestUnit_Create_RecordsLeadCreatedActivity(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	actor, _ := ownerActor()
+
+	created, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if len(store.activity.calls) != 1 {
+		t.Fatalf("expected exactly one activity recorded, got %d", len(store.activity.calls))
+	}
+	got := store.activity.calls[0]
+	if got.leadID != created.ID {
+		t.Errorf("expected activity leadID %v, got %v", created.ID, got.leadID)
+	}
+	if got.activityType != "lead_created" {
+		t.Errorf("expected activity type lead_created, got %q", got.activityType)
+	}
+}
+
+func TestUnit_Create_ActivityRecordFailure_PropagatesError(t *testing.T) {
+	store := newFakeStoreWithFailingActivity()
+	u := lead.NewUsecase(store)
+	actor, _ := ownerActor()
+
+	_, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+	if err == nil {
+		t.Fatal("expected Create to fail when recording the activity fails")
+	}
+}
+
+func TestUnit_UpdateStatus_RecordsStatusChangedActivityWithFromTo(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	actor, _ := ownerActor()
+	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+	store.activity.calls = nil // drop the lead_created call from Create
+
+	_, err := u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: created.Version, Status: "contacted"})
+	if err != nil {
+		t.Fatalf("update status: %v", err)
+	}
+
+	if len(store.activity.calls) != 1 {
+		t.Fatalf("expected exactly one activity recorded, got %d", len(store.activity.calls))
+	}
+	got := store.activity.calls[0]
+	if got.activityType != "status_changed" {
+		t.Errorf("expected activity type status_changed, got %q", got.activityType)
+	}
+	if got.metadata["from"] != "new" || got.metadata["to"] != "contacted" {
+		t.Errorf("expected metadata {from: new, to: contacted}, got %v", got.metadata)
+	}
+}
+
+func TestUnit_UpdateStatus_ActivityRecordFailure_PropagatesError(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	actor, _ := ownerActor()
+	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+
+	store.activity.err = errors.New("activity: record failed")
+	_, err := u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: created.Version, Status: "contacted"})
+	if err == nil {
+		t.Fatal("expected UpdateStatus to fail when recording the activity fails")
 	}
 }

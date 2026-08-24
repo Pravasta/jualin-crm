@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Pravasta/jualin-crm/crm_be/internal/activity"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/lead"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/accesstoken"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authn"
@@ -43,10 +44,14 @@ type testStore struct{ pool *pgxpool.Pool }
 func newTestStore(pool *pgxpool.Pool) lead.Store { return &testStore{pool: pool} }
 
 func (s *testStore) InTx(ctx context.Context, fn func(lead.Repos) error) error {
-	return db.InTx(ctx, s.pool, func(tx pgx.Tx) error { return fn(lead.Repos{Lead: lead.New(tx)}) })
+	return db.InTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return fn(lead.Repos{Lead: lead.New(tx), Activity: activity.NewRecorder(tx)})
+	})
 }
 
-func (s *testStore) Repos() lead.Repos { return lead.Repos{Lead: lead.New(s.pool)} }
+func (s *testStore) Repos() lead.Repos {
+	return lead.Repos{Lead: lead.New(s.pool), Activity: activity.NewRecorder(s.pool)}
+}
 
 func newTestRouter(t *testing.T) (*gin.Engine, *pgxpool.Pool) {
 	t.Helper()
