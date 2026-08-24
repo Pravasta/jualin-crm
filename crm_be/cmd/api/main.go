@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Pravasta/jualin-crm/crm_be/internal/activity"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auth"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/invitation"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/lead"
@@ -25,6 +26,7 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/logger"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/mailer"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/task"
 )
 
 const readyPingTimeout = 2 * time.Second
@@ -107,6 +109,12 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 
 	leadUsecase := lead.NewUsecase(newLeadStore(pool))
 	lead.NewHandler(leadUsecase).RegisterRoutes(r, authMW)
+
+	activityUsecase := activity.NewUsecase(newActivityStore(pool))
+	activity.NewHandler(activityUsecase).RegisterRoutes(r, authMW)
+
+	taskUsecase := task.NewUsecase(newTaskStore(pool))
+	task.NewHandler(taskUsecase).RegisterRoutes(r, authMW)
 
 	r.NoRoute(func(c *gin.Context) {
 		httpx.RespondError(c, http.StatusNotFound, "not_found", "Route tidak ditemukan.")

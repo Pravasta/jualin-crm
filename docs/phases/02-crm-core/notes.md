@@ -111,3 +111,51 @@ Seluruh acceptance criteria issue #20 terpenuhi.
 - **`internal/lead/port.go`'s `Repos{Lead Repository}` punya satu field secara sengaja.** #21 menambah field `Activity` saat menulis `activities` perlu atomik dengan perubahan lead (`status_changed`, `lead_assigned`, dst) — pada titik itu, `UpdateStatus`/assignment di usecase perlu dibungkus `store.InTx` juga (saat ini hanya `Create` yang InTx, karena `Create` sendiri butuh atomisitas internal, bukan karena ada tabel lain yang ditulis).
 - **Pola deteksi pelanggaran constraint database (unique ATAU foreign key) sebagai sinyal, bukan `SELECT` dulu**, sekarang punya dua contoh di paket ini (`ErrIdempotencyKeyExists`, `ErrAssigneeNotFound`) selain `user.ErrEmailTaken` di Phase 1. Pola yang sama berlaku untuk constraint baru yang muncul di #21/#22/#23 (mis. `uq_customers_org_lead` saat konversi).
 - **Manual smoke test menemukan bug produksi untuk ketiga kalinya berturut-turut** (setelah #11 dan sesi ini sendiri, lewat jalur test bukan `docker compose` kali ini) — pola yang konsisten cukup kuat untuk terus dipertahankan di issue berikutnya, bukan dianggap kebetulan.
+
+---
+
+## #21 — Activity append-only + auto-log, dan Task
+
+### Keputusan implementasi
+
+- **`ActivityRecorder` dideklarasikan konsumen (`lead`, `task`), bukan diimpor dari `internal/activity`** — persis pola `auth.RefreshTokenRevoker` di #11. Kedua interface lokal identik bentuknya (`Record(ctx, t, leadID, activityType, actorMembershipID, metadata)`), sengaja diduplikasi tiga baris, bukan ditarik ke paket bersama untuk dua titik pakai. `internal/activity` mengekspor `Recorder` + `NewRecorder(q)` sebagai jembatan yang dipasang di composition root (`activity.NewRecorder(q)` dipakai baik oleh `lead.Repos.Activity` maupun `task.Repos.Activity`).
+- **Visibilitas lead untuk `activity`/`task` tidak butuh interface lintas paket** — cukup `WHERE EXISTS (SELECT 1 FROM leads ...)` langsung di query masing-masing paket, karena `activity`/`task`/`lead` berbagi satu database Postgres yang sama. Menghindari interface `LeadVisibility` yang tidak diminta issue manapun.
+- **`internal/task`'s visibilitas employee lewat kepemilikan LEAD, bukan `tasks.assigned_to_membership_id`** — TD §9 eksplisit: "task pada lead miliknya". Task boleh di-assign ke kolega di lead yang Anda miliki, dan Anda tetap harus melihatnya; task yang di-assign ke Anda di lead orang lain tetap harus **tidak** terlihat. Dibuktikan lewat `TestRepository_Employee_VisibilityIsThroughLeadAssignment` yang sengaja menguji ketiga kombinasi (pemilik lead, assignee task yang bukan pemilik lead, orang lain sama sekali).
+- **`task.FindAllByLead` memeriksa visibilitas lead secara eksplisit** (404 bila tidak terlihat), **berbeda** dari `task.FindAllByOrg` yang membiarkan scoping employee diam-diam mempersempit hasil ke kosong. Desain awal memakai `buildTaskWhere` yang sama untuk keduanya — salah, karena itu membuat `GET /v1/leads/{id}/tasks` pada lead orang lain mengembalikan `200` dengan daftar kosong, bukan `404` seperti bunyi acceptance criteria ("Employee membaca activity/task pada lead orang lain → 404"). Ketahuan lewat test integrasi sendiri sebelum commit, diperbaiki dengan helper `leadVisible` terpisah — pola yang sama `activity.FindAllByLead` sudah pakai.
+- **`authz.ActionTaskRead` ditambah di luar tabel TD §9 yang literal** — TD hanya menyebut `task.create/update/complete` dan `task.delete`, tidak ada baris baca eksplisit. Menambah action baca sendiri (permission identik keempat role, sama seperti `activity.list` mendampingi `activity.create`) lebih jelas ketimbang memakai `ActionTaskCreate` sebagai gerbang baca — nama aksi yang salah mengaburkan niat saat dibaca ulang nanti.
+- **Bug ditemukan lewat test unit (fake), bukan lewat desain**: `TestUnit_UpdateStatus_RecordsStatusChangedActivityWithFromTo` awalnya gagal — `metadata.from` terisi status **baru**, bukan status lama. Penyebabnya alias pointer di fake test double: `fakeLeadRepo.FindByID` dan `fakeLeadRepo.UpdateStatus` sama-sama mengembalikan pointer ke struct yang sama di map, sehingga membaca `current.Status` **setelah** `UpdateStatus` dipanggil sudah melihat nilai yang sudah berubah. Postgres asli tidak akan pernah berperilaku begini (`scanLead` selalu mengalokasikan struct baru), tapi `usecase.go` diperbaiki supaya tidak bergantung pada asumsi itu sama sekali — `fromStatus` ditangkap ke variabel lokal segera setelah `FindByID`, sebelum `UpdateStatus` dipanggil.
+- **`lead.Usecase.UpdateStatus` sekarang berjalan di dalam `store.InTx`** — sebelumnya (#20) memanggil `store.Repos()` langsung. Perubahan ini wajib supaya `status_changed` atomik dengan perubahan status yang memicunya (TD §10), persis seperti dicatat sebagai "catatan untuk session berikutnya" di bagian `## #20` di atas.
+- **jsonb pertama yang benar-benar ditulis di codebase ini** (`activities.metadata`) — `lead.RawPayload` sejak #19 tulus-tembus tapi tidak pernah benar-benar diisi pemanggil manapun. Klaim "pgx menerima `[]byte` hasil `json.Marshal` untuk kolom jsonb" diverifikasi langsung lewat `TestRepository_Create_MetadataRoundTrips` sebelum dipakai di tempat lain — insert `{"from":"new","to":"contacted"}`, baca lewat `RETURNING` **dan** lewat `SELECT` terpisah, keduanya di-unmarshal dan dicocokkan.
+
+### Verifikasi
+
+```
+go build ./...                              → bersih
+go vet ./...                                → bersih
+golangci-lint run                           → 0 issues (setelah 1x perbaikan S1016)
+gofmt -l .                                  → bersih
+go test -race -count=1 ./... (2x)           → semua PASS
+
+DOCKER_HOST=unix:///nonexistent/docker.sock \
+  go test ./internal/... -run TestUnit -count=1
+                                             → PASS tanpa Docker (activity, task, lead, + semua paket lama)
+
+go list -deps ./cmd/api | grep docker       → kosong
+```
+
+**Test atomisitas (wajib di Definition of Done)**: dibuktikan dua lapis — `usecase_unit_test.go` (fake `ActivityRecorder` yang gagal, membuktikan kegagalan menular sebagai error dari seluruh operasi) **dan** `repository_atomicity_test.go` di `internal/lead` (transaksi Postgres sungguhan: `Activity.Record` sengaja gagal setelah `Lead.Create` sukses, baris `leads` dipastikan **tidak ada** setelahnya, dan `lead_number` yang teralokasi tidak "terbakar" — percobaan berikutnya tetap dapat nomor 1).
+
+**Smoke test manual** (`docker compose up --build`): register+verify+login owner → `POST /v1/leads` → `201`, `GET /v1/leads/{id}/activities` → tepat satu `lead_created` dengan `actor_membership_id` = owner → `PATCH /status` `new→contacted` → `GET activities` → `status_changed` dengan `metadata={from:new,to:contacted}`, urutan terbaru dulu → `POST activities {"type":"status_changed"}` → `422 invalid_activity_type` → `POST activities {"type":"note_added"}` → `201` → `PATCH` ke `/v1/leads/{id}/activities/{id}` → `404` (route memang tidak terdaftar) → `POST /v1/leads/{id}/tasks` → `201` → `POST /v1/tasks/{id}/complete` → `200`, `status=done`, `completed_at`/`completed_by` terisi → `GET activities` menunjukkan `task_created` dan `task_completed` → `PATCH` task dengan `version` basi → `409` → `GET /v1/tasks` dan `GET /v1/leads/{id}/tasks` keduanya mengembalikan task yang sama → `DELETE /v1/tasks/{id}` → `204`.
+
+Seluruh acceptance criteria issue #21 terpenuhi. Kasus 404 employee (activity & task) diverifikasi otomatis lewat test Postgres (`TestHandler_Get_Employee_OtherPersonsLead_Returns404`, `TestHandler_Employee_ReadTaskOnAnotherEmployeesLead_Returns404`), tidak diulang manual — sudah terbukti lewat jalur HTTP sungguhan di test integrasi.
+
+### Utang teknis
+
+- Tidak ada item baru dari issue ini sendiri.
+
+### Catatan untuk session berikutnya
+
+- **`internal/lead/port.go`'s `Repos{Lead, Activity}` sekarang dua field** — #22 kemungkinan menambah lagi saat assignment perlu menulis `notifications` sekaligus (`lead_assigned`/`lead_unassigned` + notification, satu transaksi, TD §11).
+- **Pola visibilitas-eksplisit-lalu-404 vs filter-diam-diam** sekarang punya preseden jelas: gunakan yang pertama untuk "satu resource spesifik milik satu lead" (`FindByID`, `FindAllByLead`), gunakan yang kedua untuk "daftar lintas-lead yang boleh menyempit" (`FindAllByOrg`). Jangan pakai `buildXWhere` yang sama untuk keduanya tanpa mikir ulang — itu persis kesalahan yang tertangkap di atas.
+- **`docs/architecture/authorization.md`'s matrix belum diperbarui** — tetap ditunda ke #23 seperti sudah dicatat di TD §9, sekarang dengan `activity.*`/`task.*` (termasuk `task.read` yang tidak ada di TD literal) sebagai baris tambahan yang perlu masuk saat itu.
+- **`internal/task`'s `Complete` tidak menolak menyelesaikan task yang sudah `done`** — pada `version` yang benar, memanggil `complete` lagi hanya menimpa ulang `completed_at`/`completed_by` tanpa error. Tidak diuji acceptance criteria manapun; disebutkan di sini supaya bukan kejutan bila suatu saat dianggap perlu perilaku berbeda.

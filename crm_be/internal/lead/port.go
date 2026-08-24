@@ -25,12 +25,24 @@ type Repository interface {
 	Delete(ctx context.Context, t tenant.Context, id uuid.UUID) error
 }
 
-// Repos bundles what a single Usecase call needs — one field today.
-// #21 adds an Activity field when lead events need cross-table
-// atomicity with activity rows; #20 writes no activities at all (that's
-// explicitly #21's job), so there's nothing to add yet (Rule #27/#28).
+// ActivityRecorder is declared locally per ADR-011 — lead needs only to
+// append a system-generated activity, not activity's full domain type.
+// Structurally identical to task.ActivityRecorder (both declared
+// independently, not shared — three lines, not worth a common package
+// for two call sites) and satisfied by activity.NewRecorder's return
+// value at the composition root, same bridging pattern
+// auth.RefreshTokenRevoker established for membership in #11.
+type ActivityRecorder interface {
+	Record(ctx context.Context, t tenant.Context, leadID uuid.UUID, activityType string, actorMembershipID *uuid.UUID, metadata map[string]any) error
+}
+
+// Repos bundles what a single Usecase call needs. Activity was added in
+// #21 when lead events first needed cross-table atomicity with activity
+// rows (TD §10) — #20 wrote no activities at all, so there was nothing
+// to add before now.
 type Repos struct {
-	Lead Repository
+	Lead     Repository
+	Activity ActivityRecorder
 }
 
 // Store is the Unit of Work Usecase depends on — same shape as every
