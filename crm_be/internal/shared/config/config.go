@@ -57,6 +57,16 @@ type Config struct {
 	// below, not just documented, because COOKIE_SECURE=false in
 	// production means auth cookies travel over plain HTTP (Rule #36).
 	CookieSecure bool `env:"COOKIE_SECURE" envDefault:"false"`
+
+	// CORSAllowedOrigins are the browser origins allowed to call this API
+	// with credentials (Phase 3 TD §1.1) — never "*": Access-Control-
+	// Allow-Credentials: true and a wildcard origin are mutually
+	// exclusive, so a list is the only option once cookies are involved.
+	// Empty by default — local development writes
+	// http://localhost:3000 explicitly in .env/docker-compose.yml rather
+	// than having it hidden as a code default; required non-empty in
+	// production below (Rule #36).
+	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:","`
 }
 
 // Load parses environment variables into a Config and validates it.
@@ -96,6 +106,9 @@ func (c *Config) validate() error {
 	}
 	if c.AppEnv == "production" && !c.CookieSecure {
 		return fmt.Errorf("config invalid: COOKIE_SECURE must be true when APP_ENV=production")
+	}
+	if c.AppEnv == "production" && len(c.CORSAllowedOrigins) == 0 {
+		return fmt.Errorf("config invalid: CORS_ALLOWED_ORIGINS must be set when APP_ENV=production")
 	}
 	return nil
 }

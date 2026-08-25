@@ -81,6 +81,12 @@ const (
 	ActionCustomerRead   Action = "customer.read"
 	ActionCustomerUpdate Action = "customer.update"
 	ActionCustomerDelete Action = "customer.delete"
+
+	// ActionMetricsRead gates both aggregate endpoints issue #30 adds.
+	// Employee is deliberately excluded — the dashboard isn't Employee's
+	// tool (Employee gets mobile in Phase 5), and cross-organization
+	// aggregates are management-level information regardless of role.
+	ActionMetricsRead Action = "metrics.read"
 )
 
 // permissions mirrors docs/architecture/authorization.md's matrix
@@ -110,6 +116,7 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionCustomerRead:         true,
 		ActionCustomerUpdate:       true,
 		ActionCustomerDelete:       true,
+		ActionMetricsRead:          true,
 	},
 	tenant.RoleAdmin: {
 		ActionMembershipList:       true,
@@ -134,6 +141,7 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionCustomerRead:         true,
 		ActionCustomerUpdate:       true,
 		ActionCustomerDelete:       true,
+		ActionMetricsRead:          true,
 	},
 	tenant.RoleManager: {
 		ActionMembershipList: true,
@@ -154,6 +162,7 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionCustomerRead:   true,
 		// ActionCustomerUpdate/Delete deliberately absent — Owner/Admin
 		// only, narrower than Manager's lead.update/delete access.
+		ActionMetricsRead: true,
 	},
 	tenant.RoleEmployee: {
 		// Read/update granted here; the repository further restricts
@@ -172,6 +181,9 @@ var permissions = map[tenant.Role]map[Action]bool{
 		// ActionCustomerUpdate/Delete/ActionLeadConvert deliberately
 		// absent — Employee gets read-only, repo-restricted to
 		// customers converted from leads assigned to them.
+		// ActionMetricsRead deliberately absent — the dashboard isn't
+		// Employee's tool (Phase 3 TD §2.4); Employee gets mobile in
+		// Phase 5.
 	},
 }
 

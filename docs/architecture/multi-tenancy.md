@@ -125,6 +125,7 @@ Untuk setiap endpoint tenant-scoped:
 | 4 | Employee membaca lead employee lain di org yang sama → 404 | Otorisasi | ✅ `internal/lead/handler_test.go`'s `TestHandler_Get_Employee_OtherPersonsLead_Returns404`, dan padanannya di `internal/task`, `internal/activity`, `internal/customer` (#20–#23) — `authz` sudah memberi Employee akses nol ke membership/invitation sejak Phase 1, `leads` adalah tempat pertama aturan ini punya kasus nyata |
 | 5 | **User dengan dua membership** tidak bisa melihat data org yang tidak sedang aktif di token | ADR-007 | ✅ `TestTenantIsolation_MultiMembership_OnlySeesActiveOrgInToken` |
 | 6 | Katalog: setiap tabel tenant-scoped punya `organization_id` + `UNIQUE (id, organization_id)` | Aturan #1, #2 | ✅ Sejak #8 |
+| 7 | Endpoint agregat (tanpa `:id`) tidak membocorkan bentuk bisnis tenant lain | Lapis 1 | ✅ `GET /v1/metrics/{summary,employees}` — `TestTenantIsolation_MetricsAggregate_ScopedToOrganization` (Phase 3, #30) |
 
 **Kasus #1 dan #4 sekarang ✅ — ditutup di issue #23**, penutup Phase 2. Harness
 (`cmd/api/tenant_isolation_test.go`) tetap satu slice `[]isolationCase` generik yang sama sejak #11;
@@ -134,6 +135,14 @@ seperti direncanakan.
 **Kasus #5 tidak boleh dilewatkan.** Schema mengizinkan multi-membership yang tidak diekspos UI; satu-satunya penjaganya adalah test ini.
 
 **Kasus #6 adalah penegak otomatis.** Sekali ditulis, ia menangkap setiap tabel baru yang lupa mengikuti konvensi — untuk selamanya, tanpa ada yang perlu mengingatnya saat review.
+
+### Kasus #7 — endpoint agregat (Phase 3, issue #30)
+
+`GET /v1/metrics/summary` dan `GET /v1/metrics/employees` tidak punya `:id` — mereka tidak masuk bentuk
+"kasus #1/#2" (mutating/reading resource by id). Kebocoran di sini bukan satu baris salah tenant, tapi
+**bentuk bisnis** tenant lain (jumlah lead, conversion rate) yang bocor lewat agregat. Diuji terpisah:
+`TestTenantIsolation_MetricsAggregate_ScopedToOrganization` di file yang sama, dibuktikan bisa gagal
+dengan cara yang sama seperti kasus lain — lihat komentar di test itu.
 
 ### Kriteria kualitas harness
 

@@ -37,6 +37,7 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleOwner, authz.ActionCustomerRead, true},
 		{tenant.RoleOwner, authz.ActionCustomerUpdate, true},
 		{tenant.RoleOwner, authz.ActionCustomerDelete, true},
+		{tenant.RoleOwner, authz.ActionMetricsRead, true},
 
 		{tenant.RoleAdmin, authz.ActionMembershipList, true},
 		{tenant.RoleAdmin, authz.ActionMembershipUpdateRole, true},
@@ -60,6 +61,7 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleAdmin, authz.ActionCustomerRead, true},
 		{tenant.RoleAdmin, authz.ActionCustomerUpdate, true},
 		{tenant.RoleAdmin, authz.ActionCustomerDelete, true},
+		{tenant.RoleAdmin, authz.ActionMetricsRead, true},
 
 		{tenant.RoleManager, authz.ActionMembershipList, true},
 		{tenant.RoleManager, authz.ActionMembershipUpdateRole, false},
@@ -83,6 +85,7 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleManager, authz.ActionCustomerRead, true},
 		{tenant.RoleManager, authz.ActionCustomerUpdate, false},
 		{tenant.RoleManager, authz.ActionCustomerDelete, false},
+		{tenant.RoleManager, authz.ActionMetricsRead, true},
 
 		{tenant.RoleEmployee, authz.ActionMembershipList, false},
 		{tenant.RoleEmployee, authz.ActionMembershipUpdateRole, false},
@@ -106,6 +109,7 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleEmployee, authz.ActionCustomerRead, true}, // repository further restricts to own leads' customers
 		{tenant.RoleEmployee, authz.ActionCustomerUpdate, false},
 		{tenant.RoleEmployee, authz.ActionCustomerDelete, false},
+		{tenant.RoleEmployee, authz.ActionMetricsRead, false}, // dashboard isn't Employee's tool
 	}
 
 	for _, c := range cases {

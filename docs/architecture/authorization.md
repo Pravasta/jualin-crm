@@ -105,6 +105,19 @@ lead selesai dikonversi.
 
 ---
 
+## Matriks (Phase 3) — issue #30
+
+| Action | Owner | Admin | Manager | Employee |
+|---|---|---|---|---|
+| `metrics.read` | ✅ | ✅ | ✅ | — |
+
+Employee tidak dapat: dashboard bukan alatnya (Employee dapat mobile di Phase 5), dan agregat lintas
+organization adalah informasi manajemen. Konsekuensinya `internal/metrics` **tidak** punya cabang
+`isEmployee` di query-nya sama sekali — tidak seperti `lead`/`task`/`customer`, Employee tidak pernah
+sampai ke repository ini (`docs/phases/03-owner-dashboard/td.md` §2.4).
+
+---
+
 ## Empat aturan yang harus ditulis eksplisit
 
 Sumber: `architecture_product_review.md` §6.2. Tiga dari empat bergantung pada relasi actor-vs-target,
