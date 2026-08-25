@@ -28,6 +28,7 @@ services:
       DATABASE_URL: postgres://jualin:jualin@postgres:5432/jualin_crm?sslmode=disable
       DB_MAX_CONNS: 10
       LOG_LEVEL: debug
+      CORS_ALLOWED_ORIGINS: http://localhost:3000
       # Dev-only placeholder — never reused in a real environment. Required
       # (no default) so a missing secret fails boot loudly instead of
       # silently invalidating tokens on restart (Rule #36).

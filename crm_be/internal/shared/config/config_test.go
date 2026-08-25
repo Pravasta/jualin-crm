@@ -109,6 +109,7 @@ func TestLoad_ProductionMode(t *testing.T) {
 	t.Setenv("JWT_SECRET", validJWTSecret)
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -154,6 +155,7 @@ func TestLoad_ProductionRequiresCookieSecure(t *testing.T) {
 	t.Setenv("JWT_SECRET", validJWTSecret)
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
 
 	_, err := config.Load()
 	if err == nil {
@@ -161,5 +163,48 @@ func TestLoad_ProductionRequiresCookieSecure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "COOKIE_SECURE") {
 		t.Errorf("expected error to mention COOKIE_SECURE, got: %v", err)
+	}
+}
+
+// TestLoad_ProductionRequiresCORSAllowedOrigins is issue #30's direct
+// acceptance criterion (TD phase 3 §1.1, Rule #36): an empty
+// CORS_ALLOWED_ORIGINS in production means the dashboard is dead on
+// arrival with no server-side error — boot must fail instead.
+func TestLoad_ProductionRequiresCORSAllowedOrigins(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("COOKIE_SECURE", "true")
+	unsetEnv(t, "CORS_ALLOWED_ORIGINS")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when APP_ENV=production and CORS_ALLOWED_ORIGINS is empty, got nil")
+	}
+	if !strings.Contains(err.Error(), "CORS_ALLOWED_ORIGINS") {
+		t.Errorf("expected error to mention CORS_ALLOWED_ORIGINS, got: %v", err)
+	}
+}
+
+// TestLoad_CORSAllowedOrigins_SplitsOnComma proves the envSeparator tag
+// actually parses a multi-origin list (production + staging + preview,
+// TD §1.1) rather than treating it as one opaque string.
+func TestLoad_CORSAllowedOrigins_SplitsOnComma(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,https://staging.example.com")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"http://localhost:3000", "https://staging.example.com"}
+	if len(cfg.CORSAllowedOrigins) != len(want) {
+		t.Fatalf("expected %v, got %v", want, cfg.CORSAllowedOrigins)
+	}
+	for i, origin := range want {
+		if cfg.CORSAllowedOrigins[i] != origin {
+			t.Errorf("expected origin[%d] = %q, got %q", i, origin, cfg.CORSAllowedOrigins[i])
+		}
 	}
 }

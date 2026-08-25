@@ -21,6 +21,7 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/invitation"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/lead"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/membership"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/metrics"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/notification"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authn"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/config"
@@ -83,6 +84,10 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	r.HandleMethodNotAllowed = true
 
 	r.Use(httpx.RequestID(), httpx.Logging(log), httpx.Recovery(log))
+	// CORS runs before any route is registered and before authMW is built
+	// below — a preflight OPTIONS request carries no credentials and must
+	// never reach the auth layer (Phase 3 TD §1.2).
+	r.Use(httpx.CORS(cfg.CORSAllowedOrigins))
 
 	mail := newMailer(cfg, log)
 	authStore := newAuthStore(pool)
@@ -123,6 +128,11 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 
 	customerUsecase := customer.NewUsecase(newCustomerStore(pool))
 	customer.NewHandler(customerUsecase).RegisterRoutes(r, authMW)
+
+	// metrics is read-only (no Store/InTx, TD phase 3 §2) — its
+	// Repository is built directly from pool, no _store.go wrapper needed.
+	metricsUsecase := metrics.NewUsecase(metrics.New(pool))
+	metrics.NewHandler(metricsUsecase).RegisterRoutes(r, authMW)
 
 	r.NoRoute(func(c *gin.Context) {
 		httpx.RespondError(c, http.StatusNotFound, "not_found", "Route tidak ditemukan.")

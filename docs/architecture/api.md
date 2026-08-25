@@ -15,6 +15,8 @@ Prefix path `/v1/` pada **seluruh** endpoint, termasuk yang hanya dipakai intern
 /v1/auth/login
 /v1/leads
 /v1/leads/{id}
+/v1/metrics/summary
+/v1/metrics/employees
 ```
 
 Murah sekarang, mustahil ditambahkan setelah ada integrator.
@@ -150,6 +152,20 @@ Ini **satu-satunya** tempat di API ini sebuah error membawa field domain di luar
 Offset: `?page=1&per_page=25`. Default `per_page = 25`, maksimum `100`.
 
 **Kenapa offset, bukan cursor:** offset punya masalah "halaman bergeser" saat data baru masuk di atas. Tapi endpoint list bersifat **internal** (dashboard & mobile) dan bukan bagian API publik Phase 4 — yang hanya `POST /v1/leads`. Jadi ia bisa diganti ke cursor kapan saja tanpa memutus integrator siapapun.
+
+---
+
+## CORS (issue #30)
+
+Browser (dashboard) memanggil API ini langsung, lintas subdomain — keputusan C2, `docs/phases/03-owner-dashboard/prd.md`. `CORS_ALLOWED_ORIGINS` (daftar dipisah koma di `internal/shared/config`) menentukan origin yang diizinkan; **wajib non-kosong saat `APP_ENV=production`** (Aturan #36).
+
+| Ketentuan | Alasan |
+|---|---|
+| Origin di-echo eksplisit, **tidak pernah `*`** | `Access-Control-Allow-Credentials: true` (dibutuhkan cookie sesi) tidak bisa digabung dengan wildcard origin |
+| Origin tak dikenal → lanjut **tanpa** header CORS | Server tidak membocorkan daftar origin lewat penolakan eksplisit; browser yang menolak |
+| `OPTIONS` → `204` tanpa menyentuh handler | Preflight tidak membawa kredensial dan tidak boleh menyentuh lapis auth |
+
+Implementasi: `internal/shared/httpx/cors.go`, dipasang di `newRouter` sebelum route manapun dan sebelum `authn.Middleware`. Detail: `docs/phases/03-owner-dashboard/td.md` §1.
 
 ---
 

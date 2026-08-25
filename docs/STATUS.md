@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 24 Agustus 2026 — Phase 3 dibuka (PRD + TD + issue #30–#35)
-**Phase sekarang:** Phase 3 — Owner Dashboard (0/6 issue selesai)
+**Last updated:** 25 Agustus 2026 — Issue #30 selesai (CORS + endpoint metrik)
+**Phase sekarang:** Phase 3 — Owner Dashboard (1/6 issue selesai)
 
 ---
 
@@ -34,6 +34,7 @@
 | **Issue #21 — Activity append-only + auto-log, dan Task** | — | 2 | `internal/activity` dan `internal/task` baru — dua domain penuh. `ActivityRecorder` dideklarasikan konsumen (`lead`, `task`), dijembatani `activity.NewRecorder(q)` di composition root — pola `auth.RefreshTokenRevoker` (#11). `lead_created`, `status_changed` (`metadata={from,to}`), `task_created`, `task_completed` ditulis **di dalam `Store.InTx` yang sama** dengan pemicunya — `lead.Usecase.UpdateStatus` kini juga dibungkus `InTx`. `GET/POST /v1/leads/{id}/activities` (append-only — **tidak ada** `PATCH`/`DELETE`, diverifikasi lewat daftar route sungguhan). Tipe sistem dari client → `422`. `internal/task`: visibilitas employee lewat kepemilikan **lead**, bukan assignee task sendiri — dibuktikan test khusus. jsonb pertama yang benar-benar ditulis di codebase ini (`activities.metadata`), diverifikasi round-trip langsung terhadap Postgres asli. Atomisitas dibuktikan dua lapis: fake (unit) dan transaksi Postgres sungguhan (`repository_atomicity_test.go`, membuktikan rollback nyata + `lead_number` tidak "terbakar"). Satu bug desain (visibilitas `task.FindAllByLead`) ketahuan dan diperbaiki sebelum commit. Enam `Action` RBAC baru. Smoke test manual end-to-end lolos seluruh acceptance criteria. |
 | **Issue #22 — Assignment, notification (`0004`), penutupan kewajiban penonaktifan membership** | — | 2 | Migration `0004_notifications`. `internal/notification` baru — satu-satunya resource di codebase ini tanpa akses lebih luas untuk Owner/Admin, selalu di-scope ke `t.MembershipID`. `PATCH /v1/leads/{id}/assignment` — activity `lead_assigned`/`lead_unassigned` **dan** notification (kecuali assign ke diri sendiri) dalam satu `Store.InTx`. **Menutup kewajiban warisan Phase 1**: `DELETE /v1/memberships/{id}` menolak default (`409 membership_has_open_leads`) bila masih ada lead terbuka; `?on_open_leads=unassign\|reassign` sebagai jalan keluar, atomik dengan pencabutan refresh token yang sudah ada sejak #11 — **dibuktikan lewat test Postgres sungguhan**, bukan hanya fake (`internal/membership/handler_test.go`, baru). `internal/lead.OpenLeadRepository` (bridge terpisah, bukan bagian `Repository`) dipakai `internal/membership` lewat interface lokalnya sendiri — `membership` tetap tidak pernah mengimpor `lead`. Satu batu sandungan arsitektural nyata: sentinel error domain (`lead.ErrAssigneeNotFound`) tidak bisa dikenali lintas paket tanpa melanggar ADR-011 — diselesaikan dengan mengembalikan `*httpx.ValidationError` langsung dari bridge method itu sendiri. Satu `Action` RBAC baru (`lead.assign`). Smoke test manual end-to-end lolos, termasuk verifikasi refresh token benar-benar mati via `/v1/auth/refresh`. |
 | **Issue #23 — Customer, konversi dari lead, kasus `lead` pada harness isolasi tenant** | — | 2 | `internal/customer` baru — `POST /v1/leads/{id}/convert` (satu `INSERT ... SELECT ... FROM leads WHERE status='won'`, menyalin field lead ke customer baru dalam satu statement, bukan lewat bridge Go — deviasi sadar dari asumsi awal bahwa konversi akan menambah field ke `lead.Repos`, yang ternyata tidak diperlukan). `uq_customers_org_lead` menegakkan konversi tunggal (`409 lead_already_converted`); lead bukan `won` → `422` (memakai ulang `invalid_status_transition`, tidak ada kode baru). Lead **tidak pernah** berubah oleh konversi atau oleh edit customer setelahnya — dibuktikan langsung, bukan diasumsikan. **Penutup Phase 2**: harness isolasi tenant (`cmd/api/tenant_isolation_test.go`) bertambah entri `lead`/`task`/`customer`/`activity` ke slice `[]isolationCase` yang sama sejak #11 (13 subtest, semua `404`), **terbukti bisa gagal** diulang untuk `lead` (predikat tenant-scoping dihapus sementara → kebocoran data nyata 200, bukan sekadar 500). `docs/architecture/authorization.md` matriks Phase 2 ditulis lengkap (Aturan #1 "belum berlaku" → terwujud); `multi-tenancy.md` lapis 4 kasus #1 & #4 → ✅; `api.md` menambah `lead_already_converted` plus membackfill dua kode yang luput dicatat di #21/#22. Empat `Action` RBAC baru. Smoke test manual end-to-end lolos seluruh acceptance criteria Phase 2. **Phase 2 selesai.** |
+| **Issue #30 — CORS + endpoint metrik** | — | 3 | Pembuka Phase 3, murni Go, **tidak ada UI**. `internal/shared/httpx/cors.go` baru — origin di-echo eksplisit (tidak pernah `*`), `OPTIONS` → `204` tanpa menyentuh handler, dipasang sebelum route manapun dan sebelum `authn.Middleware`. `CORS_ALLOWED_ORIGINS` di `internal/shared/config`, wajib non-kosong saat `APP_ENV=production` (Aturan #36). `internal/metrics` baru — **read-only, sengaja tanpa `Store`/`InTx`** (TD §2, penyimpangan sadar dari bentuk lima berkas). `GET /v1/metrics/summary` (`total_new`, `by_status`, `unassigned`, `conversion_rate`) dan `GET /v1/metrics/employees` (per membership: `lead_count`, `avg_response_seconds`, `converted_count`). `conversion_rate` mengecualikan `spam`/`unqualified` dari **penyebut** (menegakkan acceptance criterion #5 Phase 2 yang sampai sekarang hanya "kedua status ada") dan mengirim `null` (bukan `0`) saat penyebut nol. `avg_response_seconds` mengecualikan lead yang belum tersentuh dari rata-rata lewat perilaku native `avg()` mengabaikan `NULL` — tidak ada cabang logic tambahan, dibuktikan lewat test yang menaruh activity `lead_created` di lead yang sama untuk memastikan tipe itu benar-benar tidak ikut terhitung. `ActionMetricsRead` baru (Owner/Admin/Manager, bukan Employee). Harness isolasi tenant bertambah `TestTenantIsolation_MetricsAggregate_ScopedToOrganization` (bentuk terpisah dari slice `isolationCase` karena endpoint agregat tidak punya `:id`) — **terbukti bisa gagal** (predikat tenant di-tautologi-kan → kebocoran nyata 3 vs 1). 18 test baru di `internal/metrics` (unit + Postgres asli + HTTP), semuanya lolos tanpa perubahan asersi lama. |
 
 ---
 
@@ -45,16 +46,18 @@ _(kosong)_
 
 ## Berikutnya
 
-**Issue #30 — CORS + endpoint metrik** (backend, pembuka Phase 3)
+**Issue #31 — Setup Next.js, klien API, sesi, auth UI** (`crm_dashboard`)
 
-- Cakupan & acceptance: [issue #30](https://github.com/Pravasta/jualin-crm/issues/30)
-- TD: `docs/phases/03-owner-dashboard/td.md` §1, §2
-- **Phase 3 bukan phase frontend murni.** Dua pekerjaan Go mendahului layar manapun: middleware CORS
-  (belum ada sama sekali — tanpanya tidak ada request browser yang sampai ke handler) dan endpoint
-  metrik agregat (`02-crm-core/td.md` §5 sudah mencatatnya sebagai milik Phase 3).
-- `internal/metrics` adalah paket **read-only** — tidak punya `Store`/`InTx`, karena tidak pernah
-  menulis. Penyimpangan sadar dari bentuk lima berkas, dicatat di TD §2.
-- Berurutan: #30 → #31 → #32 → #33 → #34 → #35. Rincian di `docs/phases/03-owner-dashboard/issues.md`.
+- Cakupan & acceptance: [issue #31](https://github.com/Pravasta/jualin-crm/issues/31)
+- TD: `docs/phases/03-owner-dashboard/td.md` §3, §4, §5
+- CORS dan kedua endpoint metrik yang memblokirnya (#30) sudah selesai — `crm_dashboard/` sekarang bisa
+  mulai dibangun. `CORS_ALLOWED_ORIGINS=http://localhost:3000` sudah ada di `.env.example` dan
+  `docker-compose.yml`.
+- **Refresh single-flight adalah bagian yang sebenarnya sulit** (TD §4.2) — enam request yang menerima
+  `401` bersamaan harus menghasilkan tepat satu panggilan refresh, atau rotasi refresh token (#10)
+  mencabut seluruh `family_id` dan pengguna terlempar keluar. Kegagalan yang hanya muncul di bawah
+  konkurensi, persis seperti alokasi `lead_number` di #19.
+- Berurutan: #30 ✅ → #31 → #32 → #33 → #34 → #35. Rincian di `docs/phases/03-owner-dashboard/issues.md`.
 
 ---
 

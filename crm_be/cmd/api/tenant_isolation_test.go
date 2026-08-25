@@ -283,6 +283,46 @@ func seedIsolationTask(t *testing.T, pool *pgxpool.Pool, org, leadID uuid.UUID) 
 	return id
 }
 
+// TestTenantIsolation_MetricsAggregate_ScopedToOrganization is Phase 3
+// TD §2.5's addition to this harness — the two metrics endpoints don't
+// take a resource :id, so they don't fit the by-ID-404 shape every case
+// above uses. A leak here is worse than a single wrong row: it exposes
+// another tenant's aggregate business shape (freeze bagian 5, lapis 4).
+// Verified manually able to fail the same way this file's header
+// documents for #11: temporarily changing
+// metrics.postgresRepository.Summary's "organization_id = $1" predicate
+// to "(organization_id = $1 OR true)" and re-running this test turned it
+// red — org A's total_new read 3 instead of 1, counting org B's two
+// leads. See notes.md's "## #30" section for the exact procedure; the
+// change itself was never committed.
+func TestTenantIsolation_MetricsAggregate_ScopedToOrganization(t *testing.T) {
+	r, pool := newIsolationRouter(t)
+
+	orgA, _, ownerAMembershipID := seedOrgOwner(t, pool, "Metrics Org A", "metrics-owner-a@example.com")
+	tokenA := mintBearerToken(t, uuid.Must(uuid.NewV7()), orgA, ownerAMembershipID, tenant.RoleOwner)
+	seedIsolationLead(t, pool, orgA, "new")
+
+	orgB, _, _ := seedOrgOwner(t, pool, "Metrics Org B", "metrics-owner-b@example.com")
+	seedIsolationLead(t, pool, orgB, "new")
+	seedIsolationLead(t, pool, orgB, "won")
+
+	w := doIsolationRequest(r, http.MethodGet, "/v1/metrics/summary", tokenA, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Data struct {
+			TotalNew int `json:"total_new"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Data.TotalNew != 1 {
+		t.Fatalf("expected org A's summary to count only its own lead (total_new=1), got %d — leaked org B's leads", body.Data.TotalNew)
+	}
+}
+
 func seedIsolationCustomer(t *testing.T, pool *pgxpool.Pool, org, wonLeadID uuid.UUID) uuid.UUID {
 	t.Helper()
 	ctx := t.Context()
