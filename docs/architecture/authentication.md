@@ -83,6 +83,15 @@ Ini membuat Aturan #25 struktural: dashboard secara harfiah tidak pernah melihat
 
 `/v1/auth/refresh` dan `/v1/auth/logout` membaca refresh token dari cookie dulu, baru fallback ke body — client menentukan jalurnya sendiri secara implisit lewat mana yang ia kirim.
 
+### Klien dashboard — cookie tak terbaca, refresh single-flight
+
+`crm_dashboard` (Next.js, Phase 3 #31) tidak punya `middleware.ts` yang membaca token — `access_token` `HttpOnly` secara harfiah tidak bisa disentuh JavaScript. Satu-satunya penjaga route adalah memanggil `GET /v1/me` di layout terproteksi (`SessionGate`, `src/lib/session-context.tsx`); gagal (401 yang bertahan setelah refresh) → redirect `/login`.
+
+`src/lib/api-client.ts`'s `apiFetch` menegakkan dua hal di sisi klien:
+
+- **CSRF**: header `X-CSRF-Token` dibaca dari cookie `csrf_token` (non-`HttpOnly`, lihat di bawah) dan disertakan di setiap request non-GET.
+- **Refresh single-flight**: satu `refreshPromise` modul-level ditetapkan **sinkron**, sebelum `await` apa pun — request paralel yang sama-sama menerima `401` memakai ulang Promise yang sama alih-alih masing-masing memanggil `/v1/auth/refresh` sendiri. Tanpa ini, N request paralel yang kedaluwarsa bersamaan memicu N rotasi refresh token yang saling balapan — hasilnya salah satu dicabut karena "sudah dirotasi" (§ di atas) walau pengguna tidak melakukan apa pun yang salah. Dibuktikan lewat test konkurensi asli (`src/lib/api-client.test.ts`), bukan diasumsikan dari membaca kode.
+
 ---
 
 ## CSRF — double-submit

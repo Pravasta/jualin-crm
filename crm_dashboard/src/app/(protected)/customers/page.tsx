@@ -1,11 +1,5 @@
-import { PlaceholderScreen } from "@/components/placeholder-screen";
+import { CustomerList } from "./customer-list";
 
 export default function CustomersPage() {
-  return (
-    <PlaceholderScreen
-      title="Customer"
-      description="Daftar customer hasil konversi lead, dengan pencarian dan tautan ke lead asalnya."
-      issue={35}
-    />
-  );
+  return <CustomerList />;
 }
