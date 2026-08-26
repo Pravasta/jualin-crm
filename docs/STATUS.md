@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 26 Agustus 2026 — Issue #31 selesai (setup Next.js, klien API, sesi, auth UI)
-**Phase sekarang:** Phase 3 — Owner Dashboard (2/6 issue selesai)
+**Last updated:** 26 Agustus 2026 — Issue #40 selesai (fondasi desain: token, label, app shell)
+**Phase sekarang:** Phase 3 — Owner Dashboard (3/7 issue selesai — #40 ditambahkan setelah hasil desain masuk)
 
 ---
 
@@ -36,6 +36,7 @@
 | **Issue #23 — Customer, konversi dari lead, kasus `lead` pada harness isolasi tenant** | — | 2 | `internal/customer` baru — `POST /v1/leads/{id}/convert` (satu `INSERT ... SELECT ... FROM leads WHERE status='won'`, menyalin field lead ke customer baru dalam satu statement, bukan lewat bridge Go — deviasi sadar dari asumsi awal bahwa konversi akan menambah field ke `lead.Repos`, yang ternyata tidak diperlukan). `uq_customers_org_lead` menegakkan konversi tunggal (`409 lead_already_converted`); lead bukan `won` → `422` (memakai ulang `invalid_status_transition`, tidak ada kode baru). Lead **tidak pernah** berubah oleh konversi atau oleh edit customer setelahnya — dibuktikan langsung, bukan diasumsikan. **Penutup Phase 2**: harness isolasi tenant (`cmd/api/tenant_isolation_test.go`) bertambah entri `lead`/`task`/`customer`/`activity` ke slice `[]isolationCase` yang sama sejak #11 (13 subtest, semua `404`), **terbukti bisa gagal** diulang untuk `lead` (predikat tenant-scoping dihapus sementara → kebocoran data nyata 200, bukan sekadar 500). `docs/architecture/authorization.md` matriks Phase 2 ditulis lengkap (Aturan #1 "belum berlaku" → terwujud); `multi-tenancy.md` lapis 4 kasus #1 & #4 → ✅; `api.md` menambah `lead_already_converted` plus membackfill dua kode yang luput dicatat di #21/#22. Empat `Action` RBAC baru. Smoke test manual end-to-end lolos seluruh acceptance criteria Phase 2. **Phase 2 selesai.** |
 | **Issue #30 — CORS + endpoint metrik** | — | 3 | Pembuka Phase 3, murni Go, **tidak ada UI**. `internal/shared/httpx/cors.go` baru — origin di-echo eksplisit (tidak pernah `*`), `OPTIONS` → `204` tanpa menyentuh handler, dipasang sebelum route manapun dan sebelum `authn.Middleware`. `CORS_ALLOWED_ORIGINS` di `internal/shared/config`, wajib non-kosong saat `APP_ENV=production` (Aturan #36). `internal/metrics` baru — **read-only, sengaja tanpa `Store`/`InTx`** (TD §2, penyimpangan sadar dari bentuk lima berkas). `GET /v1/metrics/summary` (`total_new`, `by_status`, `unassigned`, `conversion_rate`) dan `GET /v1/metrics/employees` (per membership: `lead_count`, `avg_response_seconds`, `converted_count`). `conversion_rate` mengecualikan `spam`/`unqualified` dari **penyebut** (menegakkan acceptance criterion #5 Phase 2 yang sampai sekarang hanya "kedua status ada") dan mengirim `null` (bukan `0`) saat penyebut nol. `avg_response_seconds` mengecualikan lead yang belum tersentuh dari rata-rata lewat perilaku native `avg()` mengabaikan `NULL` — tidak ada cabang logic tambahan, dibuktikan lewat test yang menaruh activity `lead_created` di lead yang sama untuk memastikan tipe itu benar-benar tidak ikut terhitung. `ActionMetricsRead` baru (Owner/Admin/Manager, bukan Employee). Harness isolasi tenant bertambah `TestTenantIsolation_MetricsAggregate_ScopedToOrganization` (bentuk terpisah dari slice `isolationCase` karena endpoint agregat tidak punya `:id`) — **terbukti bisa gagal** (predikat tenant di-tautologi-kan → kebocoran nyata 3 vs 1). 18 test baru di `internal/metrics` (unit + Postgres asli + HTTP), semuanya lolos tanpa perubahan asersi lama. |
 | **Issue #31 — Setup Next.js, klien API, sesi, auth UI** | — | 3 | `crm_dashboard/` dari `README.md` saja menjadi aplikasi utuh — Next.js App Router + TypeScript + Tailwind v4 + shadcn/ui (`components.json` dengan `registries: {}` kosong, tanpa registry privat). `src/lib/api-client.ts`: `credentials:'include'`, `X-CSRF-Token` di setiap non-GET, dan **refresh single-flight** — satu `refreshPromise` modul-level yang ditetapkan sinkron sebelum `await` apa pun, sehingga request paralel yang 401 bersamaan memakai ulang Promise yang sama, bukan masing-masing memanggil refresh sendiri. Route group `(auth)` vs `(protected)` — layar protected memanggil `GET /v1/me` di layout-nya (`SessionGate`), **tanpa** `middleware.ts` (tidak bisa baca token `HttpOnly`). 5 layar auth (login, register, verifikasi email, lupa/reset password) + pilih organization (`409 organization_selection_required`, ADR-007) ditangani inline di form login, bukan route terpisah. Test runner **Vitest** (dikonfirmasi pemilik produk) — 6 test di `api-client.test.ts`, termasuk **test konkurensi genuine** (refresh sengaja ditahan lewat `deferred()` sampai 6 panggilan paralel semuanya mencapai titik single-flight) yang membuktikan tepat 1 panggilan `/v1/auth/refresh`, diulang 5× tanpa flaky. Kontrak backend (`src/lib/auth.ts`) dibangun dari pembacaan literal `crm_be/internal/auth/*.go`, **diverifikasi end-to-end lewat `curl`** terhadap `crm_be` sungguhan (register → verify → login → cookie flags persis benar → CSRF terbukti aktif → logout) — bukan diasumsikan dari baca kode saja. `.github/workflows/ci-dashboard.yml` baru (`paths: crm_dashboard/**`). **Phase 3 sekarang punya UI** — #32 (daftar lead) bisa mulai. |
+| **Issue #40 — Fondasi desain: token warna, label Indonesia, app shell** | — | 3 | **Issue di luar rencana awal**, dibuka setelah hasil Claude Design masuk: desainnya mencakup ~15 layar (seluruh #32–#35) sementara token, label, dan kerangka aplikasi dipakai bersama dan tidak dimiliki satu pun dari mereka (design brief §7.6 sudah menandainya "belum ada dan dibutuhkan"). Hasil desain dibaca lewat `DesignSync` dari project `5ac090ad`. **Aksen desain gagal WCAG AA dan diperbaiki, bukan disalin apa adanya**: `oklch(0.58 0.19 41)` dipakai sebagai latar tombol dengan teks putih 14px = **4.45:1**, di bawah ambang 4.5:1 — diturunkan ke `oklch(0.56 0.19 41)` (**4.83:1**, `#D14400`→`#CA3C00`, tak terlihat mata). **Lima dari delapan badge status juga gagal**, terburuk `proposal` **3.14:1** → 4.55:1; diperbaiki dengan menurunkan *lightness* saja sehingga hue/chroma desain dan tampilan badge tetap sebagaimana digambar. Dua token aksen dipisah karena tugasnya berlawanan: `--primary` (0.56) untuk putih-di-atas-warna, `--accent-strong` (0.48, 7.04:1) untuk warna-di-atas-putih. `src/lib/labels.ts` baru — 8 status + 6 alasan kalah + 4 sumber + 4 role, satu tempat supaya tidak ada layar yang menuliskan ulang peta yang sama. Label nav desain ("Home"/"Task"/"Settings") **diterjemahkan** jadi Beranda/Tugas/Pengaturan (acceptance criterion #12); "Lead"/"Customer" tetap karena keduanya istilah `glossary.md` — dikunci test. Logika nav (`isActive`/`pageTitle`) dipisah ke `lib/nav.ts` agar bisa diuji tanpa merender React — jebakannya nyata (prefix-match naif membuat `/` aktif di setiap halaman). **Bug font sejak #31 diperbaiki**: `--font-sans` menunjuk dirinya sendiri sehingga Geist tidak pernah diterapkan; dibuktikan dari CSS hasil build. 9 test baru (15 total). Lima halaman placeholder bertanggal, masing-masing menyebut issue penggantinya. |
 
 ---
 
@@ -56,10 +57,17 @@ _(kosong)_
 - Sesi, klien API (`apiFetch`, refresh single-flight), dan proteksi route sudah ada sejak #31 —
   `apiFetch<T>` saat ini hanya mengembalikan `data`, membuang `meta`; endpoint list butuh varian baru
   yang mengembalikan `{data, meta}` untuk `meta.total` (jangan ubah signature `apiFetch` yang ada).
+- **App shell, token warna, dan `labels.ts` sudah siap sejak #40** — `/leads` saat ini berisi halaman
+  placeholder yang tinggal diganti. `STATUS_META` dan `SOURCE_LABELS` dipakai langsung untuk badge.
+- `NavItemConfig.badge` sudah ada tetapi belum ada yang mengisinya — sambungkan ke jumlah lead tanpa
+  pemilik aktif, sesuai desain yang menaruh angka itu di item nav "Lead".
 - **Filter "lead tanpa pemilik aktif" (`assigned_to=none`) wajib terlihat permanen**, bukan tersembunyi
   di menu lanjutan — kewajiban warisan Phase 2 (`02-crm-core/td.md` §19, freeze 2.3 ketentuan #3).
 - Jumlah total wajib dari `meta.total`, bukan dari panjang array halaman yang terlihat.
-- Berurutan: #30 ✅ → #31 ✅ → #32 → #33 → #34 → #35. Rincian di `docs/phases/03-owner-dashboard/issues.md`.
+- Desain layar ini ada di project `5ac090ad` (`DesignSync` → `get_file`), bagian
+  `<!-- ===== LEADS LIST ===== -->`.
+- Berurutan: #30 ✅ → #31 ✅ → #40 ✅ → #32 → #33 → #34 → #35. Rincian di
+  `docs/phases/03-owner-dashboard/issues.md`.
 
 ---
 
@@ -137,7 +145,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 0 | Foundation | ✅ | ✅ | ✅ #1–#3 | ✅ |
 | 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11, #15 | ✅ |
 | 2 | CRM Core | ✅ | ✅ | ✅ #19–#23 | ✅ |
-| 3 | Owner Dashboard | ✅ | ✅ | ✅ #30–#35 | ⬜ |
+| 3 | Owner Dashboard | ✅ | ✅ | ✅ #30–#35, #40 | ⬜ |
 | 4 | Public API | ⬜ | ⬜ | ⬜ | ⬜ |
 | 5 | Employee Mobile | ⬜ | ⬜ | ⬜ | ⬜ |
 
