@@ -200,3 +200,114 @@ verifikasi karena `curl` tidak menegakkan CORS (itu mekanisme browser).
   ada karena akan memaksa setiap pemanggil non-list menangani `meta` yang tidak mereka butuhkan.
 - `auth-errors.ts` sengaja **belum** menangani `version_conflict`/`membership_has_open_leads` — tidak
   ada layar yang membutuhkannya di issue ini. #33/#34 menambah handler-nya saat layarnya sungguhan ada.
+
+---
+
+## #40 — Fondasi desain: token warna, label Indonesia, app shell
+
+Issue ini **tidak ada di rencana awal Phase 3**. Ia muncul setelah hasil Claude Design masuk: desainnya
+mencakup ~15 layar sekaligus (seluruh #32–#35), sementara token warna, peta label, dan kerangka aplikasi
+dipakai bersama oleh semuanya dan tidak dimiliki satu pun dari mereka. Design brief §7.6 memang sudah
+menandai kerangka aplikasi sebagai *"belum ada dan dibutuhkan"*. Dipisah supaya empat issue berikutnya
+tinggal mengisi layar, bukan masing-masing ikut memindahkan fondasi.
+
+Sumber desain: project `5ac090ad-4737-47cf-8fb1-7866eb0d865c`, file `Jualin CRM Dashboard.dc.html`
+(dibaca lewat `DesignSync`). `github.md` di project itu mencatat ia disinkronkan dari commit `7b88273`
+— merge design brief kita, jadi desainnya memang dibangun di atas brief itu.
+
+### Aksen desain gagal WCAG AA — diperbaiki, bukan disalin apa adanya
+
+Design brief §12 meminta *"pastikan kontrasnya lolos WCAG AA terhadap `--primary-foreground`"*.
+Diperiksa dengan menghitung langsung (oklch → sRGB → luminansi relatif → rasio kontras), bukan
+dikira-kira:
+
+| Warna | Dipakai untuk | Rasio | |
+|---|---|---|---|
+| `oklch(0.58 0.19 41)` — usulan desain | latar tombol, teks putih 14px | **4.45:1** | ⛔ di bawah 4.5:1 |
+| `oklch(0.56 0.19 41)` — dipakai | sama | **4.83:1** | ✅ |
+
+Selisihnya tidak terlihat mata (`#D14400` → `#CA3C00`), tetapi 4.45 vs 4.50 adalah beda antara lolos
+dan tidak. Desain memakai warna itu sebagai **latar tombol dengan teks putih 14px** (terverifikasi dari
+markup-nya, bukan diasumsikan) — persis kasus "teks normal" yang ambangnya 4.5:1.
+
+**Lima dari delapan badge status juga gagal**, terburuk `proposal` di **3.14:1**. Diperbaiki dengan
+menurunkan *lightness* saja — hue dan chroma desain dipertahankan persis, dan latar badge tetap
+dicampur dari nilai desain asli sehingga badge-nya terlihat sebagaimana digambar:
+
+```
+new 4.05→4.58 · contacted 4.24→4.53 · qualified 4.33→4.51
+proposal 3.14→4.55 (0.62→0.53, satu-satunya perubahan yang terlihat) · lost 4.37→4.56
+won 4.54 · unqualified 4.81 · spam 6.62   (ketiganya sudah lolos, tidak disentuh)
+```
+
+### Keputusan implementasi
+
+- **`--primary` diganti amber, `--accent-strong` token baru.** Keduanya perlu ada karena tugasnya
+  berlawanan: `--primary` (0.56) disetel untuk **putih di atas warna**, `--accent-strong` (0.48) untuk
+  **warna di atas putih** (nav aktif, tautan — 7.04:1). Memakai satu nilai untuk keduanya berarti salah
+  satunya gagal kontras.
+- **Warna status tinggal di `labels.ts`, bukan jadi token CSS.** Masing-masing milik satu nilai enum,
+  bukan milik tema; dan Tailwind tidak bisa membuat class dari nilai runtime, jadi ia jadi inline style
+  apa pun caranya. Menaruhnya sebagai 8 variabel CSS hanya menambah lapisan tanpa menambah kemampuan.
+- **Label nav diterjemahkan.** Desain mengusulkan "Home"/"Task"/"Settings" — tiga kata Inggris yang
+  punya padanan wajar, sementara acceptance criterion #12 mewajibkan seluruh antarmuka Bahasa
+  Indonesia. Dipakai **Beranda/Tugas/Pengaturan**; "Lead" dan "Customer" tetap karena keduanya istilah
+  yang `glossary.md` kunci sebagai kosakata produk. Dikunci test, bukan hanya konvensi.
+- **Logika nav dipisah ke `lib/nav.ts`.** `isActive`/`pageTitle` punya jebakan nyata: prefix-match naif
+  membuat `/` aktif di setiap halaman, dan urutan pencarian yang salah membuat setiap halaman berjudul
+  "Beranda". Dipisah dari komponen supaya bisa diuji tanpa merender React.
+- **Lima halaman placeholder** (`/leads`, `/customers`, `/tasks`, `/team`, `/settings`). Shell
+  mengirim enam tujuan nav sekaligus; tanpa ini lima di antaranya `404` selama beberapa siklus PR.
+  Masing-masing menyebut issue yang akan menggantinya, dan dihapus utuh oleh issue itu.
+- **Lonceng notifikasi sengaja belum ada** di topbar — ia milik #34 bersama layar yang memakai
+  `/v1/notifications`. Membuat lonceng yang tidak berfungsi lebih buruk daripada tidak ada.
+- **`.dark` tidak disentuh.** Dark mode di luar cakupan Phase 3; palet gelap yang belum pernah diperiksa
+  di layar sungguhan adalah tebakan, bukan desain. `--accent-strong`/`--accent-tint` tetap mengalir dari
+  `:root` bila suatu saat dinyalakan.
+
+### Bug yang diperbaiki di sini
+
+`--font-sans: var(--font-sans)` — menunjuk dirinya sendiri, sementara `layout.tsx` mendefinisikan
+`--font-geist-sans`. Akibatnya Geist Sans **tidak pernah benar-benar diterapkan**; seluruh dashboard
+jatuh ke font bawaan browser sejak #31. Ditemukan saat memverifikasi klaim "font sudah terpasang" untuk
+design brief. Diperbaiki di sini karena `globals.css` memang sedang disentuh — dibuktikan dari CSS hasil
+build: `html{font-family:var(--font-geist-sans)}`.
+
+### Verifikasi
+
+```
+npm run typecheck · lint · build   → bersih; 12 route ter-generate
+npm run test                        → 15/15 PASS (6 lama + 9 baru di nav.test.ts)
+
+CSS hasil build (bukan hanya sumbernya):
+  .bg-accent-tint{background-color:var(--accent-tint)}    ← class benar-benar ter-generate
+  .text-accent-strong{color:var(--accent-strong)}
+  --primary:#c54300                                        ← amber, bukan netral lama
+  html{font-family:var(--font-geist-sans)}                 ← bug font terperbaiki
+
+Terhadap crm_be sungguhan (docker compose + migrate):
+  seluruh 7 route → 200
+  POST /v1/auth/login → 200
+  GET  /v1/me → organization_name "Toko Budi", full_name "Budi Santoso", role "owner"
+       — persis tiga field yang dirender shell (sidebar, inisial "BS", label "Owner")
+```
+
+**Batas verifikasi, dicatat apa adanya:** shell dirender di sisi klien di balik `SessionGate`, jadi
+`curl` hanya membuktikan route-nya hidup dan datanya benar — **bukan** bahwa tata letaknya terlihat
+seperti desain. Tidak ada tool otomasi browser di sesi ini. Yang bisa dibuktikan otomatis sudah
+dibuktikan (token ter-generate, logika nav diuji, data API cocok); penilaian visual perlu dibuka di
+browser.
+
+### Utang teknis
+
+- Lima halaman placeholder adalah utang yang **disengaja dan bertanggal** — masing-masing menyebut issue
+  penggantinya. Bila #32–#35 selesai dan masih ada `placeholder-screen.tsx`, berarti ada yang terlewat.
+
+### Catatan untuk session berikutnya
+
+- **#32 tinggal mengisi `/leads`** — shell, token, dan `STATUS_META`/`SOURCE_LABELS` sudah siap pakai.
+- `NavItemConfig.badge` sudah ada tetapi **belum ada yang mengisinya**. #32 menyambungkannya ke jumlah
+  lead tanpa pemilik aktif (`assigned_to=none`) — desainnya menaruh angka itu di item nav "Lead".
+- Sisa desain (#33–#35) ada di project `5ac090ad`, dibaca lewat `DesignSync` — `get_file` pada
+  `Jualin CRM Dashboard.dc.html`. Berkasnya 111KB; petakan dulu dengan mencari penanda
+  `<!-- ===== NAMA ===== -->` daripada memuat seluruhnya ke context.

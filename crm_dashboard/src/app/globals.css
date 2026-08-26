@@ -7,9 +7,13 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  /* --font-geist-sans, not --font-sans: next/font defines the former on
+     <html> (layout.tsx). Pointing --font-sans at itself, as the scaffold
+     did, left `font-sans` resolving to nothing and Geist never actually
+     applied — issue #40. */
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  --font-heading: var(--font-geist-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -27,6 +31,8 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-tint: var(--accent-tint);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -55,8 +61,20 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  /* Warm amber accent, derived from the Jualin logo (Claude Design,
+     issue #40). The design proposed oklch(0.58 0.19 41), but that
+     measures 4.45:1 against --primary-foreground — just under WCAG AA's
+     4.5:1 for normal text, and this color's whole job is being a button
+     background under 14px label text. Darkened to 0.56, which measures
+     4.83:1 and is visually indistinguishable (#D14400 → #CA3C00). */
+  --primary: oklch(0.56 0.19 41);
   --primary-foreground: oklch(0.985 0 0);
+  /* Accent as TEXT on a light background — active nav, links, inline
+     emphasis. 7.04:1 on white. Never use --primary for this: at 0.56 it
+     is tuned for white-on-color, not color-on-white. */
+  --accent-strong: oklch(0.48 0.17 41);
+  /* Tinted accent background — active nav row, avatar, badge. */
+  --accent-tint: oklch(0.56 0.19 41 / 10%);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -66,7 +84,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --ring: oklch(0.56 0.19 41);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -83,6 +101,12 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Dark mode is out of scope for Phase 3 (prd.md, "Di luar cakupan") and
+   nothing toggles this class. These are shadcn's untouched defaults —
+   the amber accent above is deliberately NOT ported here, because a dark
+   palette that has never been checked against a real screen is a guess,
+   not a design. --accent-strong / --accent-tint simply cascade from
+   :root if dark is ever switched on. */
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);

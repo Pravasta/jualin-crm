@@ -18,13 +18,20 @@
 | [33](https://github.com/Pravasta/jualin-crm/issues/33) | Detail lead: timeline, activity, task, status, assignment, konversi | `crm_dashboard` | Layar traffic tertinggi kedua; hampir seluruh aksi tulis | §5, §6, §8 |
 | [34](https://github.com/Pravasta/jualin-crm/issues/34) | Tim: anggota, undangan, penonaktifan, notifikasi | `crm_dashboard` | Area admin. Penonaktifan dengan alur `on_open_leads` tiga cabang | §5, §8 |
 | [35](https://github.com/Pravasta/jualin-crm/issues/35) | Home metrik, customer, daftar task, settings | `crm_dashboard` | Layar top-level tersisa; mengonsumsi endpoint dari #30. **Penutup phase** | §2.1, §8 |
+| [40](https://github.com/Pravasta/jualin-crm/issues/40) | Fondasi desain: token warna, label Indonesia, app shell | `crm_dashboard` | **Ditambahkan setelah hasil desain masuk.** Dikerjakan setelah #31, sebelum #32 | design-brief §4, §6, §7.6 |
+
+> **#40 tidak ada saat phase ini dibuka.** Ia muncul ketika hasil Claude Design masuk: desainnya
+> mencakup seluruh layar #32–#35 sekaligus, sementara token warna, peta label, dan kerangka aplikasi
+> dipakai bersama oleh semuanya dan tidak dimiliki satu pun dari mereka — design brief §7.6 memang
+> sudah menandai kerangka aplikasi sebagai *"belum ada dan dibutuhkan"*. Dipisah agar empat issue
+> berikutnya tinggal mengisi layar. Urutannya: **#31 → #40 → #32**.
 
 ---
 
 ## Urutan
 
 ```
-#30 backend ──► #31 fondasi + auth ──► #32 daftar lead ──► #33 detail lead ──► #34 tim ──► #35 penutup
+#30 backend ──► #31 fondasi + auth ──► #40 fondasi desain ──► #32 daftar lead ──► #33 detail lead ──► #34 tim ──► #35 penutup
 ```
 
 | Dependensi | Sifat |
