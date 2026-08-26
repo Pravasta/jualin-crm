@@ -51,3 +51,19 @@ export function globalMessage(err: unknown): string {
   if (err instanceof ApiError) return err.message;
   return "Terjadi kesalahan. Coba lagi.";
 }
+
+// version_conflict (409, Aturan #35) — crm_be sends the row's CURRENT
+// state in error.current so the screen can reload it without a second
+// request. This is the ONE place in the product a save must never
+// silently overwrite: the caller is required to show the conflict and
+// let the user choose, never retry with the old version automatically.
+export function versionConflictCurrent<T>(err: unknown): T | null {
+  if (err instanceof ApiError && err.code === "version_conflict") {
+    return (err.body.current as T) ?? null;
+  }
+  return null;
+}
+
+export function isLeadAlreadyConverted(err: unknown): boolean {
+  return err instanceof ApiError && err.code === "lead_already_converted";
+}

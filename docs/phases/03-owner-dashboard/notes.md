@@ -416,3 +416,158 @@ Terhadap crm_be sungguhan (docker compose + migrate, organization baru "Toko Lea
   refactor teknis.
 - `apiFetchList`/`buildQuery` di `lib/leads.ts` adalah pola yang akan dipakai ulang oleh `/customers`
   dan `/tasks` (#35) — keduanya endpoint list berpaginasi dengan bentuk yang sama.
+
+---
+
+## #33 — Detail lead: timeline, activity, task, status, assignment, konversi
+
+Layar dengan **hampir seluruh aksi tulis produk**. Dibangun dari `<!-- ===== LEAD DETAIL ===== -->`
+project `5ac090ad` (dibaca ulang dari awal, bukan cache — ukurannya tetap 111022 byte, tidak ada
+perubahan sejak #32).
+
+### Logika transisi status di mockup adalah simplifikasi prototipe — TIDAK diikuti apa adanya
+
+Ini temuan paling penting di issue ini. Kode sumber desain punya `TRANSITIONS`/`FINAL_EXITS` sendiri
+yang **berbeda** dari backend sungguhan pada satu kasus: keluar dari status `lost`. Backend
+(`validateStatusTransition` di `internal/lead/usecase.go`) membolehkan `lost` pindah ke **kelima**
+status jalur utama (penyimpangan terdokumentasi dari TD Phase 2 §5 — lihat notes issue #20: "satu
+langkah tepat" tidak bisa ditegakkan tanpa riwayat activity), sementara mockup hanya menawarkan satu
+tombol "→ Buka kembali ke Baru".
+
+Karena acceptance criterion issue ini eksplisit — *"transisi status yang tidak sah tidak ditawarkan di
+UI"* — logikanya **ditulis ulang sebagai port baris-demi-baris dari fungsi Go**, bukan disalin dari
+mockup: `lib/lead-status.ts`'s `isValidStatusTransition(from, to)`. Diuji terhadap **matriks lengkap**
+(`lead-status.test.ts`, seluruh 8×8 pasangan status), ditulis tangan dari TD, bukan diturunkan dari
+fungsi yang sama yang diuji — supaya bug yang merusak keduanya dengan cara yang sama tidak bisa
+bersembunyi.
+
+**Satu penyempitan disengaja dipertahankan dari mockup**: untuk `lost`, hanya satu tombol "→ Buka
+kembali ke Baru" yang ditawarkan, bukan kelima status yang backend benarkan. Backend membolehkan lebih
+banyak; UI menawarkan lebih sedikit — itu sah (acceptance criterion melarang menawarkan yang **tidak
+sah**, tidak mewajibkan menawarkan **semua** yang sah), dan menghindari lima tombol untuk kasus yang
+jarang terjadi. Dikunci test (`statusTransitionOptions("lost")` harus tepat satu opsi) supaya
+penyempitan ini terlihat sebagai keputusan, bukan bug yang kebetulan cocok.
+
+### Bentuk metadata activity diverifikasi langsung dari `crm_be` sungguhan, bukan ditebak dari desain
+
+Mockup punya akses langsung ke object `lead`/`task` JavaScript-nya sendiri untuk menyusun teks timeline
+(`a.text` sudah jadi). API sungguhan tidak mengirim teks jadi — hanya `type` + `metadata` mentah. Setiap
+bentuk metadata dibaca dari `internal/{lead,task,customer}/usecase.go`'s pemanggilan `Activity.Record`,
+lalu **dibuktikan lagi** lewat lead sungguhan yang dijalankan melalui seluruh siklus hidupnya (buat →
+ubah status → assign → catat 3 tipe catatan → buat task → selesaikan task → convert):
+
+```
+lead_created      metadata: null                          — TIDAK seperti dugaan awal, tidak ada source
+status_changed    {"from":"new","to":"contacted"}          — cocok
+lead_assigned     {"to":"<id>","from":null}                — from eksplisit null saat pertama kali, bukan absen
+lead_unassigned   {"from":"<id>"}                          — (tidak diuji ulang di sesi ini, sudah diverifikasi #22)
+lead_converted    {"customer_id":"<id>"}                   — cocok
+task_created      metadata via endpoint task, bukan activity langsung — {"task_id","title"}
+task_completed    {"task_id":"<id>"}                       — TANPA title, beda dari task_created
+```
+
+`lead_created` metadata **null** berarti teks timeline-nya statis ("Lead dibuat") — sumber lead sudah
+terlihat di header, jadi tidak perlu di-plumbing ulang hanya untuk satu baris timeline. `task_completed`
+**tidak** membawa title (beda dari `task_created`) — kalau kode mengasumsikan keduanya simetris, hasilnya
+"undefined" di layar. Dikunci test eksplisit di `activity-text.test.ts`.
+
+Fungsi murni `activityToTimelineEntry(activity, namesById)` di `lib/activity-text.ts` — menerima
+`Map<membership_id, full_name>` yang sama dibangun dari `GET /v1/memberships` (dipakai lagi, sama seperti
+kolom Pemilik di #32). Membership yang sudah dinonaktifkan (tidak ada di map) → "Anggota yang sudah
+tidak aktif", bukan crash atau `undefined` — riwayat lama tetap harus terbaca meski pelakunya sudah
+tidak aktif.
+
+### Dua bagian layar yang **tidak ada di mockup sama sekali**, ditambahkan karena checklist mewajibkannya
+
+- **Form edit field umum** (nama/email/telepon/perusahaan/catatan). Section LEAD DETAIL desain hanya
+  punya header read-only + tombol aksi — tidak ada form edit di manapun. Checklist eksplisit: *"Ubah
+  field umum (`PATCH /v1/leads/{id}`) — membawa `version`"*. Ditambahkan sebagai dialog terpisah
+  (`edit-lead-dialog.tsx`), mengikuti pola modal yang sudah ada.
+- **Form buat task**. `onAddLeadTask` di kode sumber desain literal membuat task dengan judul hardcode
+  `"Task baru"` tanpa form apa pun (`// visual only` menurut komentar mockup sendiri). Dunia nyata butuh
+  minimal judul. `new-task-dialog.tsx` ditambahkan mengikuti pola `new-lead-dialog.tsx` dari #32.
+
+### Keputusan implementasi
+
+- **Konflik penyimpanan (`ConflictDialog`) satu tempat untuk semua aksi pada lead** — status, assignment,
+  edit field umum. Ketiganya memicu dialog yang sama; tombol "Muat ulang data terkini" memicu refetch
+  penuh (lead+activities+tasks+members), **bukan** langsung menerapkan `error.current` — pengguna harus
+  mengklik dulu, sesuai Aturan #35 ("tidak pernah menimpa otomatis" berarti juga tidak pernah *menerima*
+  keadaan baru tanpa aksi sadar, bukan hanya soal tidak mengirim ulang data lama).
+- **Konflik pada task diberi perlakuan lebih ringan** — pesan inline + refetch otomatis, bukan modal
+  terpisah. Task adalah objek turunan dengan taruhan lebih rendah daripada lead itu sendiri; menambah
+  modal kedua untuk kasus yang sama akan menggandakan pola tanpa menambah kejelasan.
+- **`EditLeadDialog` di-*remount* lewat `key`, bukan `useEffect` + `setState`.** ESLint
+  `react-hooks/set-state-in-effect` (sama seperti #32) menolak sinkronisasi form dari prop via effect.
+  Diselesaikan dengan memisahkan form ke komponen `EditLeadForm` yang di-`key`-kan
+  `${lead.id}-${lead.version}` — setiap kali dialog dibuka dengan `lead` yang mungkin sudah berbeda
+  (mis. setelah reload dari konflik), React me-remount komponennya dan `useState(lead.name)` dkk.
+  otomatis mendapat nilai segar. Cara yang direkomendasikan React sendiri untuk "reset state saat prop
+  berubah", bukan sekadar menghindari lint.
+- **Tombol "Konversi menjadi customer" hilang setelah konversi sungguhan terjadi**, bukan hanya
+  berdasarkan `status==='won'`. Entity `Lead` tidak punya flag "sudah dikonversi" (itu ada di
+  `Customer.converted_from_lead_id`, TD §12 — lead sendiri tidak pernah berubah oleh konversi). Sinyalnya
+  diambil dari timeline: `activities.some(a => a.type === 'lead_converted')`.
+- **Dropdown penugasan menyertakan SEMUA anggota**, tidak memfilter role `employee` seperti mockup
+  (`MEMBERS.filter(m => m.role !== 'employee')`). Backend tidak membatasi assignee berdasarkan role
+  (`fk_leads_assignee` tidak punya constraint role), dan Employee justru target assignment paling wajar
+  di produk sungguhan — mereka yang menindaklanjuti lead lewat mobile (Phase 5). Memfilter mereka keluar
+  akan salah, bukan sekadar beda gaya dari mockup.
+- **Hapus lead & Konversi disembunyikan untuk role Manager** di UI (`ActionLeadDelete`/`ActionLeadConvert`
+  = Owner/Admin saja, `docs/architecture/authorization.md`). UI tidak menawarkan aksi yang pasti ditolak
+  backend — otorisasi sungguhan tetap di backend, tidak diduplikasi di klien.
+- **Checkbox task hanya satu arah** (buka → selesai). Tidak ada endpoint "buka kembali task" di backend;
+  checkbox yang sudah tercentang di-`disabled`, bukan berpura-pura bisa diklik ulang.
+- **`onShowConflictPattern` dari mockup tidak diimplementasikan** — itu tombol demo prototipe murni
+  ("Pola desain: konflik penyimpanan →") untuk memamerkan `ConflictDialog` tanpa aksi nyata di baliknya.
+  Produk sungguhan memicu dialog yang sama itu dari kegagalan `409` asli, bukan dari tombol demo.
+
+### Verifikasi
+
+```
+npm run typecheck · lint · test · build   → bersih; exit code diperiksa (bukan hanya `tail`)
+npm run test                                → 54/54 PASS (18 baru: lead-status × 2 file, activity-text)
+
+Terhadap crm_be sungguhan (docker compose + migrate, organization baru "Toko Lead33"), SETIAP endpoint
+yang disentuh layar ini, dengan bentuk request PERSIS yang dikirim lib/*.ts:
+  PATCH .../status new→contacted                          200
+  PATCH .../assignment ke diri sendiri                     200
+  POST .../activities × 3 (note_added, call_logged, whatsapp_opened)   201 × 3
+  POST .../tasks (title+description+due_at+assignee)       201, bentuk cocok persis tipe Task
+  POST /v1/tasks/{id}/complete                             200
+  PATCH /v1/leads/{id} (name/email/phone/company/notes)    200, seluruh field tersimpan benar
+  PATCH .../status TANPA lost_reason saat status=lost       400 (divalidasi backend, bukan cuma UI)
+  PATCH .../status DENGAN lost_reason=price                200
+  PATCH .../status lost→new (reopen)                       200
+  new→contacted→qualified→proposal→won (jalur penuh)        200 × 4
+  POST /v1/leads/{id}/convert                               201
+  POST /v1/leads/{id}/convert LAGI                          409 lead_already_converted, message jelas
+  DELETE /v1/tasks/{id}                                     204
+  DELETE /v1/leads/{id}                                     204, GET setelahnya → 404 (soft delete)
+  PATCH /v1/leads/{id} dengan version BASI                  409 version_conflict, error.current
+                                                             berbentuk PERSIS tipe Lead — dibuktikan
+                                                             langsung, bukan diasumsikan dari baca kode
+  GET /leads/{id}, /leads/{id-tidak-valid}, /leads          200 semua (Next.js dev server, tanpa error render)
+```
+
+**Batas verifikasi, dicatat apa adanya:** seluruh interaksi dibuktikan lewat kontrak API (`curl` dengan
+bentuk request persis yang dikirim kode) dan lewat unit test logika murni (transisi status, format
+timeline) — **bukan** lewat klik sungguhan di browser. Tidak ada tool otomasi browser di sesi ini.
+Konsekuensinya: **tata letak visual dan interaksi dialog (buka/tutup, styling hover) belum diverifikasi
+otomatis** — hanya bahwa route-nya hidup tanpa error render dan setiap panggilan API menghasilkan data
+yang benar.
+
+### Utang teknis
+
+- Tidak ada item baru dari issue ini.
+
+### Catatan untuk session berikutnya
+
+- **#34 (tim) dan #35 (customer/task/settings/home) bisa mulai.** Pola `ConflictDialog` dan
+  `versionConflictCurrent<T>` di `auth-errors.ts` generik — dipakai ulang langsung untuk task (#35)
+  tanpa perubahan.
+- `activity-text.ts` sudah menangani seluruh 10 tipe activity yang backend tulis sampai Phase 3. Tidak
+  ada tipe baru yang direncanakan sampai Deal ada (pasca-Phase 5).
+- `EditLeadDialog`'s pola remount-lewat-`key` adalah jawaban standar untuk "reset form saat prop
+  berubah" di bawah `react-hooks/set-state-in-effect` — pakai ulang pola yang sama, bukan
+  `useEffect`+`setState`, kalau butuh form serupa di #34/#35.
