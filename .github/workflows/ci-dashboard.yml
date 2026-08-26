@@ -1,0 +1,36 @@
+name: CI — Dashboard
+
+# Monorepo (ADR-009): this workflow must only run for changes that actually
+# touch crm_dashboard. Without the paths filter, every backend-only PR
+# would burn CI time running the frontend pipeline (and vice versa —
+# ci-backend.yml has the mirror-image filter).
+on:
+  pull_request:
+    paths:
+      - "crm_dashboard/**"
+      - ".github/workflows/ci-dashboard.yml"
+  push:
+    branches: [main]
+    paths:
+      - "crm_dashboard/**"
+      - ".github/workflows/ci-dashboard.yml"
+
+defaults:
+  run:
+    working-directory: crm_dashboard
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crm_dashboard/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
