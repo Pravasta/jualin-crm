@@ -80,3 +80,72 @@ export function createLead(input: CreateLeadInput): Promise<Lead> {
     },
   });
 }
+
+export function getLead(id: string, signal?: AbortSignal): Promise<Lead> {
+  return apiFetch<Lead>(`/v1/leads/${id}`, { signal });
+}
+
+// Every write below requires `version` — the value read from the Lead
+// currently on screen, sent back unchanged (TD §6). A form that forgets
+// it works exactly once, then fails 409 on every subsequent save.
+
+export interface UpdateLeadInput {
+  version: number;
+  name?: string;
+  email?: string | null;
+  phone?: string | null;
+  company?: string | null;
+  notes?: string | null;
+}
+
+export function updateLead(id: string, input: UpdateLeadInput): Promise<Lead> {
+  return apiFetch<Lead>(`/v1/leads/${id}`, { method: "PATCH", body: input });
+}
+
+export function updateLeadStatus(
+  id: string,
+  input: { version: number; status: LeadStatus; lostReason?: LostReason }
+): Promise<Lead> {
+  return apiFetch<Lead>(`/v1/leads/${id}/status`, {
+    method: "PATCH",
+    body: { version: input.version, status: input.status, lost_reason: input.lostReason },
+  });
+}
+
+// assignedToMembershipId: null explicitly unassigns — "melepas" per the
+// checklist — undefined would simply omit the field, which the backend
+// would treat as "don't touch" instead.
+export function updateLeadAssignment(
+  id: string,
+  input: { version: number; assignedToMembershipId: string | null }
+): Promise<Lead> {
+  return apiFetch<Lead>(`/v1/leads/${id}/assignment`, {
+    method: "PATCH",
+    body: { version: input.version, assigned_to_membership_id: input.assignedToMembershipId },
+  });
+}
+
+export function deleteLead(id: string): Promise<void> {
+  return apiFetch<void>(`/v1/leads/${id}`, { method: "DELETE" });
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  phone_e164: string | null;
+  company: string | null;
+  notes: string | null;
+  converted_from_lead_id: string;
+  converted_by_membership_id: string | null;
+  converted_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Only offered when status === "won" (TD §12, checked by the caller via
+// canConvertLead in @/lib/lead-status — not duplicated here).
+export function convertLead(id: string): Promise<Customer> {
+  return apiFetch<Customer>(`/v1/leads/${id}/convert`, { method: "POST" });
+}

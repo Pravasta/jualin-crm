@@ -374,7 +374,11 @@ export function LeadsList() {
                     : null;
                   const statusMeta = STATUS_META[lead.status];
                   return (
-                    <tr key={lead.id} className="border-t border-border/70">
+                    <tr
+                      key={lead.id}
+                      onClick={() => router.push(`/leads/${lead.id}`)}
+                      className="cursor-pointer border-t border-border/70 hover:bg-muted/40"
+                    >
                       <td className="px-3.5 py-2.5">
                         <div className="text-[13px] font-medium">{lead.name}</div>
                         <div className="text-[11.5px] text-muted-foreground">

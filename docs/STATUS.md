@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 26 Agustus 2026 — Issue #32 selesai (daftar lead: filter, pencarian, pagination)
-**Phase sekarang:** Phase 3 — Owner Dashboard (4/7 issue selesai — #40 ditambahkan setelah hasil desain masuk)
+**Last updated:** 26 Agustus 2026 — Issue #33 selesai (detail lead: timeline, activity, task, status, assignment, konversi)
+**Phase sekarang:** Phase 3 — Owner Dashboard (5/7 issue selesai — #40 ditambahkan setelah hasil desain masuk)
 
 ---
 
@@ -38,6 +38,7 @@
 | **Issue #31 — Setup Next.js, klien API, sesi, auth UI** | — | 3 | `crm_dashboard/` dari `README.md` saja menjadi aplikasi utuh — Next.js App Router + TypeScript + Tailwind v4 + shadcn/ui (`components.json` dengan `registries: {}` kosong, tanpa registry privat). `src/lib/api-client.ts`: `credentials:'include'`, `X-CSRF-Token` di setiap non-GET, dan **refresh single-flight** — satu `refreshPromise` modul-level yang ditetapkan sinkron sebelum `await` apa pun, sehingga request paralel yang 401 bersamaan memakai ulang Promise yang sama, bukan masing-masing memanggil refresh sendiri. Route group `(auth)` vs `(protected)` — layar protected memanggil `GET /v1/me` di layout-nya (`SessionGate`), **tanpa** `middleware.ts` (tidak bisa baca token `HttpOnly`). 5 layar auth (login, register, verifikasi email, lupa/reset password) + pilih organization (`409 organization_selection_required`, ADR-007) ditangani inline di form login, bukan route terpisah. Test runner **Vitest** (dikonfirmasi pemilik produk) — 6 test di `api-client.test.ts`, termasuk **test konkurensi genuine** (refresh sengaja ditahan lewat `deferred()` sampai 6 panggilan paralel semuanya mencapai titik single-flight) yang membuktikan tepat 1 panggilan `/v1/auth/refresh`, diulang 5× tanpa flaky. Kontrak backend (`src/lib/auth.ts`) dibangun dari pembacaan literal `crm_be/internal/auth/*.go`, **diverifikasi end-to-end lewat `curl`** terhadap `crm_be` sungguhan (register → verify → login → cookie flags persis benar → CSRF terbukti aktif → logout) — bukan diasumsikan dari baca kode saja. `.github/workflows/ci-dashboard.yml` baru (`paths: crm_dashboard/**`). **Phase 3 sekarang punya UI** — #32 (daftar lead) bisa mulai. |
 | **Issue #40 — Fondasi desain: token warna, label Indonesia, app shell** | — | 3 | **Issue di luar rencana awal**, dibuka setelah hasil Claude Design masuk: desainnya mencakup ~15 layar (seluruh #32–#35) sementara token, label, dan kerangka aplikasi dipakai bersama dan tidak dimiliki satu pun dari mereka (design brief §7.6 sudah menandainya "belum ada dan dibutuhkan"). Hasil desain dibaca lewat `DesignSync` dari project `5ac090ad`. **Aksen desain gagal WCAG AA dan diperbaiki, bukan disalin apa adanya**: `oklch(0.58 0.19 41)` dipakai sebagai latar tombol dengan teks putih 14px = **4.45:1**, di bawah ambang 4.5:1 — diturunkan ke `oklch(0.56 0.19 41)` (**4.83:1**, `#D14400`→`#CA3C00`, tak terlihat mata). **Lima dari delapan badge status juga gagal**, terburuk `proposal` **3.14:1** → 4.55:1; diperbaiki dengan menurunkan *lightness* saja sehingga hue/chroma desain dan tampilan badge tetap sebagaimana digambar. Dua token aksen dipisah karena tugasnya berlawanan: `--primary` (0.56) untuk putih-di-atas-warna, `--accent-strong` (0.48, 7.04:1) untuk warna-di-atas-putih. `src/lib/labels.ts` baru — 8 status + 6 alasan kalah + 4 sumber + 4 role, satu tempat supaya tidak ada layar yang menuliskan ulang peta yang sama. Label nav desain ("Home"/"Task"/"Settings") **diterjemahkan** jadi Beranda/Tugas/Pengaturan (acceptance criterion #12); "Lead"/"Customer" tetap karena keduanya istilah `glossary.md` — dikunci test. Logika nav (`isActive`/`pageTitle`) dipisah ke `lib/nav.ts` agar bisa diuji tanpa merender React — jebakannya nyata (prefix-match naif membuat `/` aktif di setiap halaman). **Bug font sejak #31 diperbaiki**: `--font-sans` menunjuk dirinya sendiri sehingga Geist tidak pernah diterapkan; dibuktikan dari CSS hasil build. 9 test baru (15 total). Lima halaman placeholder bertanggal, masing-masing menyebut issue penggantinya. |
 | **Issue #32 — Daftar lead: filter, pencarian, pagination** | — | 3 | Layar traffic tertinggi di seluruh produk (freeze 3.2). URL adalah sumber kebenaran filter (`useSearchParams` + `router.replace`); setiap perubahan filter mereset `page` ke 1. Kata kunci di-debounce 300ms; `AbortController` di setiap fetch (leads, memberships, metrics) mencegah respons lambat untuk filter yang ditinggalkan menimpa yang baru. **Bug nyata ditemukan saat verifikasi terhadap `crm_be` sungguhan**: `GET /v1/metrics/summary`'s `by_status` adalah Go map — status dengan nol lead **dihilangkan dari JSON**, bukan dikirim `0`; kode naif (`summary?.by_status[status] ?? "…"`) akan menampilkan "…" **selamanya** untuk status yang belum pernah dipakai, tak bisa dibedakan dari sedang memuat. Diperbaiki dengan fungsi murni `statusCount()` di `lib/metrics.ts` yang memisahkan "summary belum dimuat" dari "key tidak ada di summary yang sudah dimuat" — dikunci test yang membangun ulang response asli sebagai fixture. `loading` adalah *derived state* (`loadedKey !== requestKey`), bukan `setState` sinkron di effect — ESLint rule `react-hooks/set-state-in-effect` (baru di toolchain React 19) menolaknya. Hitungan chip status/tanpa-pemilik dari `GET /v1/metrics/summary`, di-scope periode saja (bukan dipersempit sumber/pemilik/kata kunci — satu request untuk delapan angka, didokumentasikan sebagai simplifikasi sadar). Kolom Pemilik diselesaikan di klien: `leadJSON` backend hanya kirim `assigned_to_membership_id`, di-lookup lewat `GET /v1/memberships` yang diambil sekali. Baris tabel **sengaja tidak bisa diklik** — issue eksplisit "detail lead belum ada di sini" (#33). `source` selalu `"manual"` saat buat lead dari layar ini. Badge nav "Lead" (kosong sejak #40) tersambung ke jumlah lead tanpa pemilik aktif. Logika murni dipisah & diuji mengikuti pola `lib/nav.ts`: `lib/lead-filters.ts`, `lib/date.ts`, `buildQuery` di `lib/leads.ts`. 18 test baru (33 total). Diverifikasi lewat `curl` terhadap `crm_be` sungguhan dengan 5 lead nyata (status/assignment/pencarian semua menghasilkan `meta.total` yang benar) — bukan hanya lewat mock. |
+| **Issue #33 — Detail lead: timeline, activity, task, status, assignment, konversi** | — | 3 | Layar dengan hampir seluruh aksi tulis produk. **Logika transisi status desain adalah simplifikasi prototipe yang TIDAK diikuti** — `lib/lead-status.ts`'s `isValidStatusTransition` ditulis ulang sebagai port baris-demi-baris dari `validateStatusTransition` Go (backend membolehkan keluar dari `lost` ke seluruh 5 status jalur utama, bukan cuma "Baru" seperti mockup), diuji terhadap matriks lengkap 8×8 yang ditulis tangan dari TD, terpisah dari implementasinya. Satu penyempitan dipertahankan sadar: UI tetap hanya menawarkan "→ Buka kembali ke Baru" untuk `lost` (bukan kelima opsi yang backend benarkan) — sah karena acceptance criterion melarang menawarkan yang *tidak sah*, bukan mewajibkan menawarkan *semua* yang sah; dikunci test. Bentuk metadata activity untuk 10 tipe diverifikasi terhadap `crm_be` sungguhan lewat siklus hidup lead penuh — `lead_created` metadata ternyata `null` (bukan berisi source seperti dugaan), `task_completed` tidak membawa `title` (beda dari `task_created`) — keduanya dikunci test di `activity-text.test.ts` supaya asumsi salah tidak lolos diam-diam. **Dua bagian tidak ada di mockup sama sekali**, ditambahkan karena checklist mewajibkan: form edit field umum (`edit-lead-dialog.tsx`) dan form buat task (`new-task-dialog.tsx` — kode sumber desain sendiri membuat task hardcode tanpa form, ditandai "visual only"). `ConflictDialog` satu tempat untuk status/assignment/edit — tombol "Muat ulang" memicu refetch penuh, tidak pernah menerapkan `error.current` otomatis (Aturan #35). `EditLeadDialog` di-*remount* lewat `key={lead.id}-${lead.version}`, bukan `useEffect`+`setState` (pola yang sama seperti `loading` di #32 untuk lolos `react-hooks/set-state-in-effect`). Tombol Konversi hilang berdasar `activities.some(type==='lead_converted')`, bukan cuma `status==='won'` (Lead tidak punya flag "sudah dikonversi"). Hapus lead & Konversi disembunyikan untuk Manager (RBAC Owner/Admin saja). Dropdown penugasan **tidak** memfilter Employee (beda dari mockup) — Employee justru target assignment paling wajar. 18 test baru (54 total). Diverifikasi lewat `curl` terhadap `crm_be` sungguhan — status lengkap `new→...→won`, `lost` tanpa alasan ditolak `400`, convert dua kali → `409 lead_already_converted`, dan **`version` basi memicu `409 version_conflict` dengan `error.current` berbentuk persis `Lead`** — dibuktikan langsung, bukan diasumsikan. |
 
 ---
 
@@ -49,25 +50,26 @@ _(kosong)_
 
 ## Berikutnya
 
-**Issue #33 — Detail lead: timeline, activity, task, status, assignment, konversi** (`crm_dashboard`)
+**Issue #34 — Tim: anggota, undangan, penonaktifan, notifikasi** (`crm_dashboard`)
 
-- Cakupan & acceptance: [issue #33](https://github.com/Pravasta/jualin-crm/issues/33)
-- TD: `docs/phases/03-owner-dashboard/td.md` §5, §6, §8
-- Layar traffic tertinggi kedua, dan tempat **hampir seluruh aksi tulis** produk berada. Seluruh
-  endpoint sudah ada sejak #20–#23 — issue ini membangun layarnya, tidak menambah endpoint.
-- Baris tabel di `/leads` **belum navigasi kemana pun** (sengaja, per batas #32) — sambungkan ke
-  `/leads/{id}` saat halaman ini ada, dan hapus komentar terkait di `leads-list.tsx`.
-- **`version` wajib ikut terkirim di setiap form edit** (lead dan task), TD §6 — lupa membawanya bekerja
-  tepat sekali lalu gagal `409` di setiap penyimpanan berikutnya.
-- **`409 version_conflict` → tampilkan konflik, muat ulang dari `error.current`, JANGAN PERNAH menimpa
-  otomatis** (Aturan #35) — satu-satunya tempat pengguna harus memilih secara sadar.
-- `auth-errors.ts` belum menangani `version_conflict` — tambahkan handler-nya di issue ini, saat
-  layar yang pertama benar-benar membutuhkannya.
-- `STATUS_META`/`LOST_REASON_LABELS` di `lib/labels.ts` (dari #40) sudah siap untuk pilihan transisi
-  status dan alasan `lost`.
-- Desain layar ini ada di project `5ac090ad` (`DesignSync` → `get_file`), bagian
-  `<!-- ===== LEAD DETAIL ===== -->`.
-- Berurutan: #30 ✅ → #31 ✅ → #40 ✅ → #32 ✅ → #33 → #34 → #35. Rincian di
+- Cakupan & acceptance: [issue #34](https://github.com/Pravasta/jualin-crm/issues/34)
+- TD: `docs/phases/03-owner-dashboard/td.md` §5, §8
+- Area admin, tetapi **satu-satunya layar dengan percabangan keputusan sungguhan** di Phase 3: alur
+  penonaktifan anggota tiga cabang (`membership_has_open_leads`, `?on_open_leads=unassign|reassign`).
+- **Jangan sederhanakan penonaktifan jadi dialog "Yakin? [Ya]/[Batal]"** — lead yang tetap ter-assign
+  ke anggota yang tidak bisa login lagi tidak muncul di daftar siapa pun **dan tidak tertangkap filter
+  "belum ter-assign"** (freeze 2.3). Design brief §8.1 dan issue body membahasnya panjang lebar.
+- `ConflictDialog` (dari #33) generik — dapat dipakai ulang bila layar ini butuh (kecil kemungkinan,
+  memberships tidak punya optimistic locking).
+- Pola dialog multi-tahap (pilih opsi → tampilkan sub-form kondisional) sudah ada presedennya di
+  `LostReasonDialog` (#33) — bentuk serupa untuk memilih `unassign`/`reassign`.
+- Halaman terima undangan (`GET /v1/invitations/token/{token}` → `POST /v1/invitations/accept`) adalah
+  route **publik** (`OptionalMiddleware`, bukan `SessionGate`) — dua cabang: user baru vs sudah login.
+  Ini satu-satunya layar Phase 3 di luar `(protected)`/`(auth)` yang sudah ada.
+- Desain layar ini ada di project `5ac090ad` (`DesignSync` → `get_file`), bagian yang relevan sudah
+  sempat terlihat sekilas saat #33 (dialog undang anggota & penonaktifan) — baca ulang penuh sebelum
+  implementasi, jangan andalkan potongan lama.
+- Berurutan: #30 ✅ → #31 ✅ → #40 ✅ → #32 ✅ → #33 ✅ → #34 → #35. Rincian di
   `docs/phases/03-owner-dashboard/issues.md`.
 
 ---
