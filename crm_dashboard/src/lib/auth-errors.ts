@@ -67,3 +67,15 @@ export function versionConflictCurrent<T>(err: unknown): T | null {
 export function isLeadAlreadyConverted(err: unknown): boolean {
   return err instanceof ApiError && err.code === "lead_already_converted";
 }
+
+// membership_has_open_leads (409, freeze 2.3 ketentuan #3 / issue #34's
+// headline acceptance criterion): the count shown to the user MUST come
+// from this field, never be recomputed client-side — the whole point of
+// the three-way dialog is that the backend, not the browser, knows how
+// many leads are actually open right now.
+export function openLeadCountFrom(err: unknown): number | null {
+  if (err instanceof ApiError && err.code === "membership_has_open_leads") {
+    return err.body.open_lead_count ?? null;
+  }
+  return null;
+}

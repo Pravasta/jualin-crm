@@ -571,3 +571,137 @@ yang benar.
 - `EditLeadDialog`'s pola remount-lewat-`key` adalah jawaban standar untuk "reset form saat prop
   berubah" di bawah `react-hooks/set-state-in-effect` — pakai ulang pola yang sama, bukan
   `useEffect`+`setState`, kalau butuh form serupa di #34/#35.
+
+---
+
+## #34 — Tim: role, undang anggota, nonaktifkan, notifikasi
+
+Layar dibangun dari section `<!-- ===== TEAM ===== -->` project `5ac090ad`, plus lonceng notifikasi di
+topbar (`onToggleNotifications`/`notifSeed`) yang di #40 sengaja belum disambungkan.
+
+### Logika permission di mockup salah untuk kasus Owner-vs-Owner — TIDAK diikuti apa adanya
+
+Sama seperti transisi status di #33, ini temuan paling penting di issue ini. `renderTeamVals()` mockup
+memakai aturan blanket `role !== 'owner'` untuk menyembunyikan baik dropdown ganti-role maupun tombol
+nonaktifkan pada baris manapun yang rolenya `owner` — termasuk saat *actor*-nya sendiri juga Owner.
+
+`docs/architecture/authorization.md` eksplisit membantah ini: "Owner yang mengangkat membership lain
+menjadi Owner (co-owner) diizinkan" — aturan Rule #4 (Admin tidak bisa menyentuh Owner) berlaku untuk
+Admin, bukan untuk Owner lain. Ditulis ulang sebagai `lib/team-permissions.ts`'s `canChangeRole`/
+`canDeactivate`, memeriksa `actor.role === "admin" && row.role === "owner"` secara spesifik (bukan
+`row.role === "owner"` polos), dikunci test eksplisit "Owner CAN change another Owner's role (co-owner)
+— the design's mockup got this wrong". **Dibuktikan lagi terhadap `crm_be` sungguhan** (lihat
+Verifikasi): Owner mempromosikan Admin jadi co-Owner → `200`; Admin biasa mencoba mengubah role Owner →
+`403 forbidden "Admin tidak bisa mengubah Owner atau mengangkat Owner baru."`, persis cocok dua baris
+kode ini.
+
+### Deaktivasi tiga-cabang (freeze 2.3 ketentuan #3) — bukan dialog konfirmasi biasa
+
+Tombol "Nonaktifkan" **selalu mencoba dulu** `DELETE /v1/memberships/{id}` tanpa parameter (default
+`on_open_leads=reject`). Dialog tiga-cabang (`deactivate-member-dialog.tsx`) hanya terbuka setelah
+percobaan itu benar-benar kembali `409 membership_has_open_leads` — tidak pernah dibuka spekulatif di
+depan. Ini acceptance criterion literal ("anggota tanpa lead terbuka bisa dinonaktifkan tanpa dialog
+tambahan"), dan draf pertama komponen ini salah — awalnya `onClick` langsung membuka dialog, diperbaiki
+sebelum verifikasi (lihat `handleDeactivateClick` di `team-screen.tsx`).
+
+`openLeadCount` yang ditampilkan di dialog **selalu** nilai dari body error `409` itu sendiri
+(`open_lead_count`), tidak pernah dihitung ulang di klien — mencegah dialog menampilkan angka yang sudah
+basi kalau lead lain berubah status di antara percobaan pertama dan render dialog.
+
+### Undangan: role Employee hilang dari daftar pilihan mockup
+
+`<select>` role di dialog undang mockup hanya berisi `admin`/`manager` — dua opsi, bukan tiga. Constraint
+database (`ck_invitations_role`, migration identitas) eksplisit membolehkan `admin`, `manager`, DAN
+`employee`. Tidak ada alasan produk untuk melarang mengundang Employee langsung (mereka pengguna mobile
+utama, Phase 5) — `INVITABLE_ROLES` di `invite-member-dialog.tsx` diperbaiki jadi tiga opsi. **Dibuktikan
+langsung**: `POST /v1/invitations {role:"employee"}` → `201`, bukan ditebak dari membaca constraint saja.
+
+### Halaman terima undangan ada di `/invitations/accept`, bukan `/invite`
+
+`crm_be`'s `internal/invitation/usecase.go` membangun link email `"%s/invitations/accept?token=%s"` —
+konvensi yang sama seperti `/verify-email` dan `/reset-password` (path Next.js = nama endpoint, bukan
+disingkat). Draf pertama route ini keliru diletakkan di `(auth)/invite/`; ditemukan lewat pembacaan
+literal `usecase.go:274` saat verifikasi terhadap `crm_be` sungguhan (bukan dari mockup — desain sama
+sekali tidak mencakup layar publik ini), dipindah ke `(auth)/invitations/accept/` sebelum commit.
+
+### Keputusan implementasi
+
+- **Dua cabang terima undangan** (`invite-form.tsx`): `user_exists: false` → form nama+password
+  (validasi ≥12 karakter, pola sama seperti `register`), sukses → arahkan ke `/login` (tidak
+  auto-login, konsisten dengan alur register #31). `user_exists: true` → tombol tunggal "Terima
+  undangan" tanpa field tambahan; kasus "belum login" **tidak** ditangani manual — `apiFetch`'s
+  penanganan `401` (refresh gagal → redirect `/login`) yang sudah ada dari #31 menangani ini secara
+  alami tanpa cabang kode baru. Dibuktikan langsung: percobaan `accept` tanpa cookie sesi → `401
+  authentication_required`.
+- **`canManageTeam` (`role === "owner" || "admin"`) menjaga seluruh permukaan admin sekaligus** — tombol
+  undang, fetch `listInvitations` itu sendiri (Manager sama sekali tidak memanggil endpoint itu, bukan
+  hanya disembunyikan di UI — `docs/architecture/authorization.md`: Manager tidak punya
+  `ActionInvitationList`), dropdown ganti-role vs label statis, tombol nonaktifkan, dan seluruh section
+  "Undangan tertunda".
+- **Notification bell** (`notification-bell.tsx`) fetch-on-mount + `refreshKey` untuk memicu ulang
+  setelah aksi (mark-read/mark-all-read), bukan polling — tidak ada persyaratan real-time di TD Phase 3.
+  Klik notifikasi menandainya terbaca **lalu** navigasi ke `/leads/{lead_id}` bila ada — dua aksi
+  berurutan, bukan hanya salah satu.
+- **`title` notifikasi ditampilkan apa adanya**, tidak direkonstruksi dari `type`+field lain di klien —
+  backend sudah menyusun kalimat Indonesia lengkap (`"Lead #1 ditugaskan kepada Anda"`, dibuktikan
+  langsung dari response). Membangun ulang kalimat itu di klien akan menduplikasi logika yang sudah benar
+  di server dan bisa berbeda kata-katanya.
+- **`Member`/`TeamRow` dua tipe berbeda untuk field yang sama** (`Member.id` vs `TeamRow.membershipId`)
+  — dikonversi eksplisit di titik pemakaian (`{membershipId: member.id, role: member.role}`), bukan
+  menyatukan kedua tipe. `Member` datang dari kontrak API (`memberships.ts`), `TeamRow` sengaja minimal
+  untuk kebutuhan fungsi permission murni yang bisa diuji tanpa tipe API.
+
+### Verifikasi
+
+```
+npm run typecheck · lint · test · build   → bersih (satu unused eslint-disable diperbaiki, exhaustive-deps
+                                              tidak lagi komplain setelah refactor)
+npm run test                                → 64/64 PASS (10 baru: team-permissions.test.ts)
+
+Terhadap crm_be sungguhan (docker compose + migrate, organization baru, tiga membership: Owner/Admin/
+Employee dibuat lewat alur undangan sungguhan):
+  POST /v1/invitations {role:"employee"}                    201 — role Employee benar bisa diundang
+  GET  /v1/invitations                                       200, array cocok tipe Invitation
+  GET  /v1/invitations/token/{token} (user_exists:false)      200, cocok InvitationTokenInfo
+  POST /v1/invitations/accept (user baru: full_name+password) 200 {user_id, membership_id, organization_id}
+  GET  /v1/invitations/token/{token} (user_exists:true)       200
+  POST /v1/invitations/accept TANPA sesi                      401 authentication_required
+  POST /v1/invitations/accept DENGAN sesi user yang benar     200
+  DELETE /v1/invitations/{id} (cabut)                         204, list setelahnya kosong
+  PATCH .../memberships/{id} {role} — actor ganti role sendiri   403 forbidden (self-role-change)
+  PATCH .../memberships/{id} {role:"owner"} — Owner promosikan Admin jadi co-Owner   200
+  PATCH .../memberships/{id} {role} — Admin biasa coba ubah role Owner   403 forbidden
+                                       "Admin tidak bisa mengubah Owner atau mengangkat Owner baru."
+  DELETE .../memberships/{id} (default reject, punya 1 lead terbuka)   409 membership_has_open_leads,
+                                       open_lead_count:1 — cocok persis bentuk yang dibaca openLeadCountFrom
+  DELETE .../memberships/{id}?on_open_leads=unassign          204, GET lead setelahnya →
+                                       assigned_to_membership_id:null
+  DELETE .../memberships/{id}?on_open_leads=reassign&reassign_to=  204, lead pindah ke membership tujuan
+  GET  /v1/notifications (setelah assignment)                 200, satu notifikasi lead_assigned,
+                                       title:"Lead #1 ditugaskan kepada Anda" — dipakai apa adanya
+  POST /v1/notifications/{id}/read                            204, ?unread=true setelahnya kosong
+  POST /v1/notifications/read-all                              204
+  GET /team, /invitations/accept?token=...                    200 (Next.js dev server, tanpa error render)
+```
+
+**Batas verifikasi, dicatat apa adanya:** seluruh interaksi dibuktikan lewat kontrak API (`curl` dengan
+bentuk request persis yang dikirim `lib/*.ts`) dan lewat unit test logika permission murni — **bukan**
+lewat klik sungguhan di browser. Tidak ada tool otomasi browser di sesi ini. Konsekuensinya: tata letak
+visual dialog tiga-cabang dan panel notifikasi belum diverifikasi otomatis — hanya bahwa route-nya hidup
+dan setiap panggilan API menghasilkan data yang benar.
+
+### Utang teknis
+
+- Tidak ada item baru dari issue ini.
+
+### Catatan untuk session berikutnya
+
+- **#35 (customer/task/settings/home) bisa mulai.** Pola fetch-on-mount+`refreshKey` di
+  `notification-bell.tsx` dan pola "coba dulu, cabang hanya pada error tertentu" di
+  `handleDeactivateClick` bisa dipakai ulang kalau ada kebutuhan serupa.
+- `team-permissions.ts` sengaja terpisah dari `memberships.ts` (tipe API) — kalau kelak ada layar lain
+  yang butuh logika permission serupa (mis. reassignment massal), pakai ulang fungsi ini, jangan tulis
+  ulang aturan Admin-vs-Owner di tempat lain.
+- Rute publik undangan sekarang ada di `(auth)/invitations/accept/`, bukan `(auth)/invite/` — kalau ada
+  link lama yang beredar mengarah ke `/invite`, itu tidak pernah benar sejak awal (bug sesi ini, tidak
+  pernah di-deploy).
