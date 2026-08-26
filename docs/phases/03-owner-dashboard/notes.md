@@ -311,3 +311,108 @@ browser.
 - Sisa desain (#33–#35) ada di project `5ac090ad`, dibaca lewat `DesignSync` — `get_file` pada
   `Jualin CRM Dashboard.dc.html`. Berkasnya 111KB; petakan dulu dengan mencari penanda
   `<!-- ===== NAMA ===== -->` daripada memuat seluruhnya ke context.
+
+---
+
+## #32 — Daftar lead: filter, pencarian, pagination
+
+Layar dibangun dari section `<!-- ===== LEADS LIST ===== -->` project `5ac090ad` (dibaca ulang, bukan
+dari cache lama, untuk memastikan tidak ada perubahan yang terlewat sejak #40). Desain memberi struktur
+visual (input pencarian, chip filter, tabel, empty state, modal "Lead baru") tetapi **tidak** menunjukkan
+filter periode atau kontrol pagination — keduanya wajib menurut TD §7.1/issue tapi tidak ada di mockup
+(prototipe render semua data sekaligus dari array in-memory, tidak benar-benar berpaginasi). Ditambahkan
+mengikuti bahasa visual yang sama (tinggi 34px, radius 8px/999px, warna token), dicatat sebagai perluasan
+sadar dari mockup — bukan penyimpangan diam-diam.
+
+### Bug nyata ditemukan saat verifikasi terhadap `crm_be` sungguhan
+
+`GET /v1/metrics/summary`'s `by_status` adalah **Go map** — status dengan nol lead **dihilangkan
+sepenuhnya** dari JSON, bukan dikirim sebagai `0`. Dibuktikan langsung: org dengan 5 lead di dua status
+mengembalikan `{"by_status":{"contacted":1,"new":4}}` — enam status lainnya sama sekali tidak ada di
+body. Kode awal menulis `summary?.by_status[status] ?? "…"` — untuk status manapun yang belum pernah
+dipakai satu organization pun, ini akan menampilkan "…" **selamanya**, tidak bisa dibedakan dari keadaan
+sedang memuat.
+
+Diperbaiki dengan memisahkan dua pertanyaan yang berbeda: *"apakah summary sudah dimuat?"* (baru boleh
+menampilkan "…") vs *"apakah status ini ADA di summary yang sudah dimuat?"* (key hilang = `0`, bukan
+"belum tahu"). Fungsi murni `statusCount(summary, status)` di `lib/metrics.ts`, dikunci test
+(`metrics.test.ts`) yang secara eksplisit membangun ulang response asli itu sebagai fixture.
+
+### Keputusan implementasi
+
+- **URL adalah sumber kebenaran filter** — dibaca dari `useSearchParams`, ditulis lewat
+  `router.replace(..., {scroll:false})`. Setiap perubahan filter mereset `page` ke 1: bertahan di
+  halaman 4 dari filter yang sekarang hanya punya 2 hasil menampilkan halaman kosong yang terlihat
+  seperti bug.
+- **Kata kunci pencarian di-debounce 300ms** sebelum ditulis ke URL — tanpa ini setiap ketikan memicu
+  request. State lokal (`keywordInput`) terpisah dari nilai URL (`urlKeyword`) supaya tidak ada sinkronisasi
+  dua arah yang bisa loop; satu-satunya tempat URL menimpa state lokal adalah `handleClearFilters`.
+- **`AbortController` di setiap fetch**, dibatalkan saat filter berganti sebelum respons sebelumnya
+  selesai — mencegah respons lambat untuk filter yang sudah ditinggalkan menimpa respons yang lebih baru
+  untuk filter saat ini. Berlaku untuk daftar lead, memberships, dan metrics summary.
+- **`loading` adalah derived state, bukan `setState` langsung di body effect.** ESLint (rule
+  `react-hooks/set-state-in-effect`, baru di React 19 toolchain) menolak `setLoading(true)` sinkron di
+  awal effect. Diselesaikan dengan membandingkan `requestKey` (serialisasi seluruh filter+page) terhadap
+  `loadedKey` (di-set hanya di dalam `.then`/`.catch`, yang diizinkan karena berjalan setelah jeda async
+  sungguhan) — `loading = loadedKey !== requestKey`. Tidak ada `setLoading` sama sekali.
+- **Hitungan chip status/tanpa-pemilik dari `GET /v1/metrics/summary`, di-scope periode saja** — bukan
+  dipersempit oleh sumber/pemilik/kata kunci, karena endpoint metrik tidak mendukung kombinasi itu. Satu
+  request untuk delapan angka, bukan delapan request. Didokumentasikan di `lib/metrics.ts`, bukan
+  disembunyikan sebagai perilaku tak terjelaskan.
+- **Chip sumber sengaja tanpa angka** — desain sendiri tidak memberi `sourceChips` field `count` (beda
+  dari `statusChips`/`unassignedChip`, diverifikasi dari kode sumbernya), dan tidak ada satu request
+  murah untuk itu. Konsisten dengan mockup, bukan kekurangan.
+- **Baris tabel tidak bisa diklik** — desain menaruh `onClick` di setiap baris menuju detail lead, tapi
+  issue #32 eksplisit: *"Detail lead (klik satu baris belum membuka apa pun) → #33"*. Membuatnya terlihat
+  bisa diklik padahal tidak kemana-mana lebih buruk daripada tidak sama sekali.
+- **Kolom Pemilik diselesaikan di klien** — `leadJSON` backend hanya mengirim
+  `assigned_to_membership_id` (uuid), bukan nama. `GET /v1/memberships` diambil sekali (tidak berpaginasi,
+  independen dari filter lead) dan di-lookup lewat `Map`. Lead tanpa pemilik → "—" miring, warna redup —
+  persis perlakuan desain (`ownerColor`/`ownerFontStyle` bersyarat).
+- **`source` selalu `"manual"` saat membuat lead dari layar ini** — modal desain hanya punya field
+  Nama/Email/Telepon, tidak ada pemilihan sumber. `manual` adalah satu-satunya metode capture yang
+  make sense untuk form yang diisi manusia (glossary: source = metode capture, bukan channel marketing).
+- **Badge nav "Lead" (dari #40, sebelumnya kosong) disambungkan** — `AppShell` mengambil
+  `getMetricsSummary({})` sendiri (tanpa filter periode) sekali saat mount, independen dari state layar
+  `/leads` mana pun. Duplikasi satu request kecil dengan layar lead saat keduanya aktif bersamaan,
+  diterima sadar — lebih sederhana daripada membuat context/state lifting untuk satu angka.
+- **Logika murni dipisah ke `lib/` dan diuji**, mengikuti pola `lib/nav.ts` dari #40:
+  `lib/lead-filters.ts` (parse/toggle CSV param, `hasAnyLeadFilter`), `lib/date.ts` (konversi
+  `<input type="date">` ↔ ISO 8601 UTC awal/akhir hari, format tampilan `id-ID`), `buildQuery` di
+  `lib/leads.ts` diekspor eksplisit untuk diuji.
+
+### Verifikasi
+
+```
+npm run typecheck · lint · build   → bersih; 12 route ter-generate
+npm run test                        → 33/33 PASS (15 lama + 18 baru: lead-filters, date, leads, metrics)
+
+Terhadap crm_be sungguhan (docker compose + migrate, organization baru "Toko Lead32"):
+  register → verify → login (client=dashboard) → GET /v1/me                    semua sesuai kontrak
+  POST /v1/leads × 5 (source=manual, bentuk request PERSIS createLead())        201 × 5
+  PATCH .../status new→contacted, PATCH .../assignment ke diri sendiri          200, 200
+  GET /v1/leads?status=new           → meta.total=4 (bukan 5 — transisi status ikut terhitung)
+  GET /v1/leads?assigned_to=none     → meta.total=4 (bukan 5 — assignment ikut terhitung)
+  GET /v1/leads?q=Test%202           → meta.total=1, lead yang benar
+  GET /v1/metrics/summary            → ditemukan bug by_status di atas
+  GET /leads, /leads?status=won (Next.js dev server)                            200, tanpa error render
+```
+
+**Batas verifikasi, dicatat apa adanya:** filter/chip/pagination/dialog dibuktikan lewat kontrak API
+(`curl` dengan query string persis yang dibangun `buildQuery`) dan lewat unit test logika murninya —
+**bukan** lewat interaksi klik di browser sungguhan. Tidak ada tool otomasi browser di sesi ini.
+
+### Utang teknis
+
+- Tidak ada item baru dari issue ini.
+
+### Catatan untuk session berikutnya
+
+- **#33 (detail lead) bisa mulai.** Baris tabel di `/leads` belum navigasi kemana pun — sambungkan ke
+  `/leads/{id}` saat halamannya ada, dan hapus komentar "Tidak termasuk" terkait di `leads-list.tsx`.
+- `getMetricsSummary` dipanggil dua kali secara independen saat berada di `/leads` (sekali oleh
+  `AppShell` untuk badge nav, sekali oleh `leads-list.tsx` untuk chip) — kalau kelak terasa perlu
+  disatukan, itu keputusan produk (mis. "badge nav harus ikut ter-filter periode juga?"), bukan sekadar
+  refactor teknis.
+- `apiFetchList`/`buildQuery` di `lib/leads.ts` adalah pola yang akan dipakai ulang oleh `/customers`
+  dan `/tasks` (#35) — keduanya endpoint list berpaginasi dengan bentuk yang sama.

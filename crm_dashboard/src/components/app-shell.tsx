@@ -6,6 +6,7 @@
 //
 // Which item is active and which title shows lives in @/lib/nav, so that
 // logic is unit-tested without rendering React.
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -21,6 +22,7 @@ import {
 
 import { logout } from "@/lib/auth";
 import { ROLE_LABELS, type Role } from "@/lib/labels";
+import { getMetricsSummary } from "@/lib/metrics";
 import { initialsOf, isActive, NAV_ITEMS, pageTitle } from "@/lib/nav";
 import { useSession } from "@/lib/session-context";
 import { cn } from "@/lib/utils";
@@ -40,6 +42,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const session = useSession();
+
+  // All-time unassigned count (no period filter) — shown regardless of
+  // which page is open, since it's a safety-net signal (freeze 2.3
+  // ketentuan #3), not something scoped to whatever the lead list's own
+  // filters currently are.
+  const [unassignedCount, setUnassignedCount] = useState<number | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    getMetricsSummary({}, controller.signal)
+      .then((s) => setUnassignedCount(s.unassigned))
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   async function handleLogout() {
     // logout always succeeds from the client's side — crm_be answers 204
@@ -66,6 +81,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {NAV_ITEMS.map((item) => {
             const active = isActive(pathname, item.href);
             const Icon = NAV_ICONS[item.href];
+            const badge = item.href === "/leads" ? (unassignedCount ?? undefined) : item.badge;
             return (
               <Link
                 key={item.href}
@@ -80,9 +96,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 {Icon ? <Icon className="size-4 shrink-0" aria-hidden /> : null}
                 <span className="flex-1">{item.label}</span>
-                {item.badge ? (
+                {badge ? (
                   <span className="min-w-4 rounded-full bg-accent-tint px-1.5 text-center text-[10.5px] font-semibold text-accent-strong">
-                    {item.badge}
+                    {badge}
                   </span>
                 ) : null}
               </Link>

@@ -10,7 +10,7 @@
 //    reads the second call's already-rotated token as a reuse attack
 //    and revokes the whole family_id, logging the user out from under
 //    them.
-import { ApiError, type ApiErrorBody } from "./api-types";
+import { ApiError, type ApiErrorBody, type Meta } from "./api-types";
 import { CSRF_HEADER_NAME, readCsrfToken } from "./csrf";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -88,7 +88,7 @@ const sessionExpiredError = new ApiError(401, {
   message: "Sesi Anda berakhir. Silakan masuk kembali.",
 });
 
-async function parseResponse<T>(response: Response): Promise<T> {
+async function parseJSON(response: Response): Promise<{ data: unknown; meta?: Meta }> {
   const text = await response.text();
   const json = text ? JSON.parse(text) : undefined;
 
@@ -102,24 +102,47 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
   // 204 No Content (e.g. logout) has no body — callers that don't need
   // a return value simply get undefined.
-  return (json?.data ?? undefined) as T;
+  return json ?? { data: undefined };
 }
 
-export async function apiFetch<T>(
+// Shared by apiFetch and apiFetchList — the 401/refresh/retry dance
+// (module doc comment above) doesn't care whether the caller wants
+// `data` alone or `{data, meta}`, so it lives in exactly one place.
+async function fetchWithAuth(
   path: string,
-  options: InternalApiFetchOptions = {}
-): Promise<T> {
+  options: InternalApiFetchOptions
+): Promise<Response> {
   const response = await rawFetch(path, options);
 
   const isRefreshCall = path === REFRESH_PATH;
   if (response.status === 401 && !isRefreshCall && !options._isRetry) {
     const refreshed = await doRefresh();
     if (refreshed) {
-      return apiFetch<T>(path, { ...options, _isRetry: true });
+      return fetchWithAuth(path, { ...options, _isRetry: true });
     }
     redirectToLogin();
     throw sessionExpiredError;
   }
+  return response;
+}
 
-  return parseResponse<T>(response);
+export async function apiFetch<T>(
+  path: string,
+  options: InternalApiFetchOptions = {}
+): Promise<T> {
+  const response = await fetchWithAuth(path, options);
+  const { data } = await parseJSON(response);
+  return data as T;
+}
+
+// For paginated list endpoints, where the total the UI shows must come
+// from `meta.total` — never from `data.length`, which is only the
+// current page (Aturan/acceptance criterion repeated across #32-#35).
+export async function apiFetchList<T>(
+  path: string,
+  options: InternalApiFetchOptions = {}
+): Promise<{ data: T[]; meta: Meta }> {
+  const response = await fetchWithAuth(path, options);
+  const { data, meta } = await parseJSON(response);
+  return { data: (data ?? []) as T[], meta: meta ?? { page: 1, per_page: 0, total: 0 } };
 }
