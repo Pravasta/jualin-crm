@@ -1,11 +1,5 @@
-import { PlaceholderScreen } from "@/components/placeholder-screen";
+import { SettingsScreen } from "./settings-screen";
 
 export default function SettingsPage() {
-  return (
-    <PlaceholderScreen
-      title="Pengaturan"
-      description="Profil organization dan pengguna."
-      issue={35}
-    />
-  );
+  return <SettingsScreen />;
 }

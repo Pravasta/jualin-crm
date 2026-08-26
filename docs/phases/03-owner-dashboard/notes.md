@@ -705,3 +705,181 @@ dan setiap panggilan API menghasilkan data yang benar.
 - Rute publik undangan sekarang ada di `(auth)/invitations/accept/`, bukan `(auth)/invite/` — kalau ada
   link lama yang beredar mengarah ke `/invite`, itu tidak pernah benar sejak awal (bug sesi ini, tidak
   pernah di-deploy).
+
+---
+
+## #35 — Home metrik, customer, daftar task, settings — penutup Phase 3
+
+Empat layar top-level yang tersisa, dibangun dari section HOME/CUSTOMERS/TASKS/SETTINGS project
+`5ac090ad` — semua empat lebih tipis di mockup daripada TEAM/LEAD DETAIL (`sectionIsCustomers` bahkan
+`false` di prototipe), dan tiga dari empat butuh perluasan nyata di luar apa yang digambar, bukan hanya
+port langsung.
+
+### Home: setiap angka mockup dihitung di browser — TIDAK diikuti apa adanya
+
+Sama seperti `by_status` di #32, kelas bug yang sama: `renderHomeVals()` mockup menghitung
+`totalLeads`/`wonCount`/`conversionRate` dari array `s.leads` in-memory, dan tabel performa anggotanya
+memakai **tiga nama hardcode** (`['Sari Dewi','Bagus Prakoso','Tania Putri']`) dengan waktu respons
+fiktif `(2+i)+' jam'` — bukan dari endpoint agregat sama sekali. AC #10 eksplisit melarang ini. Diganti
+total: `total_new`/`unassigned`/`statusCount(summary,"won")` dari `GET /v1/metrics/summary`,
+tabel performa dari `GET /v1/metrics/employees` sungguhan.
+
+Satu bagian mockup **memang benar** dan dipertahankan: perlakuan `conversion_rate` `null` sebagai
+"Belum ada data" (bukan "0%"). Yang salah cuma sumber datanya (dihitung sendiri vs field asli), bukan
+niatnya. `conversion_rate` backend ternyata **fraksi mentah** (`won/(total-spam-unqualified)`, tanpa
+×100 — dibuktikan langsung: `0.5` untuk 1 won dari 2 lead), bukan persentase siap pakai — `formatConversionRate`
+mengalikan 100 sendiri.
+
+**Gap freeze 3.2**: empat kartu mockup tidak mencakup "lead per status" sebagai metrik tersendiri (freeze
+3.2 mewajibkannya, terpisah dari "Lead menang" saja). Ditambahkan sebagai baris badge status
+(`STATUS_META`) di bawah kartu, masing-masing tautan cepat ke `/leads?status=X`.
+
+**Tautan cepat** (AC eksplisit) ke tiga dari empat kartu: Lead masuk → `/leads` (periode saja), Belum
+ter-assign → `+assigned_to=none`, Lead menang → `+status=won`. Conversion rate sengaja **tidak** ditautkan
+— ia rasio, bukan satu subset lead yang bisa difilter.
+
+**Employee tidak bisa melihat Home sama sekali** — `ActionMetricsRead` mengecualikan Employee (TD §2.4).
+Digerbang di layar ini sendiri (`canViewMetrics = role !== "employee"`) sebelum mencoba fetch, bukan
+membiarkan permintaan 403 lalu menampilkan error yang membingungkan. **Dibuktikan langsung**:
+`GET /v1/metrics/summary` sebagai Employee → `403 forbidden`.
+
+### Customer: pencarian, pagination, DAN form edit tidak ada di mockup sama sekali
+
+Detail customer mockup adalah **modal, bukan route** — diganti jadi `/customers/{id}` mengikuti konvensi
+`/leads/{id}` yang sudah ada di seluruh app (satu pola detail-screen, bukan dua). Mockup hanya punya
+tombol Hapus, **tidak ada form ubah** meski checklist mewajibkan `PATCH /v1/customers/{id}` — ditambahkan
+sebagai `EditCustomerDialog`, memakai pola remount-lewat-`key` yang sama seperti `EditLeadDialog` tapi
+**tanpa** `version` (entity `Customer` memang tidak punya field itu — "customers tidak diedit dari mobile
+offline" per komentar TD, jadi tidak ada konflik tulis untuk dideteksi, dan tidak ada `ConflictDialog` di
+layar ini sama sekali).
+
+Tautan "Berasal dari lead" di mockup literal `'#' + detail.fromLeadNumber` — field seed lokal di objek
+customer palsu, **bukan** dari lookup nyata, dan `href="#"` adalah link mati. `Customer` sungguhan hanya
+membawa `converted_from_lead_id` (UUID), tanpa nama/nomor lead. Diselesaikan dengan `getLead()` kedua
+setelah customer dimuat; bila lead itu sendiri sudah terhapus terpisah (bukan skenario yang mungkin
+lewat produk normal, tapi mungkin lewat penghapusan manual), tautan berdegradasi jadi teks "Lead sudah
+dihapus" alih-alih menggagalkan seluruh layar.
+
+**Dibuktikan langsung** (AC: "mengubah nama customer tidak mengubah lead asalnya"): `PATCH
+/v1/customers/{id}` mengubah nama customer, `GET /v1/leads/{id}` setelahnya menunjukkan nama lead
+**tidak berubah** — persis yang ditampilkan tautan "Berasal dari lead" di layar untuk membuktikannya
+secara visual.
+
+`canManage` (`role==='owner'||'admin'`) di mockup **cocok persis** `ActionCustomerUpdate`/
+`ActionCustomerDelete` backend — satu-satunya bagian JS mockup yang di-port apa adanya. **Dibuktikan
+langsung**: Manager membaca daftar customer → `200`; Manager mencoba `PATCH`/`DELETE` → `403 forbidden`
+keduanya, tombolnya sendiri tidak ditawarkan di UI untuk role ini (AC eksplisit).
+
+### Task lintas lead: filter mockup seluruhnya client-side atas array lokal
+
+`taskFilterAssignee` mockup mencocokkan **nama** (`t.assignee === s.taskFilterAssignee`); `GET
+/v1/tasks`'s `assigned_to` sungguhan adalah **UUID membership**. Dropdown penanggung jawab dibangun dari
+`listMemberships()` (id+nama), bukan dari nama unik yang dikumpulkan dari task yang sudah dimuat. Filter
+`due_before` (wajib di checklist) **tidak ada di mockup sama sekali** — ditambahkan sebagai input tanggal
+sederhana di samping filter lain.
+
+Checkbox mockup adalah toggle dua arah (`onToggle` membalik `t.done` lokal). Sama seperti temuan #33 di
+`lead-detail.tsx`: tidak ada endpoint "buka kembali task". Checkbox di sini hanya pernah bergerak
+buka→selesai lewat `completeTask(id, version)`, dan **disabled** begitu `status==='done'` alih-alih
+berpura-pura bisa dibalik. Konflik `409` pada penyelesaian task memakai perlakuan ringan yang sama seperti
+#33 (pesan inline + refetch otomatis), bukan modal terpisah — **dibuktikan langsung**: menyelesaikan task
+yang sama dua kali dengan `version` basi → `409 version_conflict`, `error.current` berbentuk persis
+`Task`.
+
+Baris task menampilkan referensi lead sebagai tautan berlabel "Lead" ke `/leads/{lead_id}` — bukan
+`"Lead #1005"` seperti mockup, karena `taskJSON` backend tidak pernah mengirim `lead_number` (hanya
+`lead_id`, sebuah UUID); menampilkan nomor yang tidak dikirim backend berarti request tambahan per baris
+untuk sesuatu yang bukan bagian checklist. Backend membatasi visibilitas Employee ke lead yang di-assign
+ke dirinya secara otomatis di level query (`buildTaskWhere`'s `isEmployee` branch) — tidak ada filtering
+tambahan di klien untuk itu.
+
+**Dibuktikan langsung** terhadap `crm_be` sungguhan: `GET /v1/tasks` dengan `status`, `assigned_to`, dan
+`due_before` masing-masing menyaring dengan benar; `completeTask` dua kali dengan `version` yang sama →
+`409` pada percobaan kedua.
+
+### Settings: mockup menggambar form edit yang tidak pernah berfungsi, bahkan di prototipenya sendiri
+
+`renderSettingsVals()` mockup **literal `return {}`** — setiap input memakai `defaultValue` React yang
+tidak terkontrol tanpa `onChange`, dan kedua tombol "Simpan" tidak punya `onClick` sama sekali. Ini bukan
+kasus "mockup benar, port apa adanya" maupun "mockup salah, backend beda" — mockup ini **tidak pernah
+diimplementasikan melampaui scaffolding visual statis**. Lebih penting: `crm_be` **tidak punya** endpoint
+`PATCH` untuk profil organization atau user sama sekali — kontraknya cuma `GET /v1/me` (TD §8's peta
+layar, dan checklist issue ini sendiri hanya menyebut "dari `GET /v1/me`", tanpa PATCH). Dibangun sebagai
+tampilan **read-only** dari `useSession()` — mempertahankan pengelompokan dua-kartu visual mockup, tapi
+tanpa affordance edit palsu.
+
+### Keputusan implementasi lain
+
+- **`placeholder-screen.tsx` dihapus.** Lima halaman placeholder dari #40 semuanya sudah diganti layar
+  sungguhan sejak #32–#35; komponennya sendiri sudah tidak dipakai di mana pun (diverifikasi lewat
+  `grep` sebelum dihapus). notes.md #40 mencatat ini sebagai "utang bertanggal" — tanggalnya sekarang.
+- **`lib/metrics.ts` bertambah empat fungsi murni yang diuji**: `formatConversionRate`,
+  `formatAvgResponseSeconds`, `periodToRange` (mengambil `now: Date` sebagai parameter, bukan memanggil
+  `new Date()` sendiri — pola yang sama seperti alasan Workflow script tidak boleh memanggil waktu
+  langsung, diterapkan di sini supaya fungsinya tetap bisa diuji dengan `now` tetap).
+- **`Date.now()` langsung di body render memicu `react-hooks/purity`** (ESLint, React 19 toolchain) —
+  beda dari `new Date()` yang tidak kena aturan yang sama (dipakai apa adanya di `lead-detail.tsx` sejak
+  #33 dan di `periodToRange`'s pemanggil). Diperbaiki di `task-list.tsx` dengan mengganti
+  `Date.now()` jadi `new Date()` inline, mengikuti pola yang sudah ada.
+- **Customer tidak punya `ConflictDialog`** — satu-satunya layar tulis di Phase 3 tanpa itu, karena
+  `Customer` tidak punya `version` sama sekali (bukan karena lupa menambahkannya).
+
+### Verifikasi
+
+```
+npm run typecheck · lint · test · build   → bersih; 15 route ter-generate termasuk /customers/[id]
+npm run test                                → 70/70 PASS (6 baru: formatConversionRate ×2,
+                                               formatAvgResponseSeconds ×3, periodToRange ×1)
+
+Terhadap crm_be sungguhan (docker compose + migrate, organization baru "Toko Metrik35", lead → won →
+convert, task overdue, membership Manager + Employee lewat alur undangan sungguhan):
+  GET /v1/metrics/summary?from=&to=            200, conversion_rate:0.5 (fraksi mentah, bukan 50)
+  GET /v1/metrics/employees?from=&to=           200, avg_response_seconds numerik (bukan null di sini)
+  GET /v1/metrics/summary sebagai Employee      403 forbidden — menegaskan gerbang canViewMetrics perlu
+  POST /v1/leads/{id}/convert                   201
+  GET  /v1/customers, GET .../{id}               200, bentuk cocok persis tipe Customer
+  PATCH /v1/customers/{id} {name}                200, lalu GET /v1/leads/{originating_id}
+                                                 membuktikan nama lead TIDAK berubah
+  GET  /v1/customers sebagai Manager             200 (read diizinkan)
+  PATCH/DELETE /v1/customers/{id} sebagai Manager  403 forbidden keduanya
+  POST /v1/leads/{id}/tasks (due_at masa lalu)   201
+  GET /v1/tasks?status=open&assigned_to=&due_before=   masing-masing menyaring benar
+  POST /v1/tasks/{id}/complete                   200, lalu diulang dengan version sama → 409
+                                                 version_conflict, error.current bentuk Task persis
+  GET /v1/me                                     200, bentuk cocok persis field yang dirender Settings
+  Dev server: /, /customers, /customers/{id}, /tasks, /settings   semua 200, tanpa error render
+```
+
+**Batas verifikasi, dicatat apa adanya:** seluruh interaksi dibuktikan lewat kontrak API dan unit test
+logika murni — **bukan** lewat klik sungguhan di browser (tidak ada tool otomasi browser di sesi ini).
+Tata letak visual (grid kartu, tabel performa, dialog edit customer) belum diverifikasi otomatis.
+
+### Utang teknis
+
+- Tidak ada item baru dari issue ini.
+
+### Penutup Phase 3
+
+**Seluruh 13 acceptance criteria PRD Phase 3 terpenuhi**, dicek satu per satu terhadap kode/verifikasi
+sesi ini dan sesi-sesi sebelumnya (#30–#34):
+
+| # | Kriteria | Bukti |
+|---|---|---|
+| 1 | Owner selesaikan core loop tanpa terminal | #32–#35: daftar→verifikasi→masuk→lead→assign→activity→task→status→convert, seluruhnya lewat UI |
+| 2 | CORS eksplisit per origin, fail-fast production | #30, `internal/shared/httpx/cors.go` + `config.validate()` |
+| 3 | Cookie `HttpOnly`, CSRF di non-GET | #31, dibuktikan `logout` tanpa header → `403 csrf_token_invalid` |
+| 4 | N request 401 paralel → 1 refresh | #31, test konkurensi `api-client.test.ts` |
+| 5 | Filter lead: status/pemilik/sumber/periode/kata kunci + pagination | #32 |
+| 6 | Filter "tanpa pemilik aktif" permanen | #32, chip permanen di `/leads` |
+| 7 | Detail lead: timeline + task + seluruh aksi tulis | #33 |
+| 8 | Konflik tampil, muat ulang, tidak pernah menimpa otomatis | #33, `ConflictDialog` |
+| 9 | Nonaktifkan anggota ber-lead-terbuka → paksa pilih | #34, `DeactivateMemberDialog` |
+| 10 | Metrik dari endpoint agregat, bukan dihitung di browser | #35 (lihat temuan di atas) |
+| 11 | Conversion rate kecualikan spam/unqualified | #30 (backend), #35 (ditampilkan apa adanya) |
+| 12 | Seluruh teks Bahasa Indonesia | Seluruh issue #31–#35 |
+| 13 | CI terpisah `crm_dashboard/` dengan `paths:` filter | #31, `.github/workflows/ci-dashboard.yml` |
+
+**Belum dilakukan, di luar kapasitas sesi coding:** demo ke calon pengguna (freeze bagian 4 — tujuan
+phase-nya, bukan langkah opsional) dan keputusan phase berikutnya (4 — Public API, atau 5 — Employee
+Mobile; freeze menempatkan keduanya tidak saling bergantung). Keduanya keputusan produk/manusia, dicatat
+di `STATUS.md` sebagai item terbuka, bukan diputuskan sepihak di sesi ini.
