@@ -15,6 +15,7 @@ Dokumentasi produk dan teknis untuk **Jualin CRM** — CRM SaaS multi-tenant sta
 | Ingin tahu sudah sampai mana | [`STATUS.md`](./STATUS.md) |
 | Perlu keputusan arsitektur yang mengikat | [`architecture/freeze.md`](./architecture/freeze.md) |
 | Menulis kode Go | `.claude/skills/jualin-backend/` |
+| Menulis kode dashboard (Next.js) | `.claude/skills/jualin-dashboard/` |
 | Ragu sebuah fitur masuk scope | [`product/scope.md`](./product/scope.md) |
 | Ragu penamaan | [`product/glossary.md`](./product/glossary.md) |
 
@@ -40,7 +41,8 @@ docs/
 └── brainstorming/           arsip, bukan acuan
 
 .claude/skills/
-└── jualin-backend/          konvensi menulis kode Go
+├── jualin-backend/          konvensi menulis kode Go
+└── jualin-dashboard/        konvensi menulis kode Next.js
 ```
 
 ---
