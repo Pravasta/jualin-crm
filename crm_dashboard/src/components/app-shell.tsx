@@ -26,6 +26,7 @@ import { getMetricsSummary } from "@/lib/metrics";
 import { initialsOf, isActive, NAV_ITEMS, pageTitle } from "@/lib/nav";
 import { useSession } from "@/lib/session-context";
 import { cn } from "@/lib/utils";
+import { NotificationBell } from "@/components/notification-bell";
 
 // Icons live here rather than in nav.ts to keep that module free of
 // React/JSX imports — it stays plain data plus pure functions.
@@ -133,8 +134,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background px-6">
           <h1 className="text-[15px] font-semibold">{pageTitle(pathname)}</h1>
-          {/* Notification bell + dropdown land in #34, alongside the
-              screens that consume /v1/notifications. */}
+          <NotificationBell />
         </header>
 
         <main className="flex-1 bg-muted/30 p-6">{children}</main>
