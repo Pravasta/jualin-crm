@@ -160,6 +160,10 @@ func TestTenantIsolation_CrossOrgMutatingByID_Returns404(t *testing.T) {
 	taskB := seedIsolationTask(t, pool, orgB, leadB)
 	customerB := seedIsolationCustomer(t, pool, orgB, wonLeadB)
 
+	// Phase 4 (#46) — api_keys. Owner A holds ActionAPIKeyRevoke, so the
+	// expected 404 here is proof of tenant scoping, not authz denial.
+	apiKeyB := seedIsolationAPIKey(t, pool, orgB)
+
 	cases := []isolationCase{
 		{
 			name:   "PATCH /v1/memberships/{id} on another org's membership",
@@ -225,6 +229,11 @@ func TestTenantIsolation_CrossOrgMutatingByID_Returns404(t *testing.T) {
 			method: http.MethodDelete,
 			path:   func(id uuid.UUID) string { return "/v1/customers/" + id.String() },
 		},
+		{
+			name:   "DELETE /v1/api-keys/{id} on another org's api key",
+			method: http.MethodDelete,
+			path:   func(id uuid.UUID) string { return "/v1/api-keys/" + id.String() },
+		},
 	}
 
 	targetIDs := map[string]uuid.UUID{
@@ -240,6 +249,7 @@ func TestTenantIsolation_CrossOrgMutatingByID_Returns404(t *testing.T) {
 		"GET /v1/customers/{id} on another org's customer":        customerB,
 		"PATCH /v1/customers/{id} on another org's customer":      customerB,
 		"DELETE /v1/customers/{id} on another org's customer":     customerB,
+		"DELETE /v1/api-keys/{id} on another org's api key":       apiKeyB,
 	}
 
 	for _, tc := range cases {
@@ -332,6 +342,24 @@ func seedIsolationCustomer(t *testing.T, pool *pgxpool.Pool, org, wonLeadID uuid
 		VALUES ($1, $2, 'Isolation Test Customer', $3)`
 	if _, err := pool.Exec(ctx, q, id, org, wonLeadID); err != nil {
 		t.Fatalf("seed isolation customer: %v", err)
+	}
+	return id
+}
+
+// seedIsolationAPIKey inserts a minimal api_keys row directly via SQL —
+// key_id only needs to be unique (uq_api_keys_key_id is global, not
+// per-organization), so it's derived from the row's own id rather than
+// going through apikey.Generate.
+func seedIsolationAPIKey(t *testing.T, pool *pgxpool.Pool, org uuid.UUID) uuid.UUID {
+	t.Helper()
+	ctx := t.Context()
+	id := uuid.Must(uuid.NewV7())
+	const q = `
+		INSERT INTO api_keys (id, organization_id, key_id, secret_hash, key_prefix, name, scopes)
+		VALUES ($1, $2, $3, 'isolation-test-hash', 'jln_live_isol', 'Isolation Test Key', ARRAY['leads:write'])`
+	keyID := "isol-" + id.String()[:20]
+	if _, err := pool.Exec(ctx, q, id, org, keyID); err != nil {
+		t.Fatalf("seed isolation api key: %v", err)
 	}
 	return id
 }
