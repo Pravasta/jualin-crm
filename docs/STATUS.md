@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 26 Agustus 2026 — Issue #35 selesai. **Phase 3 — Owner Dashboard selesai.**
-**Phase sekarang:** Phase 3 selesai — phase berikutnya (4 atau 5) belum diputuskan, lihat *Berikutnya*.
+**Last updated:** 27 Agustus 2026 — Phase 4 dibuka (PRD + TD + issue #46–#49)
+**Phase sekarang:** Phase 4 — Public API (0/4 issue selesai)
 
 ---
 
@@ -52,17 +52,31 @@ _(kosong)_
 
 ## Berikutnya
 
-**Phase 3 — Owner Dashboard selesai** (#30–#35, #40). Dua hal menunggu keputusan manusia sebelum sesi
-coding berikutnya dimulai — bukan sesuatu yang bisa diputuskan sepihak dalam sesi agent:
+**Issue #46 — Migration `0005`, domain `api_key`, CRUD kredensial** (backend, pembuka Phase 4)
 
-1. **Demo ke calon pengguna** (freeze bagian 4) — tujuan phase-nya, belum dilakukan.
-2. **Pilih phase berikutnya**: Phase 4 (Public API — api_keys, `POST /v1/leads` publik, rate limit per
-   key, dokumentasi integrasi) atau Phase 5 (Employee Mobile — Flutter, `crm_employee/`). Freeze
-   menempatkan keduanya **tidak saling bergantung**, jadi urutannya murni keputusan produk (mana yang
-   lebih mendesak: capture layer eksternal, atau alat kerja harian Employee di lapangan).
+- Cakupan & acceptance: [issue #46](https://github.com/Pravasta/jualin-crm/issues/46)
+- TD: `docs/phases/04-public-api/td.md` §1, §2, §9, §11, §15
+- **Baca ADR-004 sebelum menyentuh hashing.** SHA-256 (bukan argon2id) untuk API key akan terlihat
+  seperti kesalahan keamanan bagi yang membaca sekilas — ADR itu ditulis persis untuk mencegah
+  "perbaikan" yang membuat lookup mustahil.
+- Urutan: #46 → #47 → #49, dengan **#48 boleh paralel** (layar dashboard hanya bergantung pada #46).
+  Rincian di `docs/phases/04-public-api/issues.md`.
+- **Risiko terbesar phase ini ada di #47**, bukan di sini: satu peta otorisasi salah dan API key bisa
+  mengelola tim (Aturan #24). Bentuk penegakannya sudah diputuskan di TD §4 — di `authz`, bukan per
+  handler.
 
-Setelah salah satu dipilih: PRD + TD phase itu dulu (pola yang sama seperti Phase 2→3), baru issue
-per-issue. Rincian riwayat #30–#35 di `docs/phases/03-owner-dashboard/issues.md` dan `notes.md`.
+### Dua hal yang tetap menunggu keputusan manusia
+
+Keduanya tercatat sejak Phase 3 tutup dan **tidak** memblokir Phase 4:
+
+1. **Demo ke calon pengguna** (freeze bagian 4) — tujuan Phase 3, belum dilakukan.
+2. **Apple Developer Program & Firebase** — belum dimulai, lihat bagian *Punya Lead Time* di bawah.
+   Keduanya menunggu pihak ketiga dan bisa menghentikan Phase 5 tepat di bagian build iOS dan push
+   notification. **Ini alasan Phase 4 dikerjakan lebih dulu**, bukan karena ia lebih penting — freeze
+   menempatkan keduanya tidak saling bergantung. Mengurusnya selama Phase 4 berjalan adalah cara
+   termurah menghindari Phase 5 berhenti sebelum dimulai.
+
+Riwayat #30–#35 di `docs/phases/03-owner-dashboard/issues.md` dan `notes.md`.
 
 ---
 
@@ -73,8 +87,8 @@ per-issue. Rincian riwayat #30–#35 di `docs/phases/03-owner-dashboard/issues.m
 | Tidak ada test end-to-end otomatis untuk graceful shutdown | Issue #1 | Diverifikasi manual (build binary + SIGINT). Otomatisasi butuh test yang menjalankan binary sungguhan dan mengirim sinyal OS — `go run` tidak meneruskan sinyal ke child process, jadi tidak bisa diuji lewat itu. Belum ada issue yang mencakup ini; angkat saat menyentuh area shutdown lagi. |
 | Tidak ada auto-migrate saat container `api` start | Issue #2 | `make migrate-up` dijalankan manual. Sengaja dipisah dari entrypoint `api` — migration dan serving punya kelas kegagalan berbeda. |
 | `ratelimit.FixedWindow` tidak pernah membersihkan key lama | Issue #9 | Map tumbuh tanpa batas seiring IP/email baru muncul. Tidak masalah di volume MVP; perlu eviction sebelum traffic produksi nyata. |
-| Angka rate limit (register 5/jam, resend 3/jam+10/jam) belum final | Issue #9 | Cukup untuk membuktikan mekanisme aktif, bukan hasil tuning. Freeze mencatat "strategi rate limit final" sebagai keputusan terbuka hingga Phase 4. |
-| `leads.idempotency_key` tidak punya retensi | Issue #20, TD §7 | Disimpan selamanya — key yang dipakai ulang setahun kemudian mengembalikan lead lama. Tidak berbahaya (tidak pernah membuat duplikat), tetapi salah. Baru relevan saat Phase 4 (API publik) membuat integrator sungguhan mulai mengirim key. |
+| Angka rate limit (register 5/jam, resend 3/jam+10/jam) belum final | Issue #9 | Cukup untuk membuktikan mekanisme aktif, bukan hasil tuning. **Sebagian ditutup di Phase 4**: batas API publik ditetapkan (D4 — 60/menit per kunci, `PUBLIC_API_RATE_LIMIT`). Angka endpoint email masih default konservatif. |
+| `leads.idempotency_key` tidak punya retensi | Issue #20, TD §7 | Disimpan selamanya — key yang dipakai ulang setahun kemudian mengembalikan lead lama. Tidak berbahaya (tidak pernah membuat duplikat), tetapi salah. **Dijadwalkan ditutup di [#47](https://github.com/Pravasta/jualin-crm/issues/47)** (retensi 48 jam, penghapusan malas tanpa scheduler — keputusan D3). |
 | `notifications` tidak punya retensi | Issue #22, TD §2 | Sama seperti `idempotency_key` — tidak ada scheduler di Phase 2 untuk membersihkan notifikasi lama. Tidak mendesak di volume MVP. |
 
 > ~~Test otomatis `db.InTx` dan migration round-trip~~ — selesai di issue #3.
@@ -100,6 +114,8 @@ Tidak ada yang memblokir. Semuanya diputuskan saat fitur terkait dikerjakan.
 Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 dan `docs/brainstorming/architecture_product_review.md` bagian 12.
 
 > **B6–B9 ditutup** saat PRD Phase 2 dibuka (21 Agustus 2026), seluruhnya mengikuti rekomendasi freeze: `lost_reason` 6 nilai · mundur satu langkah · `tasks.lead_id NOT NULL` · konversi ke Customer adalah aksi eksplisit. Alasan tiap keputusan ada di `docs/phases/02-crm-core/prd.md` bagian *Keputusan yang ditutup di phase ini*.
+
+> **D1–D5 ditutup** saat PRD Phase 4 dibuka (27 Agustus 2026): otorisasi principal tanpa role lewat `Scopes` + cabang di `authz.Require` (D1) · `POST /v1/leads` **satu path** untuk dua bentuk kredensial, dipilah dari prefix `jln_live_` (D2) · retensi `idempotency_key` 48 jam dengan penghapusan malas, tanpa scheduler (D3) · rate limit API publik 60/menit **per kunci**, bukan per IP (D4) · API publik **tidak** bisa dipanggil dari browser — sudah terjaga allowlist CORS #30, yang ditambahkan hanya test dan peringatan di dokumentasi (D5). Tidak satu pun dari kelimanya tercatat di tabel ini sebelumnya; semuanya ditutup di muka, bukan di tengah implementasi. Alasan tiap keputusan ada di `docs/phases/04-public-api/prd.md`.
 
 > **C1–C3 ditutup** saat PRD Phase 3 dibuka (24 Agustus 2026): **Bahasa UI Indonesia saja, tanpa i18n** (C1 — satu-satunya dari ketiganya yang memang tercatat di tabel ini) · **browser → Go langsung dengan CORS**, bukan BFF (C2) · **shadcn/ui + Tailwind** (C3). C2 dan C3 ternyata belum pernah diputuskan di dokumen manapun; keduanya ditutup di muka, bukan di tengah implementasi. Alasan tiap keputusan ada di `docs/phases/03-owner-dashboard/prd.md`.
 
@@ -141,7 +157,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11, #15 | ✅ |
 | 2 | CRM Core | ✅ | ✅ | ✅ #19–#23 | ✅ |
 | 3 | Owner Dashboard | ✅ | ✅ | ✅ #30–#35, #40 | ✅ |
-| 4 | Public API | ⬜ | ⬜ | ⬜ | ⬜ |
+| 4 | Public API | ✅ | ✅ | ✅ #46–#49 | ⬜ |
 | 5 | Employee Mobile | ⬜ | ⬜ | ⬜ | ⬜ |
 
 Pekerjaan yang sedang berjalan: `gh issue list --state open`
