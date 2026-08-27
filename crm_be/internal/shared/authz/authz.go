@@ -87,6 +87,19 @@ const (
 	// tool (Employee gets mobile in Phase 5), and cross-organization
 	// aggregates are management-level information regardless of role.
 	ActionMetricsRead Action = "metrics.read"
+
+	// ActionAPIKeyCreate/List/Revoke (Phase 4 #46) are Owner/Admin only —
+	// narrower than membership.list, which Manager also has. A credential
+	// that can inject leads into the organization, and the list of which
+	// integrations are live, are not read-only information the way team
+	// membership is; Manager and Employee get NO access at all, not
+	// read-only. This map only answers "can PrincipalUser with this role
+	// do this" — the separate question "what can PrincipalAPIKey itself
+	// do" is #47's apiKeyScopeFor, which deliberately excludes all three
+	// of these (Rule #24: an API key cannot create another API key).
+	ActionAPIKeyCreate Action = "api_key.create"
+	ActionAPIKeyList   Action = "api_key.list"
+	ActionAPIKeyRevoke Action = "api_key.revoke"
 )
 
 // permissions mirrors docs/architecture/authorization.md's matrix
@@ -117,6 +130,9 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionCustomerUpdate:       true,
 		ActionCustomerDelete:       true,
 		ActionMetricsRead:          true,
+		ActionAPIKeyCreate:         true,
+		ActionAPIKeyList:           true,
+		ActionAPIKeyRevoke:         true,
 	},
 	tenant.RoleAdmin: {
 		ActionMembershipList:       true,
@@ -142,6 +158,9 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionCustomerUpdate:       true,
 		ActionCustomerDelete:       true,
 		ActionMetricsRead:          true,
+		ActionAPIKeyCreate:         true,
+		ActionAPIKeyList:           true,
+		ActionAPIKeyRevoke:         true,
 	},
 	tenant.RoleManager: {
 		ActionMembershipList: true,
