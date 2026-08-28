@@ -26,12 +26,19 @@ Ini bukan masalah optimasi. Skema ini tidak bisa bekerja sama sekali begitu juml
 ### Format
 
 ```
-jln_live_<key_id:12char>_<secret:32char>
+jln_live_<key_id:12char>_<secret:43char>
     │         │                │
     │         │                └─ crypto/rand, entropi 256-bit
     │         └─ pencari — disimpan plaintext, ter-index
     └─ environment: live | test
 ```
+
+> **Diperbaiki saat Phase 4 ditutup (issue #49).** Baris di atas sebelumnya menulis `<secret:32char>`
+> pada kalimat yang sama dengan "entropi 256-bit" — dua hal itu tidak bisa benar bersamaan (32 karakter
+> base64url ≈ 192 bit; 256 bit = 32 byte = 43 karakter base64url). Kode (`internal/apikey/entity.go`,
+> issue #46) mengambil 256-bit sejak awal — argumen "kenapa SHA-256 aman" di bawah bersandar penuh pada
+> angka itu — sehingga teks di sinilah yang diperbaiki mengikuti kode, bukan sebaliknya. Dicatat sebagai
+> koreksi, bukan didiamkan (Aturan #30).
 
 ### Penyimpanan
 
@@ -39,7 +46,7 @@ jln_live_<key_id:12char>_<secret:32char>
 |---|---|
 | `key_id` | Plaintext, **UNIQUE, ter-index** — ini yang dicari |
 | `secret_hash` | **SHA-256** dari bagian secret |
-| `key_prefix` | 8 karakter pertama, untuk ditampilkan di dashboard (`jln_live_a3f9…`) |
+| `key_prefix` | `jln_live_` + 4 karakter pertama `key_id`, untuk ditampilkan di dashboard (`jln_live_a3f9…`) — teks ini sebelumnya menulis "8 karakter pertama", yang tidak cocok dengan contohnya sendiri; diperbaiki saat Phase 4 ditutup (issue #49) mengikuti kode (`internal/apikey/entity.go`) |
 | `name`, `scopes`, `created_by_membership_id` | Metadata |
 | `created_at`, `last_used_at`, `revoked_at`, `expires_at` | Lifecycle |
 

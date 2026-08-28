@@ -7,21 +7,26 @@
 
 ## Deviasi dari teks issue / TD — sudah diverifikasi benar, catat alasannya di dokumentasi #49
 
-- [ ] **Empat endpoint non-`POST /v1/leads` menghasilkan `401`, bukan `403` seperti tertulis literal di
+- [x] **Empat endpoint non-`POST /v1/leads` menghasilkan `401`, bukan `403` seperti tertulis literal di
       checklist acceptance criteria issue #47.** Sudah diverifikasi **tidak** bertentangan dengan PRD
       Phase 4 — acceptance criterion PRD #5 hanya mensyaratkan *"API key tidak bisa memanggil satu pun
       endpoint aplikasi pengguna... karena otorisasi memang tidak punya jalan untuk mengizinkannya"*,
       tanpa menyebut kode status tertentu; `401` (ditolak di autentikasi, sebelum authz sama sekali
-      dikonsultasi) justru bentuk yang **lebih kuat** dari "tidak punya jalan" dibanding `403`. Yang
-      perlu dilakukan #49: pastikan halaman dokumentasi integrasi menyebut `401` sebagai perilaku
-      sesungguhnya untuk permintaan di luar `POST /v1/leads`, bukan `403` yang tidak pernah terjadi.
-- [ ] **`CreateLeadInput` tidak mendapat field `SourceAPIKeyID` seperti tertulis di TD §5.**
+      dikonsultasi) justru bentuk yang **lebih kuat** dari "tidak punya jalan" dibanding `403`.
+      **Diselesaikan di #49**: `authentication.md` bagian "API key" sekarang menyatakan `401` sebagai
+      perilaku sesungguhnya secara eksplisit; halaman dokumentasi integrasi tidak menyebut `403` untuk
+      endpoint selain `POST /v1/leads` sama sekali (tidak perlu — integrator yang mengikuti halaman itu
+      tidak akan pernah memanggil endpoint lain).
+- [x] **`CreateLeadInput` tidak mendapat field `SourceAPIKeyID` seperti tertulis di TD §5.**
       `source_api_key_id` diturunkan langsung dari `t.APIKeyID` di usecase — dicatat sebagai penyimpangan
-      sadar (analog Aturan #5), bukan celah. Tidak perlu tindakan, hanya perlu diingat bila TD §5 dibaca
-      ulang secara harfiah di masa depan (mis. Phase 6 saat `source_form_id` ditambahkan dengan pola
-      serupa).
+      sadar (analog Aturan #5), bukan celah. **Ditinjau ulang di #49**, tetap berlaku; TD §19 (kewajiban
+      Phase 6) sekarang menunjuk balik ke catatan ini supaya `source_form_id` tidak mengulang pola field
+      yang sama di masa depan.
 
-## Keputusan yang perlu dicek ulang / ditinjau saat traffic nyata ada
+## Keputusan yang tetap dibawa maju — butuh traffic nyata untuk diputuskan, bukan bisa diselesaikan sekarang
+
+Ketiga poin ini **sengaja dibiarkan terbuka** saat Phase 4 ditutup (#49) — bukan terlewat. Tidak ada
+cara jujur menutupnya tanpa data traffic produksi sungguhan, yang belum ada.
 
 - [ ] **`PUBLIC_API_RATE_LIMIT=60`/menit bukan hasil pengukuran** (TD §6, keputusan D4) — dua orde
       besaran di atas dugaan traffic SMB normal. Perlu ditinjau ulang begitu integrator sungguhan
@@ -31,7 +36,8 @@
       akan berjalan sesering itu; belum pernah diuji di bawah volume produksi nyata.
 - [ ] **`last_used_at` di-throttle 5 menit/kunci, peta in-memory tanpa eviction** — sama seperti
       `ratelimit.FixedWindow`'s bucket map (utang sejak #9). Volume MVP aman; catat kembali bila jumlah
-      API key aktif per proses mulai besar.
+      API key aktif per proses mulai besar. Dicatat lagi di `docs/STATUS.md`'s Utang Teknis (#49) sebagai
+      pemakai kedua dari pola map-tanpa-eviction yang sama.
 
 ## Bug ditemukan & sudah diperbaiki (tidak perlu tindakan lanjut, dicatat untuk arsip)
 
@@ -41,3 +47,9 @@
 - [x] Fixture test (`internal/lead`, `cmd/api`) dengan `APIKeyID` acak menabrak `fk_leads_source_api_key`
       (composite FK sungguhan) → `500`. Kelas bug yang sama seperti #46's `fk_api_keys_created_by`.
       Diperbaiki dengan men-seed baris `api_keys` sungguhan sebelum PR #52 dibuka.
+
+---
+
+**Ditinjau saat penutupan Phase 4 (#49).** Dua bagian pertama selesai. Bagian "keputusan yang dibawa
+maju" **sengaja tetap terbuka** — akan relevan lagi begitu ada integrator produksi nyata, dicatat di
+`docs/STATUS.md` supaya tidak terlupa, bukan diselesaikan sekarang dengan tebakan.

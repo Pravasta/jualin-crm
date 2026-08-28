@@ -118,6 +118,70 @@ sampai ke repository ini (`docs/phases/03-owner-dashboard/td.md` §2.4).
 
 ---
 
+## Matriks (Phase 4) — issue #46
+
+| Action | Owner | Admin | Manager | Employee |
+|---|---|---|---|---|
+| `api_key.create` | ✅ | ✅ | — | — |
+| `api_key.list` | ✅ | ✅ | — | — |
+| `api_key.revoke` | ✅ | ✅ | — | — |
+
+Manager tidak dapat **sama sekali** — bukan read-only seperti `membership.list` yang Manager punya.
+Kredensial yang bisa memasukkan lead ke organization, dan daftar integrasi mana yang hidup, bukan
+informasi level-baca biasa (TD phase 4 §9).
+
+---
+
+## Otorisasi berbasis scope — principal tanpa role (Phase 4, issue #47)
+
+Matriks role di atas menjawab pertanyaan **"role apa boleh action apa"** — tapi principal `api_key`
+tidak punya role sama sekali (`tenant.Context.Role` kosong untuknya). Menjawab "apa yang boleh dilakukan
+API key" **bukan** perluasan dari matriks role — itu pertanyaan yang berbeda, dijawab peta terpisah:
+
+```go
+// internal/shared/authz/authz.go
+var apiKeyScopeFor = map[Action]string{
+    ActionLeadCreate: "leads:write",
+}
+
+func Require(t tenant.Context, action Action) error {
+    if t.PrincipalType == tenant.PrincipalAPIKey {
+        scope, ok := apiKeyScopeFor[action]
+        if !ok || !slices.Contains(t.Scopes, scope) {
+            return InsufficientScopeError()   // 403 insufficient_scope
+        }
+        return nil
+    }
+    if permissions[t.Role][action] {          // jalur role, tidak berubah
+        return nil
+    }
+    return forbiddenError()                   // 403 forbidden
+}
+```
+
+`Require` bercabang di `t.PrincipalType` **sebelum** menyentuh `permissions[t.Role]` sama sekali — API
+key tidak pernah jatuh ke jalur role dengan `Role` kosong dan mendapat jawaban kebetulan (baik
+kebetulan diizinkan maupun kebetulan ditolak); ia dicek terhadap peta scope-nya sendiri, titik.
+
+**Kenapa peta terpisah, bukan `Role("api_key")` kelima.** Menambahkan API key sebagai baris kelima di
+matriks role akan membuatnya terlihat seperti role — dan dokumen ini sudah menyatakan role adalah enum
+tertutup berisi empat (freeze 1.3). Peta terpisah membuat "apa yang bisa dilakukan API key" dijawab
+dengan membaca **satu baris**, bukan menyaring lima kolom di setiap tabel matriks di atas.
+
+**Kenapa peta ini isinya cuma satu baris.** `apiKeyScopeFor` hanya berisi `lead.create → leads:write` —
+setiap `Action` lain (termasuk `api_key.create/list/revoke` di atas) ditolak karena **tidak ada** di
+peta ini, bukan karena ada baris eksplisit yang menolaknya. Menambah kemampuan API key di masa depan
+berarti menambah baris di sini, bukan mengaudit ulang setiap handler yang ada (freeze 5.1, Aturan #24).
+Dikunci test yang mengulang **seluruh** `Action` yang terdaftar di paket ini (26 saat ini) terhadap
+principal `api_key` — bukan daftar tulis tangan, supaya `Action` baru phase berikutnya otomatis ikut
+tertutup tanpa ada yang perlu mengingatnya.
+
+**Matriks role di bagian atas dokumen ini karena itu tidak lagi menggambarkan seluruh sistem
+otorisasi** — ia menjawab untuk `PrincipalUser`; bagian ini menjawab untuk `PrincipalAPIKey`. Keduanya
+harus dibaca bersama untuk tahu "siapa boleh apa" secara lengkap.
+
+---
+
 ## Empat aturan yang harus ditulis eksplisit
 
 Sumber: `architecture_product_review.md` §6.2. Tiga dari empat bergantung pada relasi actor-vs-target,

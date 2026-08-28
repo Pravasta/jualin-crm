@@ -9,8 +9,8 @@
 
 ```
 User session   → Dashboard, Mobile      → JWT + refresh token opaque → principal: membership
-API key        → Sistem eksternal       → jln_live_...                → principal: organization  (Phase 4)
-Public form key→ Browser pengunjung     → public_key di path          → principal: form            (Phase 4)
+API key        → Sistem eksternal       → jln_live_...                → principal: organization
+Public form key→ Browser pengunjung     → public_key di path          → principal: form            (Phase 6)
 ```
 
 **Tidak ada satupun yang boleh menggantikan yang lain** (Aturan #24, `multi-tenancy.md`). Dokumen ini hanya membahas jalur pertama — user session — yang mencakup dashboard **dan** mobile. Keduanya memakai kredensial yang sama; yang berbeda hanya cara token dikirim (lihat di bawah) dan masa berlaku refresh token.
@@ -63,6 +63,60 @@ Token yang sudah dirotasi lalu dipakai lagi berarti salah satu pihak memegang sa
 Rotasi berjalan di dalam satu transaksi dengan `SELECT ... FOR UPDATE` pada baris token (`RefreshTokenRepository.FindByHashForUpdate`) — dua refresh bersamaan pada token yang sama harus berurutan, tidak boleh keduanya melihat state "belum dirotasi" dan sama-sama berhasil.
 
 `RefreshTokenRepository.FindByHashForUpdate` dan `RevokeAllByUserID` adalah pengecualian tertulis terhadap pola "repository tenant-scoped selalu menerima `tenant.Context`" (TD §8): yang pertama karena organisasi baru diketahui *dari* hasil lookup itu sendiri, yang kedua karena reset password sengaja mencabut sesi di **semua** organization milik user, bukan satu.
+
+---
+
+## API key — lookup, verifikasi, revoke (Phase 4)
+
+Jalur kedua dari tiga di atas — kredensial `jln_live_<key_id>_<secret>` yang mengautentikasi sistem
+eksternal pelanggan, bukan orang. Format lengkap dan siklus hidupnya (buat/cabut) ada di
+[ADR-004](../decisions/ADR-004-api-key-format.md) dan `api.md` bagian *API Publik*; bagian ini hanya
+membahas **verifikasi saat request masuk**, sisi yang sama dengan "Refresh token" di atas tapi untuk
+kredensial yang berbeda bentuknya.
+
+```
+Authorization: Bearer jln_live_...
+  ├── parse gagal (bentuk tidak valid)         ┐
+  ├── key_id tidak ditemukan                    ├─→ 401 invalid_api_key — PESAN YANG SAMA
+  ├── revoked_at terisi                         │   (membedakan penyebabnya membocorkan
+  ├── expires_at sudah lewat                    │   bahwa key_id itu pernah ada, Aturan #6)
+  ├── secret tidak cocok (constant-time)        ┘
+  └── seluruhnya lolos                          → tenant.Context{PrincipalType: api_key,
+                                                    OrganizationID, APIKeyID, Scopes}
+                                                    — Role/MembershipID/UserID kosong
+```
+
+`internal/apikey.Usecase.ResolveAPIKey` (bukan `internal/auth`) yang menjalankan alur ini —
+`internal/shared/authn.APIKeyResolver` adalah interface consumer (ADR-011) yang dipenuhinya secara
+struktural, sama pola dengan `ClaimsParser` yang membuat `authn` tidak pernah mengimpor `internal/auth`.
+
+Lookup `key_id` (`Repository.FindByKeyID`) **tidak** menerima `tenant.Context` — pengecualian
+terdokumentasi yang sama seperti `RefreshTokenRepository.FindByHashForUpdate` di atas: organization
+adalah *hasil* lookup ini, bukan sesuatu yang sudah diketahui sebelumnya (Aturan #5).
+
+### Dipasang hanya di satu route
+
+`authn.MiddlewareWithAPIKey` dipasang **hanya** di `POST /v1/leads` (`cmd/api/main.go`). Setiap route
+lain tetap memakai `authn.Middleware` biasa, yang tidak mengenali prefix `jln_*` sama sekali — sebuah
+kredensial API key yang dikirim ke route lain gagal parsing JWT dan ditolak `401
+authentication_required`, **tidak pernah** sampai ke lapisan otorisasi. Ini bentuk Aturan #24 yang
+paling kuat: bukan keputusan authz yang bisa saja salah ditulis, melainkan endpoint yang secara harfiah
+tidak mengerti kredensial itu ada.
+
+### Kenapa tidak ada CSRF di jalur ini
+
+CSRF melindungi kredensial yang **dikirim otomatis oleh browser** (cookie). Kredensial API key tidak
+pernah begitu — ia harus ditulis eksplisit ke header `Authorization` oleh kode integrator, sama seperti
+alasan jalur mobile (`Authorization: Bearer` JWT) juga dikecualikan di bagian *CSRF* di bawah. Tidak ada
+yang bisa "menumpang" pada request lintas situs karena tidak ada apa pun yang terkirim tanpa
+sepengetahuan pengirimnya.
+
+### `last_used_at` — di-throttle, bukan presisi
+
+Diperbarui paling sering sekali per 5 menit per kunci (peta in-memory di `apikey.Usecase`, tanpa
+eviction — utang yang sama bentuknya dengan `ratelimit.FixedWindow` sejak #9) — menuliskannya di setiap
+request akan membuat `api_keys` jadi *write hotspot* ([ADR-004](../decisions/ADR-004-api-key-format.md)
+aturan #3). Dashboard merender ini sebagai perkiraan ("sekitar N menit lalu"), tidak pernah jam presisi.
 
 ---
 
@@ -136,4 +190,7 @@ Client memanggil ulang dengan organization_id terisi
 | `login` | per IP **dan** per email, backoff progresif, tanpa lockout permanen | `internal/auth.LoginLimiter` — tipe khusus, bukan `ratelimit.Limiter`, karena perlu tahu sukses vs gagal untuk menaikkan/mereset backoff |
 | `register`, `verify-email/resend`, `password/forgot` | Flat window per IP dan/atau per email | `ratelimit.FixedWindow` |
 
-Angka-angka di kode adalah default konservatif, bukan hasil tuning — freeze mencatat "strategi rate limit final" sebagai keputusan terbuka hingga Phase 4.
+Angka-angka di kode adalah default konservatif, bukan hasil tuning. **Sebagian ditutup di Phase 4**:
+batas `POST /v1/leads` jalur API key ditetapkan (`PUBLIC_API_RATE_LIMIT`, `api.md` bagian *Rate
+limiting*) — tapi baris di atas (`login`, `register`, dst.) belum ikut ditinjau, masih default sejak
+#9. Dua mekanisme berbeda, dan hanya satu yang sudah dipertimbangkan ulang.

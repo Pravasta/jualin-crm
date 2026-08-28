@@ -22,9 +22,14 @@ import {
 import { FieldError } from "@/components/field-error";
 import { FormErrorBanner } from "@/components/form-error-banner";
 import { createAPIKey, type CreatedAPIKey } from "@/lib/api-keys";
+import { buildCurlExample } from "@/lib/api-docs";
 import { fieldErrorsFrom, globalMessage, type FieldErrors } from "@/lib/auth-errors";
 
 type Step = "form" | "reveal";
+
+// Same fallback api-client.ts uses for the real client — this is the
+// backend the copied curl command actually needs to hit.
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export function CreateAPIKeyDialog({
   open,
@@ -42,6 +47,7 @@ export function CreateAPIKeyDialog({
   const [name, setName] = useState("");
   const [created, setCreated] = useState<CreatedAPIKey | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedCurl, setCopiedCurl] = useState(false);
   const [confirmedSaved, setConfirmedSaved] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +58,7 @@ export function CreateAPIKeyDialog({
     setName("");
     setCreated(null); // the secret is discarded here
     setCopied(false);
+    setCopiedCurl(false);
     setConfirmedSaved(false);
     setFieldErrors({});
     setError(null);
@@ -84,6 +91,22 @@ export function CreateAPIKeyDialog({
       // Clipboard API can be unavailable (insecure context, older
       // browser) — not fatal, the secret is still visible and
       // selectable in the field below for a manual copy.
+    }
+  }
+
+  // This is the ONE place in the whole product a genuinely working curl
+  // example can exist — created.secret is only ever available here,
+  // never again after this dialog closes. The integration docs page
+  // (#49) shows the same format but can only ever fill in key_prefix, a
+  // placeholder for the rest.
+  async function handleCopyCurl() {
+    if (!created) return;
+    try {
+      await navigator.clipboard.writeText(buildCurlExample(API_BASE_URL, created.secret));
+      setCopiedCurl(true);
+    } catch {
+      // Same non-fatal reasoning as handleCopy — the command is still
+      // visible and selectable below.
     }
   }
 
@@ -161,6 +184,18 @@ export function CreateAPIKeyDialog({
               <Button type="button" variant="outline" onClick={handleCopy}>
                 {copied ? "Tersalin" : "Salin kunci"}
               </Button>
+
+              {/* The only honest place "disalin dan langsung bekerja" (TD §13) can
+                  live — created.secret exists nowhere else once this dialog closes. */}
+              <div className="flex flex-col gap-1.5">
+                <Label>Contoh yang langsung bisa dipakai</Label>
+                <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-2.5 font-mono text-[11.5px] whitespace-pre-wrap">
+                  {created ? buildCurlExample(API_BASE_URL, created.secret) : ""}
+                </pre>
+                <Button type="button" variant="outline" onClick={handleCopyCurl}>
+                  {copiedCurl ? "Tersalin" : "Salin perintah"}
+                </Button>
+              </div>
 
               <label className="flex items-start gap-2 text-[12.5px] text-muted-foreground">
                 <input
