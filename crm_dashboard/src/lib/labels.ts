@@ -133,3 +133,13 @@ export const ROLE_LABELS: Record<Role, string> = {
   manager: "Manager",
   employee: "Employee",
 };
+
+// --- API key scope -------------------------------------------------------
+
+// Only one scope exists in this codebase today (ADR-004 aturan #4) — a
+// Record over the full APIKeyScope union, not a partial map, so adding a
+// second scope value without a label is a compile error, not a blank
+// cell in the UI.
+export const SCOPE_LABELS: Record<"leads:write", string> = {
+  "leads:write": "Kirim lead",
+};

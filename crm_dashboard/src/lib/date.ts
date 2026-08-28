@@ -21,3 +21,21 @@ export function formatDateID(iso: string): string {
     year: "numeric",
   });
 }
+
+// api_keys.last_used_at is throttled server-side to at most once every 5
+// minutes (crm_be TD phase 4 §10) — rendering it as an exact timestamp
+// would imply a precision the value doesn't actually have. `now` is a
+// parameter rather than computed internally (same convention as
+// metrics.ts's periodToRange) so this stays pure and testable.
+export function formatApproximateID(iso: string, now: Date): string {
+  const diffMinutes = Math.max(0, Math.round((now.getTime() - new Date(iso).getTime()) / 60_000));
+
+  if (diffMinutes < 1) return "sekitar baru saja";
+  if (diffMinutes < 60) return `sekitar ${diffMinutes} menit lalu`;
+
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `sekitar ${diffHours} jam lalu`;
+
+  const diffDays = Math.round(diffHours / 24);
+  return `sekitar ${diffDays} hari lalu`;
+}

@@ -249,3 +249,60 @@ untuk kebocoran lintas-tenant di endpoint ini secara struktural.
 
 Retensi `idempotency_key` (dicatat sejak #20, TD phase 2 §7/§19) — **selesai**. `docs/STATUS.md` bagian
 Utang Teknis diperbarui.
+
+---
+
+## #48 — Dashboard: manajemen API key
+
+Layar dashboard terakhir Phase 4 — Owner/Admin membuat dan mencabut kredensial `jln_*` tanpa `curl`.
+Tiga endpoint dari #46 dikonsumsi apa adanya; #47 sama sekali tidak menyentuh bentuknya.
+
+### Keputusan implementasi
+
+- **Dua tahap dalam SATU komponen dialog (`CreateAPIKeyDialog`), bukan dua dialog terpisah.** Setelah
+  `createAPIKey` sukses, `step` berpindah dari `"form"` ke `"reveal"` **di dalam komponen yang sama** —
+  `secret` tidak pernah diteruskan ke `api-keys-screen.tsx` (parent), jadi tidak ada jalan sama sekali
+  bagi secret untuk masuk ke state daftar atau context. Aturan #21 ditegakkan secara struktural
+  (`APIKey` di `lib/api-keys.ts` tidak punya field `secret` sama sekali — hanya `CreatedAPIKey`, tipe
+  terpisah yang hanya dikembalikan `createAPIKey`), bukan hanya disiplin penulisan kode.
+- **Guard "penutupan mengharuskan konfirmasi" ada di `onOpenChange` itu sendiri, bukan cuma tombol
+  footer.** `DialogContent` bawaan (`components/ui/dialog.tsx`) memicu `onOpenChange(false)` lewat tiga
+  jalur berbeda — tombol X, Escape, klik backdrop (base-ui, bukan custom) — jadi memblokir hanya di
+  tombol "Selesai" akan bisa dilewati lewat Escape. Diblokir di satu titik (`handleOpenChange`) yang
+  ketiganya lewati; `showCloseButton={step !== "reveal"}` menyembunyikan tombol X saat reveal supaya
+  tidak ada affordance yang terlihat bekerja padahal diam-diam diblokir.
+- **"Menu masuk ke app shell" (checklist issue) diartikan sebagai Card baru di layar Settings**, bukan
+  entri baru di `NAV_ITEMS` (`lib/nav.ts`). `NAV_ITEMS` sekarang tidak punya mekanisme per-role sama
+  sekali — enam itemnya berlaku untuk semua role — sementara TD §12 menaruh path-nya sebagai sub-halaman
+  Pengaturan (`/settings/api-keys`), bukan level teratas. `isActive`/`pageTitle` tetap menyorot
+  "Pengaturan" di sidebar lewat prefix-match yang sudah ada tanpa perubahan di `nav.ts`.
+- **Gerbang role di level fetch, bukan hanya UI.** `APIKeysScreen`'s `useEffect` yang memanggil
+  `listAPIKeys()` di-skip sepenuhnya bila `!canManageAPIKeys(session.role)` — pola yang sama seperti
+  `canManageTeam` menahan `listInvitations()` di #34. Memenuhi acceptance criterion "mengetik URL
+  langsung tidak menampilkan daftar" secara harfiah, bukan cuma menyembunyikan tautannya di Settings.
+- **`formatApproximateID(iso, now: Date)`** ditambah ke `lib/date.ts`, pola `now`-sebagai-parameter yang
+  sama seperti `metrics.ts`'s `periodToRange` — `last_used_at` di-throttle 5 menit di backend (TD §10),
+  jadi klien sengaja tidak pernah merender jam presisi (dikunci test:
+  `not.toMatch(/\d{1,2}:\d{2}/)`).
+- **`toAPIKeyRow`/`canManageAPIKeys`** dipisah ke `lib/api-key-rows.ts`, diuji tanpa React — pola yang
+  sama seperti `lib/nav.ts`/`lib/team-permissions.ts`, diminta eksplisit di checklist issue.
+
+### Tidak ada bug nyata ditemukan kali ini
+
+Berbeda dari #32–#35 dan #46/#47, tidak ada deviasi TD/PRD atau bug lintas-paket yang ditemukan saat
+mengerjakan issue ini — bentuk endpoint sudah stabil sejak #46 dan tidak berubah sama sekali di #47.
+Tidak ada berkas baru di `docs/issues/` untuk issue ini (skill `jualin-issue-log`: "jangan buat berkas
+kosong demi kelengkapan").
+
+### Verifikasi
+
+`npm run typecheck && lint && test && build` — bersih, 4 test file baru/diperluas (`api-key-rows.test.ts`
+baru, `date.test.ts` +5 kasus). Manual terhadap `crm_be` sungguhan (`docker compose up -d postgres` +
+`crm_be` lokal + `crm_dashboard` lokal): register → verify → login → `POST /v1/api-keys` menghasilkan
+bentuk **persis** sama dengan `CreatedAPIKey` (`created_at, created_by_membership_id, expires_at, id,
+key_prefix, last_used_at, name, revoked_at, scopes, secret`) → `GET /v1/api-keys` setelahnya **tidak**
+membawa field `secret` sama sekali → revoke → `204`, kunci tetap muncul di list dengan `revoked_at`
+terisi → `GET /v1/memberships`'s `id` cocok persis dengan `created_by_membership_id` kunci, membuktikan
+kolom "Dibuat oleh" akan resolve ke nama yang benar. Verifikasi interaktif dialog (gerbang checkbox,
+salin ke clipboard) lewat pembacaan kode + `build` sukses — klik-uji browser sungguhan di luar cakupan
+TD §9 (test UI visual/e2e), sama seperti seluruh layar Phase 3.
