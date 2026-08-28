@@ -84,6 +84,10 @@ Phase 4 tutup bila **13 acceptance criteria** di [`prd.md`](./prd.md) terpenuhi 
 dari mesin luar → lead di dashboard) dan #5 (API key tidak bisa memanggil satu pun endpoint aplikasi
 pengguna). Lalu:
 
+0. **Cek `docs/issues/046-api-key-crud.md` dan `docs/issues/047-public-lead-api.md`** — checklist ringkas
+   deviasi/keputusan dari kedua issue itu yang perlu ditinjau ulang sebelum phase benar-benar ditutup
+   (mis. ADR-004 yang belum diperbaiki, angka rate limit yang belum diukur). Bukan pengganti langkah
+   1–3 di bawah, hanya supaya tidak ada yang terlewat di antara PR yang sudah lama merge.
 1. `api.md` (bab API Publik), `authentication.md`, `authorization.md`, `multi-tenancy.md` diperbarui (TD §18)
 2. `docs/STATUS.md` — Phase 4 ✅, dan utang retensi `idempotency_key` **ditutup**
 3. Buka **Phase 5 — Employee Mobile** — satu-satunya phase MVP yang tersisa

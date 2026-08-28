@@ -62,7 +62,10 @@ dokumentasi integrasi**, meski #49 secara praktis lebih mudah ditulis jujur sete
   `docs/phases/04-public-api/td.md` §9, §12
 - Cakupan & acceptance #49: [issue #49](https://github.com/Pravasta/jualin-crm/issues/49) — TD §13,
   §14, §18 — **penutup Phase 4**, mencakup update `api.md`/`authentication.md`/`authorization.md`/
-  `multi-tenancy.md` dan pengecekan seluruh 13 acceptance criteria PRD Phase 4
+  `multi-tenancy.md` dan pengecekan seluruh 13 acceptance criteria PRD Phase 4. Sebelum menutup, cek
+  `docs/issues/046-api-key-crud.md` dan `docs/issues/047-public-lead-api.md` — checklist ringkas hal
+  yang perlu ditinjau ulang dari kedua issue itu (ADR-004 yang belum diperbaiki, angka rate limit yang
+  belum diukur, dll.), bukan pengganti 13 acceptance criteria di atas.
 - Endpoint yang dikonsumsi #48 sudah stabil sejak #46 (`POST/GET/DELETE /v1/api-keys`); #47 tidak
   mengubah bentuknya sama sekali, hanya menambahkan jalur autentikasi terpisah (`POST /v1/leads`).
 - Setelah #48 dan #49 selesai: **Phase 4 tutup**, lanjut ke **Phase 5 — Employee Mobile** (satu-satunya
