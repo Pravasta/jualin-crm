@@ -117,6 +117,9 @@ Bertambah seiring fitur. Setiap kode baru dicatat di sini.
 | 422 | `invalid_activity_type` | Client mengirim tipe activity sistem (`lead_created`, `status_changed`, dst.) ke `POST /v1/leads/{id}/activities` (issue #21) |
 | 409 | `membership_has_open_leads` | Penonaktifan membership ditolak karena masih ada lead terbuka; body memuat `open_lead_count` (issue #22) |
 | 409 | `lead_already_converted` | `POST /v1/leads/{id}/convert` pada lead yang sudah pernah dikonversi — ditegakkan `uq_customers_org_lead` (issue #23) |
+| 401 | `invalid_api_key` | Kredensial `jln_*` tidak dikenal, sudah direvoke, atau kedaluwarsa — ketiganya pesan yang sama (issue #47) |
+| 403 | `insufficient_scope` | Principal `api_key` mencoba aksi di luar scope-nya — termasuk mengirim `assigned_to_membership_id` ke `POST /v1/leads` (issue #47) |
+| 413 | `payload_too_large` | Body `POST /v1/leads` jalur API key melebihi 64 KB (issue #47) |
 
 > `invalid_activity_type` dan `membership_has_open_leads` seharusnya masuk katalog ini saat issue #21
 > dan #22 selesai ("setiap kode baru dicatat di sini") — luput saat itu, ditambahkan di sini saat

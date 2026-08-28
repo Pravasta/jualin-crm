@@ -29,7 +29,13 @@ type Lead struct {
 	Source                 string
 	AssignedToMembershipID *uuid.UUID
 
-	RawPayload     []byte
+	RawPayload []byte
+	// SourceAPIKeyID is set only for a lead created through the public
+	// API (Phase 4 #47) — nil for every other source, including a
+	// dashboard lead whose Source happens to equal "api" from a stale
+	// integration record (freeze 8.4: leads.source accepted 'api' since
+	// 0003, this column arrived later in 0005).
+	SourceAPIKeyID *uuid.UUID
 	IdempotencyKey *string
 	Version        int
 
@@ -53,6 +59,7 @@ type CreateInput struct {
 	AssignedToMembershipID *uuid.UUID
 	CreatedByMembershipID  *uuid.UUID
 	RawPayload             []byte
+	SourceAPIKeyID         *uuid.UUID
 	IdempotencyKey         *string
 }
 
@@ -132,6 +139,18 @@ type CreateLeadInput struct {
 	Source                 string
 	AssignedToMembershipID *uuid.UUID
 	IdempotencyKey         *string
+	// RawPayload is the request body exactly as received — populated
+	// only by the public API handler (Phase 4 #47, TD §5), nil for the
+	// dashboard's structured-field create. Deliberately NOT paired with
+	// a SourceAPIKeyID field here even though TD §5's literal delta list
+	// names one: source_api_key_id is derived by Usecase.Create directly
+	// from t.APIKeyID (the already-authenticated principal), never from
+	// caller input — the same reasoning Rule #5 applies to
+	// organization_id. A field here would be a value nobody should ever
+	// set except the usecase itself, which is exactly the shape of bug
+	// Rule #5 exists to prevent. Documented as a deliberate TD deviation
+	// in notes.md's "## #47" section.
+	RawPayload []byte
 }
 
 // UpdateLeadInput is Usecase.Update's argument — same

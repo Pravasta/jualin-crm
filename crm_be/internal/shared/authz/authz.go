@@ -15,6 +15,7 @@ package authz
 
 import (
 	"net/http"
+	"slices"
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
@@ -206,15 +207,59 @@ var permissions = map[tenant.Role]map[Action]bool{
 	},
 }
 
-// Require reports whether t.Role may perform action, returning a
-// generic 403 forbidden (already catalogued in api.md) when it may not.
+// apiKeyScopeFor is the ONLY action principal api_key may ever perform,
+// and the ONLY scope value that lets it (Phase 4 #47, TD §4 — keputusan
+// D1). Every Action other than the ones listed here is denied because
+// it is ABSENT from this map — not because someone remembered to write
+// an exception for it. Rule #24 requires the penegakan live in a layer
+// every caller passes through, not per handler: this map IS that layer.
+// Extending what an API key can do means adding a row here, not
+// auditing every handler in the codebase.
+var apiKeyScopeFor = map[Action]string{
+	ActionLeadCreate: "leads:write",
+}
+
+// Require reports whether t may perform action, returning a 403
+// (already catalogued in api.md) when it may not. Two principals, two
+// completely separate gates, chosen by t.PrincipalType — a
+// PrincipalAPIKey context has no Role at all, so it must never fall
+// through to permissions[""][action] and get an accidental answer
+// either way; it is checked against apiKeyScopeFor and t.Scopes
+// instead, and never touches the role-based map below.
 func Require(t tenant.Context, action Action) error {
+	if t.PrincipalType == tenant.PrincipalAPIKey {
+		scope, ok := apiKeyScopeFor[action]
+		if !ok || !slices.Contains(t.Scopes, scope) {
+			return InsufficientScopeError()
+		}
+		return nil
+	}
 	if permissions[t.Role][action] {
 		return nil
 	}
+	return forbiddenError()
+}
+
+func forbiddenError() error {
 	return &httpx.DomainError{
 		Status:  http.StatusForbidden,
 		Code:    "forbidden",
 		Message: "Role Anda tidak mengizinkan aksi ini.",
+	}
+}
+
+// InsufficientScopeError is exported because internal/lead needs the
+// EXACT same code for one business rule Require itself never sees: an
+// API key sending assigned_to_membership_id is syntactically valid but
+// semantically impossible (no external system can know a membership
+// id), so lead.Usecase.Create checks it directly rather than routing it
+// through an Action. Reusing this constructor keeps that check and
+// Require's own scope denial indistinguishable to a caller, which is
+// the point — both are "this credential's scope doesn't cover this".
+func InsufficientScopeError() error {
+	return &httpx.DomainError{
+		Status:  http.StatusForbidden,
+		Code:    "insufficient_scope",
+		Message: "Kredensial ini tidak memiliki scope untuk aksi ini.",
 	}
 }

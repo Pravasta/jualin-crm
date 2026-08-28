@@ -30,6 +30,7 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/logger"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/mailer"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/ratelimit"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/task"
 )
 
@@ -115,8 +116,18 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	invitationUsecase := invitation.NewUsecase(newInvitationStore(pool), mail, log, cfg.AppBaseURL)
 	invitation.NewHandler(invitationUsecase).RegisterRoutes(r, authMW, optionalAuthMW)
 
+	// apikey is wired here, ahead of lead, because lead's public create
+	// route (below) needs apikeyUsecase to build its own middleware —
+	// apikeyUsecase.ResolveAPIKey structurally satisfies
+	// authn.APIKeyResolver (Phase 4 #47, TD §3). The management routes
+	// (create/list/revoke as principal user) are registered later,
+	// alongside every other domain's own handler.
+	apikeyUsecase := apikey.NewUsecase(newAPIKeyStore(pool))
+	publicLeadCreateMW := authn.MiddlewareWithAPIKey(authUsecase, apikeyUsecase)
+
 	leadUsecase := lead.NewUsecase(newLeadStore(pool))
-	lead.NewHandler(leadUsecase).RegisterRoutes(r, authMW)
+	leadRateLimiter := ratelimit.NewFixedWindow(cfg.PublicAPIRateLimit, time.Minute)
+	lead.NewHandler(leadUsecase, leadRateLimiter).RegisterRoutes(r, authMW, publicLeadCreateMW)
 
 	activityUsecase := activity.NewUsecase(newActivityStore(pool))
 	activity.NewHandler(activityUsecase).RegisterRoutes(r, authMW)
@@ -130,10 +141,9 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	customerUsecase := customer.NewUsecase(newCustomerStore(pool))
 	customer.NewHandler(customerUsecase).RegisterRoutes(r, authMW)
 
-	// apikey (Phase 4 #46) is management-only here — create/list/revoke as
-	// principal user. Authenticating WITH one of these keys, and the
-	// public POST /v1/leads it unlocks, are #47's wiring, not this call.
-	apikeyUsecase := apikey.NewUsecase(newAPIKeyStore(pool))
+	// apikey's own management routes (create/list/revoke as principal
+	// user) — apikeyUsecase itself was built earlier, alongside lead's
+	// wiring, which is the only thing that needed it ahead of this point.
 	apikey.NewHandler(apikeyUsecase).RegisterRoutes(r, authMW)
 
 	// metrics is read-only (no Store/InTx, TD phase 3 §2) — its

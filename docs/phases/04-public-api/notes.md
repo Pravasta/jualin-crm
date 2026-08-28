@@ -108,3 +108,144 @@ atas.
 Autentikasi **dengan** kredensial `jln_*` (middleware, cabang `PrincipalAPIKey` di `authz.Require`,
 `POST /v1/leads` jalur API key, rate limit, retensi `idempotency_key`) — seluruhnya #47. Layar dashboard
 — #48. Halaman dokumentasi — #49.
+
+---
+
+## #47 — Autentikasi API key, `POST /v1/leads` publik, rate limit, idempotency
+
+Risiko keamanan tertinggi Phase 4: satu peta otorisasi salah dan kredensial yang bocor dari website
+statis pelanggan bisa berubah menjadi pengambilalihan organization. `internal/apikey`'s `FindByKeyID`,
+`verifySecret`, `parseCredential` (dibangun #46 tanpa pemanggil) disambungkan di sini lewat
+`apikey.Usecase.ResolveAPIKey`.
+
+### Penyimpangan TD yang disengaja
+
+**TD §5 menulis `CreateLeadInput + SourceAPIKeyID *uuid.UUID`. Field itu TIDAK ditambahkan.**
+`source_api_key_id` diturunkan `lead.Usecase.Create` langsung dari `t.APIKeyID` (tenant.Context yang
+sudah terautentikasi), bukan dari argumen input — field di `CreateLeadInput` akan menjadi celah yang
+sama seperti "organization_id dari body" (Aturan #5): kalau pernah ada, sesuatu di masa depan bisa
+lupa dan mempercayainya dari tempat yang salah alih-alih dari principal. `RawPayload []byte` tetap
+ditambahkan persis seperti TD — itu memang harus datang dari handler (satu-satunya yang punya akses ke
+body mentah), bukan dari `t`.
+
+### Keputusan implementasi
+
+- **`authz.Require` bercabang di `t.PrincipalType`, bukan di `t.Role`** — principal `api_key` dicek
+  terhadap peta `apiKeyScopeFor` (satu baris: `lead.create → leads:write`) dan **tidak pernah**
+  menyentuh peta `permissions[role]`. `InsufficientScopeError()` diekspor supaya `internal/lead` bisa
+  memakai kode yang identik untuk satu aturan bisnis yang tidak lewat `authz.Require` sama sekali
+  (penolakan `assigned_to_membership_id`) — pola yang sama seperti `customer.alreadyConvertedError`
+  meniru kode `lead`.
+- **Test tabel-atas-seluruh-`Action`** (`TestRequire_APIKeyPrincipal_OnlyLeadCreateAllowed`) mengulang
+  26 `Action` yang ada, bukan daftar tulis tangan — action baru phase berikutnya otomatis ikut tertutup.
+  **Ketemu gap nyata sambil menulisnya**: tiga `Action` `api_key.*` yang ditambahkan #46 **tidak pernah**
+  dimasukkan ke tabel per-role `TestRequire` yang sudah ada — dibackfill di issue ini sebelum menulis
+  test barunya, supaya test lama benar-benar mewakili matriks lengkap.
+- **`ResolveAPIKey`**: `parseCredential` → `FindByKeyID` → cek `RevokedAt`/`ExpiresAt` → `verifySecret`.
+  **Keempat jalur gagal mengembalikan `invalidAPIKeyError()` yang identik** — dibuktikan dua kali: unit
+  test (`internal/apikey`) dan HTTP end-to-end (`cmd/api`), membandingkan string pesan persis, bukan
+  hanya kode.
+- **`MiddlewareWithAPIKey` dipasang HANYA pada `POST /v1/leads`.** Route lain (`GET /v1/leads`, dan
+  semua domain lain) tetap `authn.Middleware` yang tidak mengenal `jln_*` sama sekali. **Konsekuensi yang
+  ditemukan saat menulis test, bukan direncanakan sejak awal**: ini berarti API key yang dipakai di route
+  lain gagal di lapisan **autentikasi** (`401 authentication_required` — parsing JWT gagal karena
+  `jln_live_...` bukan JWT), **bukan** di lapisan otorisasi (`403`).
+- **Deviasi dari teks acceptance criteria issue ini sendiri.** Checklist issue #47 menulis:
+  *"GET /v1/leads, GET /v1/memberships, POST /v1/invitations, POST /v1/api-keys lewat API key → 403"*.
+  Implementasi nyata (dan TD §3 sendiri) menghasilkan **401**, bukan 403 — TD §3 eksplisit menyebut
+  alasannya: *"an endpoint that never wires this middleware in cannot be reached by an API key no matter
+  what authz.Require would otherwise have allowed"*. Routing-level exclusion adalah bentuk Aturan #24
+  yang **lebih kuat** daripada authz mengembalikan 403: memasang pengenalan API key di setiap route
+  hanya demi kode status yang berbeda kosmetik akan membuat setiap route menanggung biaya lookup
+  tambahan untuk kredensial yang seharusnya sudah gagal sebelum sampai sana. Teks acceptance criteria
+  yang ditulis sesi lalu tidak konsisten dengan TD yang ditulis di sesi yang sama — diperbaiki di sini,
+  bukan diikuti secara harfiah. Diuji langsung: `TestPublicLeadAPI_CannotReachAnyOtherEndpoint`
+  (`cmd/api/public_lead_api_test.go`) membuktikan keempat endpoint mengembalikan `401
+  authentication_required`, dan verifikasi manual (`curl`) mengonfirmasi hal yang sama.
+- **Rate limit dievaluasi paling awal di handler**, sebelum body sama sekali dibaca — supaya header
+  `X-RateLimit-*` benar-benar terpasang di **setiap** response jalur API key (termasuk `413`, `403`,
+  validasi gagal), bukan hanya jalur sukses. Kunci limiter `publiclead:key:<api_key_id>`, bukan IP.
+- **Body dibaca manual (`io.ReadAll` + `http.MaxBytesReader`) hanya untuk jalur API key** — jalur
+  dashboard tetap `c.ShouldBindJSON` seperti sebelumnya, tidak disentuh. `raw_payload` disimpan dari
+  body mentah sebelum di-`json.Unmarshal`, jadi field tak dikenal (`utm_source`, dst.) tersimpan apa
+  adanya — dibuktikan lewat `curl` sungguhan (lihat di bawah).
+- **Retensi `idempotency_key` sinkron, bukan goroutine** — TD §7 hanya mensyaratkan "tidak memblokir"
+  dalam arti tidak menjadikan tabel *write hotspot*, bukan mewajibkan dispatch asinkron. Satu `UPDATE`
+  terindeks per organization, di-throttle 1×/jam, error dibuang (tidak ada logger di paket `lead` untuk
+  mencatatnya, dan TD eksplisit: kegagalan sweep tidak boleh menggagalkan lead yang sedang dibuat).
+- **`last_used_at` juga sinkron** (bukan goroutine terpisah) — sama alasannya, throttle 5 menit/kunci.
+
+### Bug nyata ditemukan lewat test
+
+1. **`leadJSON` tidak pernah menyertakan `source_api_key_id`.** Test HTTP pertama untuk header rate-limit
+   gagal karena field itu `<nil>` di response meski kolom di database sudah terisi benar — `handler_http.go`'s
+   JSON builder ketinggalan menambahkannya. Diperbaiki sebelum lanjut ke test berikutnya; ini acceptance
+   criterion eksplisit ("`source_api_key_id` terisi"), bukan detail kosmetik.
+2. **Test fixture salah, bukan kode** — draf pertama beberapa test HTTP (`internal/lead` dan `cmd/api`)
+   memakai `uuid.Must(uuid.NewV7())` acak sebagai `t.APIKeyID`, menabrak `fk_leads_source_api_key`
+   (composite FK sungguhan dari migration `0005`) → `500`, bukan `201`. Sama persis kelas bug yang
+   ditemukan di #46 untuk `fk_api_keys_created_by`. Diperbaiki dengan menyeed baris `api_keys` sungguhan
+   (`seedAPIKey` di `internal/lead`, `seedRealAPIKey` di `cmd/api`) sebelum memakai id-nya.
+
+### Verifikasi manual end-to-end
+
+`docker compose up -d postgres` → `migrate up` (sudah di 0005, tidak ada migration baru di issue ini) →
+jalankan `crm_be` lokal dengan `PUBLIC_API_RATE_LIMIT=5` (sengaja kecil untuk membuktikan `429`) →
+register org "Toko PublicLead47" → verifikasi → login → `POST /v1/api-keys` → **kredensial dipakai dari
+proses `curl` terpisah** (mensimulasikan "mesin di luar jaringan"):
+
+```
+POST /v1/leads  Authorization: Bearer jln_live_TG0u..._HaNo1QHI_qY3pxsz7s
+  {"name":"Budi dari Website","email":"budi@example.com","utm_source":"facebook"}
+→ 201, X-Ratelimit-Limit: 5, X-Ratelimit-Remaining: 4
+  data.source = "api", data.source_api_key_id = <id kunci>
+
+GET /v1/leads (via cookie session Owner)
+→ lead di atas MUNCUL, source & source_api_key_id sama persis — dibuktikan lintas jalur
+
+5 request beruntun lewat kredensial yang sama:
+→ 201, 201, 201, 429 (Retry-After: 45, Remaining: 0), 429, 429
+  (permintaan pertama sudah memakai 1 dari kuota 5 — pas di batas, tidak lebih tidak kurang)
+
+DELETE /v1/api-keys/{id} (session Owner) → 204
+POST /v1/leads dengan kredensial yang sama (setelah jendela rate limit lewat, 61 detik)
+→ 401 invalid_api_key — seketika, tanpa jeda
+
+grep raw secret di file log server → 0 kecocokan, termasuk pada request yang GAGAL
+
+POST /v1/leads {"assigned_to_membership_id": "<membership Owner>"}
+→ 403 insufficient_scope
+
+POST /v1/leads dengan header Origin: https://toko-pelanggan.example
+→ 201 (request tetap diproses — CORS ditegakkan browser, bukan server), TANPA satu pun
+  header Access-Control-Allow-* di response
+```
+
+### Test
+
+- `internal/shared/ratelimit`: `Take` (batas tepat, `Remaining`, `ResetAt` tetap dalam satu jendela)
+- `internal/shared/authz`: tabel semua `Action` (26) untuk `PrincipalAPIKey`; scope kosong/salah; role
+  Owner di context `PrincipalAPIKey` tetap ditolak (`Require` tidak pernah membaca `t.Role` untuk
+  principal ini)
+- `internal/apikey`: `ResolveAPIKey` sukses; empat skenario gagal → pesan identik; throttle
+  `last_used_at` (1 panggilan `TouchLastUsed` dari 2 resolve dalam jendela); `TouchLastUsed` repository
+  menulis kolom sungguhan
+- `internal/lead`: unit — `assigned_to_membership_id` ditolak, `source` dipaksa `api`, `raw_payload`
+  tersimpan, cleanup di-throttle per organization, cleanup **tidak pernah** terpicu untuk principal user.
+  HTTP (fake `authn.APIKeyResolver`, lihat doc comment `fakeAPIKeyResolver`) — header rate-limit di
+  sukses **dan** gagal, `413` sebelum parsing, `raw_payload` verbatim lewat query database langsung,
+  `429` **tepat** di batas di bawah N request bersamaan, idempotent replay tepat 1 lead di bawah N
+  request bersamaan lewat jalur API key (mengulang test #20, jalur kredensial baru)
+- `cmd/api` (`public_lead_api_test.go`, router produksi penuh + `apikey.Usecase` sungguhan): create real
+  key → lead `source=api`; revoke → `401` seketika; tiga penyebab gagal → pesan identik; empat endpoint
+  lain → `401 authentication_required` (bukan 403, lihat deviasi di atas); CORS origin pelanggan → tanpa
+  header; raw secret & isi payload tidak pernah di buffer log, termasuk pada request gagal
+
+Tidak ada kasus baru di `tenant_isolation_test.go` — `POST /v1/leads` tidak menerima `:id` tenant lain;
+`t.OrganizationID` datang dari hasil lookup kunci, tidak pernah dari input, sehingga tidak ada permukaan
+untuk kebocoran lintas-tenant di endpoint ini secara struktural.
+
+### Utang ditutup
+
+Retensi `idempotency_key` (dicatat sejak #20, TD phase 2 §7/§19) — **selesai**. `docs/STATUS.md` bagian
+Utang Teknis diperbarui.

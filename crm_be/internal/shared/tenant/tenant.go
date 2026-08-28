@@ -47,5 +47,11 @@ type Context struct {
 	UserID         *uuid.UUID
 	Role           Role
 	APIKeyID       *uuid.UUID
-	RequestID      string
+	// Scopes is only ever populated when PrincipalType == PrincipalAPIKey
+	// (Phase 4 #47, TD §4) — a role-based principal is gated by Role
+	// against authz's permissions map; a scope-based principal has no
+	// role at all and is gated by this slice against authz's separate
+	// apiKeyScopeFor map instead. The two gates never mix.
+	Scopes    []string
+	RequestID string
 }

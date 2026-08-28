@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,12 @@ import (
 const (
 	defaultPerPage = 25
 	maxPerPage     = 100
+
+	// idempotencyCleanupThrottleWindow is TD phase 4 §7's "paling sering
+	// sekali per organization per jam" — same in-memory throttle shape
+	// as apikey.Usecase's last_used_at (TD §10), just a longer window
+	// since this sweep is cheaper to skip.
+	idempotencyCleanupThrottleWindow = time.Hour
 )
 
 var validSources = map[string]bool{"manual": true, "api": true, "form": true, "webhook": true}
@@ -28,10 +35,16 @@ var validSources = map[string]bool{"manual": true, "api": true, "form": true, "w
 // email.
 type Usecase struct {
 	store Store
+
+	// idempotencyCleanupThrottle is an in-memory map[organization_id]
+	// last-sweep-time — no eviction, same accepted debt as
+	// ratelimit.FixedWindow's bucket map (tracked since #9).
+	idempotencyCleanupMu       sync.Mutex
+	idempotencyCleanupThrottle map[uuid.UUID]time.Time
 }
 
 func NewUsecase(store Store) *Usecase {
-	return &Usecase{store: store}
+	return &Usecase{store: store, idempotencyCleanupThrottle: map[uuid.UUID]time.Time{}}
 }
 
 // Create validates and normalizes in, then persists it. isNew is false
@@ -42,6 +55,20 @@ func NewUsecase(store Store) *Usecase {
 func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateLeadInput) (result *Lead, isNew bool, err error) {
 	if err := authz.Require(t, authz.ActionLeadCreate); err != nil {
 		return nil, false, err
+	}
+
+	// Public API jalur (Phase 4 #47, TD §5): source is never trusted
+	// from an external caller, and assignment can never be REQUESTED by
+	// one — an external system has no way to know a membership id, so
+	// the field's mere presence can only mean a misunderstanding, not a
+	// legitimate request. Rejected here, not silently dropped, so the
+	// integrator's own client sees its assignment did NOT take effect.
+	if t.PrincipalType == tenant.PrincipalAPIKey {
+		if in.AssignedToMembershipID != nil {
+			return nil, false, insufficientScopeError()
+		}
+		in.Source = "api"
+		u.maybeCleanupExpiredIdempotencyKeys(ctx, t)
 	}
 
 	if in.Name == "" {
@@ -68,6 +95,12 @@ func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateLeadInp
 		AssignedToMembershipID: in.AssignedToMembershipID,
 		CreatedByMembershipID:  t.MembershipID,
 		IdempotencyKey:         in.IdempotencyKey,
+		RawPayload:             in.RawPayload,
+		// SourceAPIKeyID comes from the authenticated principal, never
+		// from in — nil automatically for every user-principal create,
+		// since t.APIKeyID is only ever set on a PrincipalAPIKey
+		// tenant.Context (apikey.Usecase.ResolveAPIKey).
+		SourceAPIKeyID: t.APIKeyID,
 	}
 
 	var created *Lead
@@ -385,4 +418,43 @@ func invalidStatusTransitionError() error {
 		Code:    "invalid_status_transition",
 		Message: "Transisi status tidak diizinkan.",
 	}
+}
+
+// insufficientScopeError mirrors authz.InsufficientScopeError's exact
+// code and status locally rather than calling it — the same duplication
+// customer.alreadyConvertedError already accepts for reusing lead's own
+// codes across a package boundary. This is a business rule outside
+// authz.Require's own gate entirely (an API key sending
+// assigned_to_membership_id is syntactically valid, not an action
+// authz.Action enumerates), but Rule #24's spirit says a caller should
+// see the identical shape either way.
+func insufficientScopeError() error {
+	return &httpx.DomainError{
+		Status:  http.StatusForbidden,
+		Code:    "insufficient_scope",
+		Message: "Kredensial API tidak memiliki scope untuk field ini.",
+	}
+}
+
+// maybeCleanupExpiredIdempotencyKeys sweeps t.OrganizationID's
+// idempotency_key column for entries older than 48h (TD §7, keputusan
+// D3 — closing the retention debt Phase 2 TD §19 recorded). Throttled
+// to at most once per organization per hour; runs synchronously but
+// cheap (one indexed UPDATE), and its error is deliberately discarded —
+// TD §7 is explicit that a failed sweep must never fail the lead
+// actually being created, and this package has never taken a logger
+// dependency (unlike invitation, which sends email).
+func (u *Usecase) maybeCleanupExpiredIdempotencyKeys(ctx context.Context, t tenant.Context) {
+	u.idempotencyCleanupMu.Lock()
+	last, seen := u.idempotencyCleanupThrottle[t.OrganizationID]
+	due := !seen || time.Since(last) >= idempotencyCleanupThrottleWindow
+	if due {
+		u.idempotencyCleanupThrottle[t.OrganizationID] = time.Now()
+	}
+	u.idempotencyCleanupMu.Unlock()
+
+	if !due {
+		return
+	}
+	_ = u.store.Repos().Lead.CleanupExpiredIdempotencyKeys(ctx, t)
 }

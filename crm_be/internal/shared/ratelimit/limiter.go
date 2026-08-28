@@ -43,7 +43,28 @@ func NewFixedWindow(limit int, window time.Duration) *FixedWindow {
 	}
 }
 
+// Allow is Take's boolean-only shortcut — every Phase 1 call site
+// (register, resend, forgot-password) still only needs yes/no.
 func (f *FixedWindow) Allow(key string) bool {
+	return f.Take(key).Allowed
+}
+
+// Result is Take's richer answer — enough to populate the
+// X-RateLimit-* response headers Phase 4's public API must send on
+// every request (TD phase 4 §6), which Allow's bare bool never could.
+type Result struct {
+	Allowed   bool
+	Limit     int
+	Remaining int
+	ResetAt   time.Time
+}
+
+// Take is Allow's superset, added in Phase 4 (TD §6) once a second real
+// caller needed more than yes/no (Rule #28) — same fixed-window bucket,
+// same locking, just a richer return value. Allow is defined in terms of
+// this, not the other way around, so there is exactly one place the
+// bucket logic lives.
+func (f *FixedWindow) Take(key string) Result {
 	now := time.Now()
 
 	f.mu.Lock()
@@ -51,13 +72,14 @@ func (f *FixedWindow) Allow(key string) bool {
 
 	b, ok := f.buckets[key]
 	if !ok || now.Sub(b.windowStart) >= f.window {
-		f.buckets[key] = &bucket{windowStart: now, count: 1}
-		return true
+		b = &bucket{windowStart: now}
+		f.buckets[key] = b
 	}
+	resetAt := b.windowStart.Add(f.window)
 
 	if b.count >= f.limit {
-		return false
+		return Result{Allowed: false, Limit: f.limit, Remaining: 0, ResetAt: resetAt}
 	}
 	b.count++
-	return true
+	return Result{Allowed: true, Limit: f.limit, Remaining: f.limit - b.count, ResetAt: resetAt}
 }

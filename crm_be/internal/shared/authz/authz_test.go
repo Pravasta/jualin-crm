@@ -38,6 +38,9 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleOwner, authz.ActionCustomerUpdate, true},
 		{tenant.RoleOwner, authz.ActionCustomerDelete, true},
 		{tenant.RoleOwner, authz.ActionMetricsRead, true},
+		{tenant.RoleOwner, authz.ActionAPIKeyCreate, true},
+		{tenant.RoleOwner, authz.ActionAPIKeyList, true},
+		{tenant.RoleOwner, authz.ActionAPIKeyRevoke, true},
 
 		{tenant.RoleAdmin, authz.ActionMembershipList, true},
 		{tenant.RoleAdmin, authz.ActionMembershipUpdateRole, true},
@@ -62,6 +65,9 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleAdmin, authz.ActionCustomerUpdate, true},
 		{tenant.RoleAdmin, authz.ActionCustomerDelete, true},
 		{tenant.RoleAdmin, authz.ActionMetricsRead, true},
+		{tenant.RoleAdmin, authz.ActionAPIKeyCreate, true},
+		{tenant.RoleAdmin, authz.ActionAPIKeyList, true},
+		{tenant.RoleAdmin, authz.ActionAPIKeyRevoke, true},
 
 		{tenant.RoleManager, authz.ActionMembershipList, true},
 		{tenant.RoleManager, authz.ActionMembershipUpdateRole, false},
@@ -86,6 +92,9 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleManager, authz.ActionCustomerUpdate, false},
 		{tenant.RoleManager, authz.ActionCustomerDelete, false},
 		{tenant.RoleManager, authz.ActionMetricsRead, true},
+		{tenant.RoleManager, authz.ActionAPIKeyCreate, false}, // Manager gets NO access at all, not read-only
+		{tenant.RoleManager, authz.ActionAPIKeyList, false},
+		{tenant.RoleManager, authz.ActionAPIKeyRevoke, false},
 
 		{tenant.RoleEmployee, authz.ActionMembershipList, false},
 		{tenant.RoleEmployee, authz.ActionMembershipUpdateRole, false},
@@ -110,6 +119,9 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleEmployee, authz.ActionCustomerUpdate, false},
 		{tenant.RoleEmployee, authz.ActionCustomerDelete, false},
 		{tenant.RoleEmployee, authz.ActionMetricsRead, false}, // dashboard isn't Employee's tool
+		{tenant.RoleEmployee, authz.ActionAPIKeyCreate, false},
+		{tenant.RoleEmployee, authz.ActionAPIKeyList, false},
+		{tenant.RoleEmployee, authz.ActionAPIKeyRevoke, false},
 	}
 
 	for _, c := range cases {
@@ -125,5 +137,93 @@ func TestRequire(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// allActions is every Action this package currently defines. Hand-
+// maintained the same way TestRequire's per-role cases above already
+// are (Go has no reflection-free way to enumerate a package's own
+// constants) — a future phase adding a new Action must add it here too,
+// or TestRequire_APIKeyPrincipal_OnlyLeadCreateAllowed silently stops
+// covering it. That's a real gap, not a hypothetical one: #46 added
+// three ActionAPIKey* constants without adding them to TestRequire's own
+// cases above — found and backfilled while writing this test.
+var allActions = []authz.Action{
+	authz.ActionMembershipList, authz.ActionMembershipUpdateRole, authz.ActionMembershipDeactivate,
+	authz.ActionInvitationCreate, authz.ActionInvitationList, authz.ActionInvitationRevoke,
+	authz.ActionLeadCreate, authz.ActionLeadRead, authz.ActionLeadUpdate, authz.ActionLeadDelete,
+	authz.ActionLeadAssign, authz.ActionLeadConvert,
+	authz.ActionActivityCreate, authz.ActionActivityList,
+	authz.ActionTaskCreate, authz.ActionTaskRead, authz.ActionTaskUpdate, authz.ActionTaskComplete, authz.ActionTaskDelete,
+	authz.ActionCustomerRead, authz.ActionCustomerUpdate, authz.ActionCustomerDelete,
+	authz.ActionMetricsRead,
+	authz.ActionAPIKeyCreate, authz.ActionAPIKeyList, authz.ActionAPIKeyRevoke,
+}
+
+// TestRequire_APIKeyPrincipal_OnlyLeadCreateAllowed is issue #47's
+// acceptance criterion, verbatim: "tabel atas seluruh authz.Action —
+// setiap action ≠ lead.create ditolak untuk PrincipalAPIKey". Iterating
+// allActions rather than hand-picking a few means a new Action added in
+// a later phase is denied by default the moment it's added to that
+// list above — the whole point of TD §4's design (deny because ABSENT
+// from apiKeyScopeFor, not because someone remembered an exception).
+func TestRequire_APIKeyPrincipal_OnlyLeadCreateAllowed(t *testing.T) {
+	apiKeyCtx := tenant.Context{PrincipalType: tenant.PrincipalAPIKey, Scopes: []string{"leads:write"}}
+
+	for _, action := range allActions {
+		t.Run(string(action), func(t *testing.T) {
+			err := authz.Require(apiKeyCtx, action)
+			if action == authz.ActionLeadCreate {
+				if err != nil {
+					t.Errorf("expected lead.create to be allowed for an api_key with leads:write, got: %v", err)
+				}
+				return
+			}
+			var derr *httpx.DomainError
+			if !errors.As(err, &derr) || derr.Code != "insufficient_scope" {
+				t.Errorf("expected insufficient_scope for %s, got: %v", action, err)
+			}
+		})
+	}
+}
+
+// TestRequire_APIKeyPrincipal_WrongOrMissingScope proves the scope
+// check is real — a key that exists but wasn't granted leads:write
+// (or was granted nothing) is denied even the one action apiKeyScopeFor
+// names.
+func TestRequire_APIKeyPrincipal_WrongOrMissingScope(t *testing.T) {
+	cases := []struct {
+		name   string
+		scopes []string
+	}{
+		{"nil scopes", nil},
+		{"empty scopes", []string{}},
+		{"wrong scope", []string{"leads:read"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := authz.Require(tenant.Context{PrincipalType: tenant.PrincipalAPIKey, Scopes: c.scopes}, authz.ActionLeadCreate)
+			var derr *httpx.DomainError
+			if !errors.As(err, &derr) || derr.Code != "insufficient_scope" {
+				t.Errorf("expected insufficient_scope, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestRequire_APIKeyPrincipal_NeverConsultsRoleMap is the structural
+// half of Rule #24: an api_key context with Role left at its zero
+// value (as it always is — apikey.Usecase.ResolveAPIKey never sets it)
+// must be denied for reasons entirely separate from "this role can't do
+// this". Setting Role to a real role that WOULD be allowed under the
+// role-based map (Owner can do everything) and confirming Require still
+// denies it proves PrincipalAPIKey routes to apiKeyScopeFor and never
+// silently falls through to permissions[t.Role][action].
+func TestRequire_APIKeyPrincipal_NeverConsultsRoleMap(t *testing.T) {
+	ctx := tenant.Context{PrincipalType: tenant.PrincipalAPIKey, Role: tenant.RoleOwner, Scopes: nil}
+	err := authz.Require(ctx, authz.ActionMembershipList)
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "insufficient_scope" {
+		t.Errorf("expected insufficient_scope even though Role=owner would allow membership.list, got: %v", err)
 	}
 }

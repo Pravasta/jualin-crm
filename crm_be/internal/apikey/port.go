@@ -25,6 +25,15 @@ type Repository interface {
 	// hit) and exists now because #47's authn.APIKeyResolver needs the
 	// exact same interface, not a reshaped one added mid-phase.
 	FindByKeyID(ctx context.Context, keyID string) (*APIKey, error)
+
+	// TouchLastUsed writes last_used_at = now() for id. No tenant.Context
+	// either, for the same reason FindByKeyID has none — by the time
+	// this is called, id already came from a successful FindByKeyID, so
+	// scoping to an organization would be redundant, not safer. Called
+	// from Usecase.ResolveAPIKey (#47, TD §10), throttled to at most
+	// once per 5 minutes per key — ADR-004 aturan #3 explicitly warns
+	// against writing this on every request.
+	TouchLastUsed(ctx context.Context, id uuid.UUID) error
 }
 
 // AuditRepository is declared here (the consumer) per ADR-011 —

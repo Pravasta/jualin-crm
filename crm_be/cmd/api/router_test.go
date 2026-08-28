@@ -24,9 +24,10 @@ func testLogger() *slog.Logger {
 // database directly.
 func testConfig() *config.Config {
 	return &config.Config{
-		AppEnv:       "development",
-		MailProvider: "log",
-		AppBaseURL:   "http://localhost:3000",
+		AppEnv:             "development",
+		MailProvider:       "log",
+		AppBaseURL:         "http://localhost:3000",
+		PublicAPIRateLimit: 100, // see isolationTestConfig's comment (Phase 4 #47)
 	}
 }
 

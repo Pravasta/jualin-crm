@@ -7,8 +7,13 @@ package apikey_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -20,7 +25,8 @@ import (
 // --- fakes ---
 
 type fakeAPIKeyRepo struct {
-	byID map[uuid.UUID]*apikey.APIKey
+	byID            map[uuid.UUID]*apikey.APIKey
+	touchedLastUsed []uuid.UUID
 }
 
 func newFakeAPIKeyRepo() *fakeAPIKeyRepo {
@@ -70,6 +76,15 @@ func (f *fakeAPIKeyRepo) FindByKeyID(_ context.Context, keyID string) (*apikey.A
 		}
 	}
 	return nil, httpx.ErrNotFound
+}
+
+func (f *fakeAPIKeyRepo) TouchLastUsed(_ context.Context, id uuid.UUID) error {
+	f.touchedLastUsed = append(f.touchedLastUsed, id)
+	if k, ok := f.byID[id]; ok {
+		now := k.CreatedAt
+		k.LastUsedAt = &now
+	}
+	return nil
 }
 
 type recordedAudit struct {
@@ -323,5 +338,122 @@ func TestUnit_Revoke_Twice_StaysSuccessful(t *testing.T) {
 	}
 	if revokedCount != 2 {
 		t.Fatalf("expected 2 api_key.revoked audit entries (one per call, both succeeded), got %d in %+v", revokedCount, store.audit.calls)
+	}
+}
+
+// --- ResolveAPIKey ---
+
+// testKeyID/testSecret mirror apikey's real 12/43-character format
+// (entity_test.go's TestGenerate_ProducesExpectedLengths locks the real
+// constants) without reaching into the package's unexported generate() —
+// this file stays package apikey_test, so it only ever exercises
+// ResolveAPIKey's public behavior, never its internals directly.
+const testKeyID = "abcdefghijkl"
+const testSecret = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 43 chars
+
+func testSecretHash(secret string) string {
+	sum := sha256.Sum256([]byte(secret))
+	return hex.EncodeToString(sum[:])
+}
+
+func seedResolvableKey(store *fakeStore, org uuid.UUID, scopes []string) *apikey.APIKey {
+	k := &apikey.APIKey{
+		ID: uuid.Must(uuid.NewV7()), OrganizationID: org,
+		KeyID: testKeyID, SecretHash: testSecretHash(testSecret), KeyPrefix: "jln_live_abcd",
+		Name: "Website", Scopes: scopes, CreatedAt: time.Now(),
+	}
+	store.repo.byID[k.ID] = k
+	return k
+}
+
+func TestUnit_ResolveAPIKey_Success(t *testing.T) {
+	store := newFakeStore()
+	u := apikey.NewUsecase(store)
+	org := uuid.Must(uuid.NewV7())
+	k := seedResolvableKey(store, org, []string{"leads:write"})
+
+	got, err := u.ResolveAPIKey(context.Background(), "jln_live_"+testKeyID+"_"+testSecret)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if got.OrganizationID != org {
+		t.Errorf("expected OrganizationID %s, got %s", org, got.OrganizationID)
+	}
+	if got.PrincipalType != tenant.PrincipalAPIKey {
+		t.Errorf("expected PrincipalType api_key, got %q", got.PrincipalType)
+	}
+	if got.APIKeyID == nil || *got.APIKeyID != k.ID {
+		t.Errorf("expected APIKeyID %s, got %v", k.ID, got.APIKeyID)
+	}
+	if len(got.Scopes) != 1 || got.Scopes[0] != "leads:write" {
+		t.Errorf("expected scopes [leads:write], got %v", got.Scopes)
+	}
+	if got.MembershipID != nil || got.UserID != nil || got.Role != "" {
+		t.Errorf("expected no person-identity fields set for an api_key context, got %+v", got)
+	}
+}
+
+// TestUnit_ResolveAPIKey_EveryFailureReasonIsIdentical is the acceptance
+// criterion verbatim: key_id unknown, secret wrong, and key revoked
+// must produce the SAME 401 — distinguishing them would tell a guesser
+// which key_id ever existed (Rule #6's reasoning, applied to key_id
+// instead of a resource id).
+func TestUnit_ResolveAPIKey_EveryFailureReasonIsIdentical(t *testing.T) {
+	store := newFakeStore()
+	u := apikey.NewUsecase(store)
+	org := uuid.Must(uuid.NewV7())
+	revoked := seedResolvableKey(store, org, []string{"leads:write"})
+	now := time.Now()
+	revoked.RevokedAt = &now
+
+	valid := seedResolvableKey(store, org, []string{"leads:write"})
+	_ = valid
+
+	scenarios := map[string]string{
+		"malformed":    "not-a-jln-credential-at-all",
+		"unknown key":  "jln_live_zzzzzzzzzzzz_" + testSecret,
+		"wrong secret": "jln_live_" + testKeyID + "_" + strings.Repeat("z", 43),
+		"revoked key":  "jln_live_" + revoked.KeyID + "_" + testSecret,
+	}
+
+	var messages []string
+	for name, raw := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			_, err := u.ResolveAPIKey(context.Background(), raw)
+			var derr *httpx.DomainError
+			if !errors.As(err, &derr) || derr.Status != http.StatusUnauthorized || derr.Code != "invalid_api_key" {
+				t.Fatalf("expected 401 invalid_api_key, got: %v", err)
+			}
+			messages = append(messages, derr.Message)
+		})
+	}
+	for i := 1; i < len(messages); i++ {
+		if messages[i] != messages[0] {
+			t.Errorf("expected every failure message identical, got %q and %q", messages[0], messages[i])
+		}
+	}
+}
+
+// TestUnit_ResolveAPIKey_LastUsedThrottled proves the second resolve of
+// the SAME key within the 5-minute window does not write last_used_at
+// again (TD §10) — the fake repo records every TouchLastUsed call it
+// receives, so this counts them directly rather than inferring the
+// throttle from timing.
+func TestUnit_ResolveAPIKey_LastUsedThrottled(t *testing.T) {
+	store := newFakeStore()
+	u := apikey.NewUsecase(store)
+	org := uuid.Must(uuid.NewV7())
+	seedResolvableKey(store, org, []string{"leads:write"})
+	raw := "jln_live_" + testKeyID + "_" + testSecret
+
+	if _, err := u.ResolveAPIKey(context.Background(), raw); err != nil {
+		t.Fatalf("first resolve: %v", err)
+	}
+	if _, err := u.ResolveAPIKey(context.Background(), raw); err != nil {
+		t.Fatalf("second resolve: %v", err)
+	}
+
+	if len(store.repo.touchedLastUsed) != 1 {
+		t.Fatalf("expected exactly 1 TouchLastUsed call across 2 resolves within the throttle window, got %d", len(store.repo.touchedLastUsed))
 	}
 }
