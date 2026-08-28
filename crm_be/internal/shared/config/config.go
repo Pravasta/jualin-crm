@@ -67,6 +67,13 @@ type Config struct {
 	// than having it hidden as a code default; required non-empty in
 	// production below (Rule #36).
 	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:","`
+
+	// PublicAPIRateLimit is POST /v1/leads' per-api_key request budget
+	// (Phase 4 TD §6, keputusan D4) — requests per minute, fixed window.
+	// Not a measured number: it's two orders of magnitude above normal
+	// SMB traffic, exposed via env so it can be tuned once real
+	// integrators exist without a deploy.
+	PublicAPIRateLimit int `env:"PUBLIC_API_RATE_LIMIT" envDefault:"60"`
 }
 
 // Load parses environment variables into a Config and validates it.
@@ -109,6 +116,9 @@ func (c *Config) validate() error {
 	}
 	if c.AppEnv == "production" && len(c.CORSAllowedOrigins) == 0 {
 		return fmt.Errorf("config invalid: CORS_ALLOWED_ORIGINS must be set when APP_ENV=production")
+	}
+	if c.PublicAPIRateLimit <= 0 {
+		return fmt.Errorf("config invalid: PUBLIC_API_RATE_LIMIT must be positive, got %d", c.PublicAPIRateLimit)
 	}
 	return nil
 }

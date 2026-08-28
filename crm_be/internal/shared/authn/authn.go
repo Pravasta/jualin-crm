@@ -9,7 +9,9 @@
 package authn
 
 import (
+	"context"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -88,6 +90,81 @@ func OptionalMiddleware(parser ClaimsParser) gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// APIKeyResolver is declared here (the consumer) per ADR-011 —
+// *apikey.Usecase satisfies it structurally (its ResolveAPIKey method,
+// Phase 4 #47). This package never imports internal/apikey, the same
+// relationship ClaimsParser already has to internal/auth.
+type APIKeyResolver interface {
+	ResolveAPIKey(ctx context.Context, raw string) (tenant.Context, error)
+}
+
+// apiKeyPrefixes are the only two forms an API key credential can take
+// (ADR-004). Neither can ever collide with a JWT, which always starts
+// "eyJ" — the base64url encoding of `{"`.
+var apiKeyPrefixes = [...]string{"jln_live_", "jln_test_"}
+
+// MiddlewareWithAPIKey extends Middleware with a second credential
+// form: an Authorization: Bearer value starting with jln_live_ or
+// jln_test_ is routed to keys.ResolveAPIKey instead of
+// parser.ParseAccessToken (Phase 4 TD §3, keputusan D2). Once a
+// credential declares itself an API key by that prefix, it is treated
+// as one to completion — an invalid jln_* credential returns 401 and
+// NEVER falls back to the JWT path, which would make "malformed API
+// key" indistinguishable from "JWT that happened to fail" and send the
+// wrong signal back to whoever's debugging it.
+//
+// Mount this ONLY on POST /v1/leads (cmd/api/main.go) — every other
+// route keeps using Middleware, which has no notion of API keys at all.
+// That asymmetry is Rule #24's first line of defense: an endpoint that
+// never wires this middleware in cannot be reached by an API key no
+// matter what authz.Require would otherwise have allowed.
+//
+// CSRF is skipped entirely for a jln_* credential — like mobile's
+// Authorization: Bearer path (authentication.md), it was never sent
+// automatically by a browser, so nothing could ride along with it. A
+// cookie-sourced credential arriving at this same route (the dashboard,
+// if it ever POSTs here) gets Middleware's exact CSRF treatment
+// unchanged — this function delegates to Middleware verbatim for
+// anything that isn't a jln_* Authorization: Bearer value.
+func MiddlewareWithAPIKey(parser ClaimsParser, keys APIKeyResolver) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if raw := bearerCredential(c); isAPIKeyCredential(raw) {
+			t, err := keys.ResolveAPIKey(c.Request.Context(), raw)
+			if err != nil {
+				httpx.WriteError(c, err)
+				c.Abort()
+				return
+			}
+			t.RequestID = httpx.RequestIDFromContext(c)
+			c.Set(tenantContextKey, t)
+			c.Next()
+			return
+		}
+		Middleware(parser)(c)
+	}
+}
+
+// bearerCredential reads ONLY the Authorization: Bearer value — unlike
+// extractAccessToken, it never falls back to the access_token cookie,
+// because an API key credential is never sent that way (TD §3).
+func bearerCredential(c *gin.Context) string {
+	auth := c.GetHeader("Authorization")
+	const prefix = "Bearer "
+	if len(auth) > len(prefix) && auth[:len(prefix)] == prefix {
+		return auth[len(prefix):]
+	}
+	return ""
+}
+
+func isAPIKeyCredential(raw string) bool {
+	for _, p := range apiKeyPrefixes {
+		if strings.HasPrefix(raw, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func resolve(parser ClaimsParser, raw string) (tenant.Context, error) {

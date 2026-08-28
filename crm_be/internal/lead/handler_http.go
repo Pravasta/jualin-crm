@@ -1,7 +1,9 @@
 package lead
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,22 +14,46 @@ import (
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authn"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/ratelimit"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
 )
 
+// maxPublicLeadBodyBytes is TD phase 4 §5's 64 KB cap on POST /v1/leads
+// via API key — enforced BEFORE anything is parsed. Without it,
+// raw_payload is a path to writing megabytes to the database in one
+// request; the dashboard's own create has no such limit (gin's default
+// body handling already applies there).
+const maxPublicLeadBodyBytes = 64 * 1024
+
+// publicRateLimiter is declared here (the consumer, ADR-011) —
+// *ratelimit.FixedWindow's Take method satisfies it structurally. Only
+// what create needs: a key in, a Result out.
+type publicRateLimiter interface {
+	Take(key string) ratelimit.Result
+}
+
 type Handler struct {
-	usecase *Usecase
+	usecase         *Usecase
+	publicRateLimit publicRateLimiter
 }
 
-func NewHandler(usecase *Usecase) *Handler {
-	return &Handler{usecase: usecase}
+func NewHandler(usecase *Usecase, publicRateLimit publicRateLimiter) *Handler {
+	return &Handler{usecase: usecase, publicRateLimit: publicRateLimit}
 }
 
-// RegisterRoutes mounts /v1/leads behind authMW — built once at the
-// composition root and shared across every domain (internal/shared/authn).
-func (h *Handler) RegisterRoutes(r gin.IRouter, authMW gin.HandlerFunc) {
+// RegisterRoutes mounts /v1/leads. POST is registered on its OWN group
+// with publicCreateMW (authn.MiddlewareWithAPIKey) — the only route in
+// this package that accepts two principals (Phase 4 TD §3, §9). Every
+// other route stays behind authMW alone, which has no notion of an API
+// key at all — same two-groups-same-prefix pattern customer's handler
+// already uses for POST /v1/leads/{id}/convert.
+func (h *Handler) RegisterRoutes(r gin.IRouter, authMW, publicCreateMW gin.HandlerFunc) {
+	create := r.Group("/v1/leads")
+	create.Use(publicCreateMW)
+	create.POST("", h.create)
+
 	g := r.Group("/v1/leads")
 	g.Use(authMW)
-	g.POST("", h.create)
 	g.GET("", h.list)
 	g.GET("/:id", h.get)
 	g.PATCH("/:id", h.update)
@@ -49,18 +75,62 @@ type createRequest struct {
 // create honors Idempotency-Key (Aturan #34-adjacent convention, TD §7):
 // a repeated key returns the ORIGINAL lead with 200, never a second
 // lead and never an error.
+//
+// This is the ONE handler in the whole API two principals reach (TD
+// §3, §9): PrincipalUser via authMW (unchanged from Phase 2) and
+// PrincipalAPIKey via publicCreateMW (Phase 4). The branches below are
+// the only place that distinction is visible — everything past body
+// parsing calls the exact same h.usecase.Create either way.
 func (h *Handler) create(c *gin.Context) {
 	t := authn.TenantFromContext(c)
 
+	if t.PrincipalType == tenant.PrincipalAPIKey {
+		// Rate-limit headers are set on EVERY response along this path,
+		// success or failure (TD §6: "dikirim sejak versi pertama") —
+		// doing it here, before body parsing can fail for any reason,
+		// is what makes that unconditional rather than something every
+		// later return statement has to remember.
+		result := h.publicRateLimit.Take("publiclead:key:" + t.APIKeyID.String())
+		httpx.SetRateLimitHeaders(c, result)
+		if !result.Allowed {
+			httpx.RespondError(c, http.StatusTooManyRequests, "rate_limited", "Terlalu banyak request. Coba lagi nanti.")
+			return
+		}
+	}
+
 	var req createRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var rawPayload []byte
+
+	if t.PrincipalType == tenant.PrincipalAPIKey {
+		// raw_payload needs the body's exact bytes (TD §5) — ShouldBindJSON
+		// only decodes, it never hands the raw bytes back. MaxBytesReader
+		// enforces the 64 KB cap before a single byte is parsed.
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxPublicLeadBodyBytes)
+		body, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				httpx.WriteError(c, payloadTooLargeError())
+				return
+			}
+			httpx.WriteError(c, httpx.NewValidationError(httpx.ErrorDetail{Field: "body", Code: "invalid_json"}))
+			return
+		}
+		rawPayload = body
+		if len(body) > 0 {
+			if err := json.Unmarshal(body, &req); err != nil {
+				httpx.WriteError(c, httpx.NewValidationError(httpx.ErrorDetail{Field: "body", Code: "invalid_json"}))
+				return
+			}
+		}
+	} else if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.WriteError(c, httpx.NewValidationError(httpx.ErrorDetail{Field: "body", Code: "invalid_json"}))
 		return
 	}
 
 	in := CreateLeadInput{
 		Name: req.Name, Email: req.Email, Phone: req.Phone, Company: req.Company, Notes: req.Notes,
-		Source: req.Source,
+		Source: req.Source, RawPayload: rawPayload,
 	}
 	if assignee, err := parseUUIDPtr(req.AssignedToMembershipID); err == nil {
 		in.AssignedToMembershipID = assignee
@@ -280,6 +350,7 @@ func leadJSON(l *Lead) gin.H {
 		"status":                    l.Status,
 		"lost_reason":               l.LostReason,
 		"source":                    l.Source,
+		"source_api_key_id":         l.SourceAPIKeyID,
 		"assigned_to_membership_id": l.AssignedToMembershipID,
 		"version":                   l.Version,
 		"created_by_membership_id":  l.CreatedByMembershipID,
@@ -304,4 +375,12 @@ func parseUUIDPtr(s *string) (*uuid.UUID, error) {
 		return nil, err
 	}
 	return &id, nil
+}
+
+func payloadTooLargeError() error {
+	return &httpx.DomainError{
+		Status:  http.StatusRequestEntityTooLarge,
+		Code:    "payload_too_large",
+		Message: "Isi request melebihi batas 64 KB.",
+	}
 }

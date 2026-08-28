@@ -233,6 +233,42 @@ func TestRepository_FindByKeyID_IsIndexHit(t *testing.T) {
 	}
 }
 
+// TestRepository_TouchLastUsed_WritesTimestamp is #47's proof for the
+// repository half of TD §10 — the throttle itself lives in
+// apikey.Usecase (proven in usecase_unit_test.go against a fake); this
+// only proves the UPDATE statement actually lands.
+func TestRepository_TouchLastUsed_WritesTimestamp(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := apikey.New(pool)
+
+	org := seedOrganization(t, ctx, pool)
+	k := newTestKey("touch-last-used-key-id")
+	if err := repo.Create(ctx, tenant.Context{OrganizationID: org, Role: tenant.RoleOwner}, k); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	var before *time.Time
+	if err := pool.QueryRow(ctx, `SELECT last_used_at FROM api_keys WHERE id = $1`, k.ID).Scan(&before); err != nil {
+		t.Fatalf("query before: %v", err)
+	}
+	if before != nil {
+		t.Fatalf("expected last_used_at NULL before any touch, got %v", before)
+	}
+
+	if err := repo.TouchLastUsed(ctx, k.ID); err != nil {
+		t.Fatalf("touch last used: %v", err)
+	}
+
+	var after *time.Time
+	if err := pool.QueryRow(ctx, `SELECT last_used_at FROM api_keys WHERE id = $1`, k.ID).Scan(&after); err != nil {
+		t.Fatalf("query after: %v", err)
+	}
+	if after == nil {
+		t.Fatal("expected last_used_at to be set after TouchLastUsed")
+	}
+}
+
 func mustFindRevokedAt(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) time.Time {
 	t.Helper()
 	var revokedAt *time.Time

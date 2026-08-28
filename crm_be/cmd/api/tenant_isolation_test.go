@@ -53,6 +53,13 @@ func isolationTestConfig() *config.Config {
 		AccessTokenTTL:           15 * time.Minute,
 		RefreshTokenTTLDashboard: 720 * time.Hour,
 		RefreshTokenTTLMobile:    2160 * time.Hour,
+		// Zero would make ratelimit.NewFixedWindow(0, ...) reject every
+		// request (Phase 4 #47) — harmless for this file (nothing here
+		// calls POST /v1/leads via API key), but a config this test
+		// harness hands to newRouter should never carry a value real
+		// config.Load() would itself reject as invalid (config.go's
+		// validate() requires > 0).
+		PublicAPIRateLimit: 100,
 	}
 }
 

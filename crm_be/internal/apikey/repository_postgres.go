@@ -125,6 +125,20 @@ func (r *postgresRepository) FindByKeyID(ctx context.Context, keyID string) (*AP
 	return k, nil
 }
 
+// TouchLastUsed is deliberately its own statement, not folded into
+// FindByKeyID's SELECT — a lookup that also writes turns every
+// authentication into a write, and a revoked/nonexistent key must never
+// reach here at all (Usecase.ResolveAPIKey only calls this after every
+// other check has already passed, and only when its own throttle says
+// it's due).
+func (r *postgresRepository) TouchLastUsed(ctx context.Context, id uuid.UUID) error {
+	const q = `UPDATE api_keys SET last_used_at = now() WHERE id = $1`
+	if _, err := r.q.Exec(ctx, q, id); err != nil {
+		return fmt.Errorf("apikey: touch last used: %w", err)
+	}
+	return nil
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }

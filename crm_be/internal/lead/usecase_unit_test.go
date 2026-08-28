@@ -22,10 +22,17 @@ import (
 type fakeLeadRepo struct {
 	byID       map[uuid.UUID]*lead.Lead
 	nextNumber int
+
+	cleanupCalls []uuid.UUID // orgs CleanupExpiredIdempotencyKeys was called for
 }
 
 func newFakeLeadRepo() *fakeLeadRepo {
 	return &fakeLeadRepo{byID: map[uuid.UUID]*lead.Lead{}, nextNumber: 1}
+}
+
+func (f *fakeLeadRepo) CleanupExpiredIdempotencyKeys(_ context.Context, t tenant.Context) error {
+	f.cleanupCalls = append(f.cleanupCalls, t.OrganizationID)
+	return nil
 }
 
 func (f *fakeLeadRepo) Create(_ context.Context, t tenant.Context, in lead.CreateInput) (*lead.Lead, error) {
@@ -41,6 +48,7 @@ func (f *fakeLeadRepo) Create(_ context.Context, t tenant.Context, in lead.Creat
 		Name: in.Name, Email: in.Email, Phone: in.Phone, PhoneE164: in.PhoneE164, Company: in.Company, Notes: in.Notes,
 		Status: "new", Source: in.Source, AssignedToMembershipID: in.AssignedToMembershipID,
 		IdempotencyKey: in.IdempotencyKey, Version: 1, CreatedByMembershipID: in.CreatedByMembershipID,
+		RawPayload: in.RawPayload, SourceAPIKeyID: in.SourceAPIKeyID,
 	}
 	f.nextNumber++
 	f.byID[l.ID] = l
@@ -178,16 +186,19 @@ func (f *fakeNotificationSender) Notify(_ context.Context, _ tenant.Context, rec
 }
 
 type fakeStore struct {
+	repo         *fakeLeadRepo
 	repos        lead.Repos
 	activity     *fakeActivityRecorder
 	notification *fakeNotificationSender
 }
 
 func newFakeStore() *fakeStore {
+	repo := newFakeLeadRepo()
 	rec := &fakeActivityRecorder{}
 	notif := &fakeNotificationSender{}
 	return &fakeStore{
-		repos:        lead.Repos{Lead: newFakeLeadRepo(), Activity: rec, Notification: notif},
+		repo:         repo,
+		repos:        lead.Repos{Lead: repo, Activity: rec, Notification: notif},
 		activity:     rec,
 		notification: notif,
 	}
@@ -690,5 +701,109 @@ func TestUnit_UpdateAssignment_StaleVersion_ReturnsVersionConflict(t *testing.T)
 	var conflict *lead.VersionConflictError
 	if !errors.As(err, &conflict) {
 		t.Fatalf("expected *lead.VersionConflictError, got: %v", err)
+	}
+}
+
+// --- Create: public API principal (Phase 4 #47) ---
+
+func apiKeyActor(org, apiKeyID uuid.UUID, scopes []string) tenant.Context {
+	return tenant.Context{OrganizationID: org, PrincipalType: tenant.PrincipalAPIKey, APIKeyID: &apiKeyID, Scopes: scopes}
+}
+
+func TestUnit_Create_APIKey_AssignedToMembershipID_Rejected(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	actor := apiKeyActor(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), []string{"leads:write"})
+	assignee := uuid.Must(uuid.NewV7())
+
+	_, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi", AssignedToMembershipID: &assignee})
+
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "insufficient_scope" {
+		t.Fatalf("expected insufficient_scope, got: %v", err)
+	}
+	if len(store.repo.byID) != 0 {
+		t.Error("expected no lead to have been created")
+	}
+}
+
+// TestUnit_Create_APIKey_SourceAlwaysForcedToAPI proves the body's own
+// "source" value (even a legitimate one like "manual") is overridden,
+// not merely defaulted — TD §5: "body diabaikan bila mengirim source".
+func TestUnit_Create_APIKey_SourceAlwaysForcedToAPI(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	apiKeyID := uuid.Must(uuid.NewV7())
+	actor := apiKeyActor(uuid.Must(uuid.NewV7()), apiKeyID, []string{"leads:write"})
+
+	created, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi", Source: "manual"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.Source != "api" {
+		t.Errorf("expected source forced to %q, got %q", "api", created.Source)
+	}
+	if created.SourceAPIKeyID == nil || *created.SourceAPIKeyID != apiKeyID {
+		t.Errorf("expected source_api_key_id %s, got %v", apiKeyID, created.SourceAPIKeyID)
+	}
+	if created.CreatedByMembershipID != nil {
+		t.Errorf("expected created_by_membership_id nil for an api_key create, got %v", created.CreatedByMembershipID)
+	}
+}
+
+func TestUnit_Create_APIKey_RawPayloadStored(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	actor := apiKeyActor(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), []string{"leads:write"})
+	raw := []byte(`{"name":"Budi","utm_source":"facebook"}`)
+
+	created, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi", RawPayload: raw})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if string(created.RawPayload) != string(raw) {
+		t.Errorf("expected raw_payload stored verbatim, got %q", created.RawPayload)
+	}
+}
+
+// TestUnit_Create_APIKey_CleanupThrottledPerOrganization proves the
+// idempotency-key sweep (TD §7) runs at most once per organization per
+// throttle window — two creates for the SAME org in quick succession
+// must produce exactly one cleanup call.
+func TestUnit_Create_APIKey_CleanupThrottledPerOrganization(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	org := uuid.Must(uuid.NewV7())
+	actor := apiKeyActor(org, uuid.Must(uuid.NewV7()), []string{"leads:write"})
+
+	if _, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"}); err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	if _, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Ani"}); err != nil {
+		t.Fatalf("second create: %v", err)
+	}
+
+	if len(store.repo.cleanupCalls) != 1 {
+		t.Fatalf("expected exactly 1 cleanup call across 2 creates within the throttle window, got %d", len(store.repo.cleanupCalls))
+	}
+	if store.repo.cleanupCalls[0] != org {
+		t.Errorf("expected cleanup called for org %s, got %s", org, store.repo.cleanupCalls[0])
+	}
+}
+
+// TestUnit_Create_UserPrincipal_NeverTriggersCleanup proves the sweep
+// is scoped to the API key path only — a dashboard create (principal
+// user) must never call it, matching TD §7's "Pada POST /v1/leads jalur
+// API key" scoping.
+func TestUnit_Create_UserPrincipal_NeverTriggersCleanup(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	actor, _ := ownerActor()
+
+	if _, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if len(store.repo.cleanupCalls) != 0 {
+		t.Errorf("expected no cleanup call for a user-principal create, got %d", len(store.repo.cleanupCalls))
 	}
 }

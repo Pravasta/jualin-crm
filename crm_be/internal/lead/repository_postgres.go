@@ -68,15 +68,17 @@ func (r *postgresRepository) Create(ctx context.Context, t tenant.Context, in Cr
 	const insertQ = `
 		INSERT INTO leads (
 			id, organization_id, lead_number, name, email, phone, phone_e164, company, notes,
-			source, assigned_to_membership_id, raw_payload, idempotency_key, created_by_membership_id
+			source, assigned_to_membership_id, raw_payload, idempotency_key, created_by_membership_id,
+			source_api_key_id
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		RETURNING ` + leadColumns
 
 	id := uuid.Must(uuid.NewV7())
 	row := r.q.QueryRow(ctx, insertQ,
 		id, t.OrganizationID, nextNumber, in.Name, in.Email, in.Phone, in.PhoneE164, in.Company, in.Notes,
 		in.Source, in.AssignedToMembershipID, in.RawPayload, in.IdempotencyKey, in.CreatedByMembershipID,
+		in.SourceAPIKeyID,
 	)
 	created, err := scanLead(row)
 	if err != nil {
@@ -450,7 +452,7 @@ func membershipIDOrNil(t tenant.Context) uuid.UUID {
 const leadColumns = `
 	id, organization_id, lead_number, name, email, phone, phone_e164, company, notes,
 	status, lost_reason, source, assigned_to_membership_id, raw_payload, idempotency_key,
-	version, created_by_membership_id, created_at, updated_at, deleted_at`
+	version, created_by_membership_id, created_at, updated_at, deleted_at, source_api_key_id`
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -461,10 +463,27 @@ func scanLead(row rowScanner) (*Lead, error) {
 	err := row.Scan(
 		&l.ID, &l.OrganizationID, &l.LeadNumber, &l.Name, &l.Email, &l.Phone, &l.PhoneE164, &l.Company, &l.Notes,
 		&l.Status, &l.LostReason, &l.Source, &l.AssignedToMembershipID, &l.RawPayload, &l.IdempotencyKey,
-		&l.Version, &l.CreatedByMembershipID, &l.CreatedAt, &l.UpdatedAt, &l.DeletedAt,
+		&l.Version, &l.CreatedByMembershipID, &l.CreatedAt, &l.UpdatedAt, &l.DeletedAt, &l.SourceAPIKeyID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	return &l, nil
+}
+
+// CleanupExpiredIdempotencyKeys clears idempotency_key on leads (not the
+// leads themselves) older than 48h — see the interface doc comment in
+// port.go for the full rationale (TD §7, keputusan D3).
+func (r *postgresRepository) CleanupExpiredIdempotencyKeys(ctx context.Context, t tenant.Context) error {
+	const q = `
+		UPDATE leads
+		   SET idempotency_key = NULL
+		 WHERE organization_id = $1
+		   AND idempotency_key IS NOT NULL
+		   AND created_at < now() - interval '48 hours'`
+
+	if _, err := r.q.Exec(ctx, q, t.OrganizationID); err != nil {
+		return fmt.Errorf("lead: cleanup expired idempotency keys: %w", err)
+	}
+	return nil
 }

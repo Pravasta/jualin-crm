@@ -24,6 +24,16 @@ type Repository interface {
 	UpdateStatus(ctx context.Context, t tenant.Context, id uuid.UUID, expectedVersion int, status string, lostReason *string) (*Lead, error)
 	UpdateAssignment(ctx context.Context, t tenant.Context, id uuid.UUID, expectedVersion int, assignedTo *uuid.UUID) (*Lead, error)
 	Delete(ctx context.Context, t tenant.Context, id uuid.UUID) error
+
+	// CleanupExpiredIdempotencyKeys clears idempotency_key on rows older
+	// than 48h for t.OrganizationID (Phase 4 #47, TD §7 — keputusan D3,
+	// closing the retention debt recorded in Phase 2 TD §19). It never
+	// deletes a lead — only the guarantee "replay returns this exact
+	// row" expires, the row itself doesn't. Called by Usecase.Create,
+	// throttled to at most once per organization per hour, OUTSIDE any
+	// transaction: a failed sweep must never fail the lead actually
+	// being created.
+	CleanupExpiredIdempotencyKeys(ctx context.Context, t tenant.Context) error
 }
 
 // ActivityRecorder is declared locally per ADR-011 — lead needs only to
