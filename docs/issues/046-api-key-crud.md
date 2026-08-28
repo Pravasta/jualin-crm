@@ -8,22 +8,22 @@
 
 ## Deviasi dari TD / ADR
 
-- [ ] **ADR-004 masih menampilkan angka yang salah di dokumennya sendiri.** "secret: 32char" vs "entropi
-      256-bit" tidak bisa benar bersamaan (32 karakter base64url ≈ 192 bit). Kode mengambil 256-bit (`entity.go`,
-      `keyIDRawBytes`/`secretRawBytes`) dan mendokumentasikan alasannya di komentar — tapi **ADR-004
-      sendiri belum diperbaiki**. Perlu diputuskan saat #49: revisi ADR-004 langsung, atau tambahkan
-      catatan errata yang menunjuk ke kode sebagai sumber kebenaran.
-- [ ] **ADR-004 "key_prefix 8 karakter pertama" tidak cocok dengan contohnya sendiri.** Contoh di ADR
-      (`jln_live_a3f9…`) menunjukkan 4 karakter pertama `key_id`, bukan 8. Kode mengikuti contohnya
-      (benar), teksnya belum diperbaiki. Sama seperti poin di atas — revisi atau errata.
+- [x] **ADR-004 masih menampilkan angka yang salah di dokumennya sendiri.** "secret: 32char" vs "entropi
+      256-bit" tidak bisa benar bersamaan (32 karakter base64url ≈ 192 bit). **Diperbaiki di #49** —
+      ADR-004 direvisi langsung mengikuti kode (`<secret:43char>`), dengan catatan koreksi di badan ADR
+      itu sendiri (Aturan #30: dicatat, bukan didiamkan).
+- [x] **ADR-004 "key_prefix 8 karakter pertama" tidak cocok dengan contohnya sendiri.** **Diperbaiki di
+      #49** — teks direvisi jadi "4 karakter pertama `key_id`", cocok dengan contoh (`jln_live_a3f9…`)
+      dan kode.
 
 ## Keputusan yang perlu dicek ulang
 
-- [ ] **Manager & Employee tidak punya akses sama sekali** ke `api_key.*` (bukan read-only seperti
-      `membership.list`). Ini keputusan sadar (TD §9), bukan bug — pastikan masih relevan saat #49
-      mengecek matriks RBAC final terhadap `authorization.md`.
-- [ ] `expires_at` tetap `NULL` selamanya di seluruh Phase 4 — kolomnya ada, isinya tidak pernah diisi.
-      Pastikan halaman dokumentasi integrasi (#49) tidak menyiratkan fitur masa berlaku yang belum ada.
+- [x] **Manager & Employee tidak punya akses sama sekali** ke `api_key.*` (bukan read-only seperti
+      `membership.list`). **Ditinjau ulang di #49** terhadap `authorization.md`'s Matriks (Phase 4) yang
+      baru ditulis — masih tepat, tidak berubah.
+- [x] `expires_at` tetap `NULL` selamanya di seluruh Phase 4 — kolomnya ada, isinya tidak pernah diisi.
+      **Ditinjau ulang di #49** — halaman dokumentasi integrasi (`/settings/api-keys/docs`) tidak
+      menyebut masa berlaku sama sekali, tidak ada yang perlu diperbaiki.
 
 ## Bug ditemukan & sudah diperbaiki (tidak perlu tindakan lanjut, dicatat untuk arsip)
 
@@ -31,3 +31,8 @@
       sungguhan) → `500`. Diperbaiki dengan men-seed membership asli sebelum PR #51 dibuka.
 - [x] Test tabel per-role (`authz_test.go`) tidak pernah mendapat 3 baris `api_key.create/list/revoke`
       saat aksinya ditambahkan — ketahuan & dibackfill di #47 (PR #52), bukan di sini.
+
+---
+
+**Ditinjau penuh saat penutupan Phase 4 (#49).** Seluruh poin di atas sudah diputuskan — tidak ada yang
+menunggu keputusan lagi dari berkas ini.

@@ -214,8 +214,56 @@ Endpoint yang wajib dibatasi sejak Phase 1: login, kirim ulang verifikasi, lupa 
 
 ---
 
-## Yang menyusul di Phase 4
+## API Publik (Phase 4)
 
-Dokumen ini akan bertambah satu bab **API Publik**: detail autentikasi API key, scope, format `jln_live_`, contoh integrasi `curl`, dan halaman dokumentasi yang menghadap pelanggan.
+Satu-satunya endpoint publik: `POST /v1/leads`, dengan principal `api_key` (lihat bagian *Autentikasi*
+di atas). Endpoint yang **sama persis** dengan yang dipakai dashboard — bukan salinan, bukan versi
+publik terpisah; yang membedakan hanya kredensial dan `tenant.Context` yang dihasilkannya.
 
-Kualitas halaman itu berdampak langsung ke biaya support — di produk berharga murah, pelanggan harus bisa onboard sendiri.
+### Kredensial
+
+```
+jln_live_<key_id:12>_<secret:43>
+```
+
+`jln_live_` untuk produksi; `jln_test_` dikenali bentuknya tapi tidak pernah diterbitkan di Phase 4.
+Dikirim lewat `Authorization: Bearer <kredensial penuh>` — **tidak pernah** lewat cookie (kredensial ini
+tidak boleh hadir di browser sama sekali, Aturan #23).
+
+### Scope
+
+Kredensial API key hanya membawa satu scope: `leads:write`. Ini **satu-satunya** aksi yang bisa
+dilakukannya — mencoba memanggil endpoint aplikasi pengguna apa pun (mengelola tim, membuat kunci lain,
+membaca lead) selalu berakhir `403 insufficient_scope`, bukan karena setiap handler memeriksanya satu
+per satu, melainkan karena `authz.Require` tidak punya jalan untuk mengizinkannya (Aturan #24,
+`authorization.md` bagian "Otorisasi berbasis scope").
+
+### Contoh integrasi
+
+Contoh `curl` yang **sungguhan bekerja** hanya bisa dibuat dengan kredensial nyata, dan raw secret hanya
+pernah tersedia sekali saat kunci dibuat (Aturan #21) — dokumen statis ini sengaja **tidak** memuat
+contoh dengan kredensial palsu yang terlihat berfungsi padahal tidak. Contoh langsung-pakai yang
+sungguhan ada di dashboard, `/settings/api-keys/docs`, dan tersambung otomatis dengan kunci yang sedang
+Anda lihat.
+
+### Error khusus jalur ini
+
+Ditambahkan ke katalog di atas, dipakai **hanya** oleh jalur API key:
+
+| HTTP | `code` | Kapan |
+|---|---|---|
+| 401 | `invalid_api_key` | Kredensial `jln_*` tidak dikenal, sudah direvoke, atau kedaluwarsa — ketiganya pesan yang sama, sengaja tidak dibedakan (sama alasannya dengan Aturan #6: membedakan "tidak ada" dari "sudah direvoke" membocorkan bahwa kunci itu pernah ada) |
+| 403 | `insufficient_scope` | Kredensial sah tapi scope-nya tidak mencakup aksi ini — termasuk mengirim `assigned_to_membership_id`, yang API key tidak pernah punya cara mengisi secara sah |
+| 413 | `payload_too_large` | Body melebihi 64 KB, ditolak sebelum satu byte pun di-parse |
+
+### Idempotency, rate limit — sudah dijelaskan di atas, berlaku penuh di sini
+
+Bagian *Idempotency* dan *Rate limiting* di dokumen ini berlaku apa adanya untuk jalur API key — retensi
+`idempotency_key` 48 jam, header `X-RateLimit-*` di **setiap** response jalur ini termasuk yang gagal.
+Detail mekanisme (throttle, penghapusan malas) ada di `docs/phases/04-public-api/td.md` §6–§7.
+
+### Field tak dikenal
+
+Body `POST /v1/leads` yang dikirim lewat API key disimpan **apa adanya** di `leads.raw_payload`,
+termasuk field yang tidak dikenal sama sekali (bukan hanya field opsional yang dikenal tapi kosong) —
+lihat baris "Field tak dikenal pada request" di bagian *Payload* di atas.

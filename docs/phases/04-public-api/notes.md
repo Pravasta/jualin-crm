@@ -306,3 +306,104 @@ terisi → `GET /v1/memberships`'s `id` cocok persis dengan `created_by_membersh
 kolom "Dibuat oleh" akan resolve ke nama yang benar. Verifikasi interaktif dialog (gerbang checkbox,
 salin ke clipboard) lewat pembacaan kode + `build` sukses — klik-uji browser sungguhan di luar cakupan
 TD §9 (test UI visual/e2e), sama seperti seluruh layar Phase 3.
+
+---
+
+## #49 — Halaman dokumentasi integrasi, penutup Phase 4
+
+### Kontradiksi TD yang ditemukan sebelum menulis satu baris kode
+
+TD §13 poin 1 minta contoh `curl` yang **"bisa disalin dan langsung bekerja"**, sekaligus
+**"`key_prefix` kunci yang sedang dilihat sudah terisi"**. Dua hal ini tidak bisa dipenuhi bersamaan
+oleh halaman statis: raw secret (Aturan #21) tidak pernah tersedia lagi setelah dialog reveal (#48)
+ditutup — halaman dokumentasi, yang bisa dibuka kapan saja setelahnya, **hanya pernah punya**
+`key_prefix`, tidak pernah secret penuh.
+
+**Diselesaikan dengan memisahkan dua kebutuhan ke dua tempat**, bukan memaksakan satu kotak "tempel
+secret Anda di sini" yang terasa mencurigakan bagi developer yang berhati-hati:
+
+1. **`CreateAPIKeyDialog`'s tahap reveal (#48) mendapat blok curl tambahan** — satu-satunya momen
+   `created.secret` benar-benar tersedia penuh, jadi satu-satunya tempat "disalin dan langsung bekerja"
+   bisa jujur benar. `lib/api-docs.ts`'s `buildCurlExample()` dipakai ulang di sini.
+2. **`/settings/api-keys/docs`** menampilkan format yang sama dengan `key_prefix` kunci terpilih
+   (dropdown, default kunci aktif terbaru) + placeholder `<secret_anda>` — memenuhi "key_prefix sudah
+   terisi" secara harfiah. Bila tidak ada kunci aktif sama sekali, halaman mengarahkan langsung ke
+   dialog buat kunci alih-alih menampilkan contoh yang tidak bisa dipakai siapa pun.
+
+### Verifikasi acceptance criterion #10 — benar-benar dari nol
+
+Bukan diasumsikan: dijalankan penuh terhadap `crm_be` sungguhan — register → verify → login → belum
+punya kunci → buat kunci → salin curl dari dialog reveal (persis alur yang halaman dokumentasi
+arahkan) → jalankan dari terminal → **`201` pada percobaan pertama**, lead muncul dengan `source=api`
+dan `source_api_key_id` terisi. Idempotency-Key diulang dua kali → lead **id yang sama** kedua kalinya.
+`assigned_to_membership_id` di body → `403 insufficient_scope`. Body kosong → `400 validation_failed`
+dengan `details[{field:"name",code:"required"}]`. Revoke lalu request lagi → `401 invalid_api_key`.
+Setiap klaim di halaman dokumentasi dicek satu per satu terhadap response nyata — bukan ditulis dari
+ingatan issue-issue sebelumnya.
+
+### Dokumentasi arsitektur (TD §18)
+
+- **`api.md`**: bagian "Yang menyusul di Phase 4" diganti bab "API Publik (Phase 4)" — format kredensial,
+  scope, error khusus jalur ini, dan penunjuk ke halaman dashboard sebagai sumber contoh (bukan
+  menduplikasi `curl` statis yang bisa diam-diam berbeda dari kode sungguhan).
+- **`authentication.md`**: bagian baru "API key — lookup, verifikasi, revoke" mengikuti bentuk bagian
+  "Refresh token" yang sudah ada — termasuk **kenapa tidak ada CSRF** di jalur ini, dan kenapa
+  `MiddlewareWithAPIKey` yang hanya dipasang di satu route adalah bentuk Aturan #24 yang lebih kuat
+  daripada authz yang bisa saja salah ditulis.
+- **`authorization.md`**: "Matriks (Phase 4)" (baris `api_key.*`, Owner/Admin saja) + bagian baru
+  "Otorisasi berbasis scope" yang mengutip `apiKeyScopeFor` langsung dari kode dan menyatakan eksplisit
+  matriks role di atasnya **tidak lagi menggambarkan seluruh sistem** sendirian.
+- **`multi-tenancy.md`**: struct `tenant.Context` di dokumen ini ternyata **belum pernah** menyebut
+  `Scopes` — ditambahkan. Baris kasus #2 (harness isolasi) diperbarui menyebut `DELETE
+  /v1/api-keys/{id}`. Catatan baru menjelaskan kenapa `uq_api_keys_key_id` unik lintas organization
+  bukan pelanggaran Lapis 2, dan subbagian baru menjelaskan kenapa `POST /v1/leads` jalur API key
+  **sengaja** tidak menambah kasus harness (dianalisis, bukan diuji — bentuknya tidak cocok, tidak ada
+  `:id` tenant lain untuk disasar).
+- **ADR-004**: dua ketidakkonsistenan yang tercatat sejak #46 di `docs/issues/046-api-key-crud.md`
+  **diperbaiki langsung di badan ADR** — `<secret:32char>` → `<secret:43char>` (satu-satunya angka yang
+  konsisten dengan "entropi 256-bit" pada baris yang sama), dan "8 karakter pertama" → "4 karakter
+  pertama `key_id`" (cocok dengan contoh `jln_live_a3f9…` di ADR itu sendiri). Kedua koreksi dicatat
+  sebagai catatan di badan dokumen (Aturan #30), bukan diam-diam diganti tanpa jejak.
+
+### `docs/issues/046-api-key-crud.md` dan `047-public-lead-api.md` — ditinjau penuh
+
+Enam dari sembilan poin **diselesaikan** (ADR-004 ×2, matriks RBAC ditinjau ulang, `expires_at` tidak
+disebut di halaman docs, deviasi 401-vs-403 didokumentasikan eksplisit, deviasi `SourceAPIKeyID`
+ditinjau ulang). **Tiga poin sengaja tetap terbuka** — angka rate limit belum diukur, retensi
+idempotency belum diuji di volume produksi, `last_used_at`'s peta tanpa eviction — ketiganya butuh
+traffic nyata untuk diputuskan dengan benar, bukan bisa diselesaikan dengan menebak sekarang. Dicatat
+ulang di `docs/STATUS.md` supaya tidak terlupa, bukan ditutup paksa demi checklist yang rapi.
+
+### Penutup Phase 4 — 13 acceptance criteria PRD dicek satu per satu
+
+| # | Kriteria | Bukti |
+|---|---|---|
+| 1 | `curl` dari luar → lead di dashboard, `source=api` + penanda kredensial | #47 (test end-to-end) + #49 (diulang dari nol dengan secret sungguhan, `201` percobaan pertama) |
+| 2 | Raw secret tampil tepat sekali | #46 (hanya response `POST`, DB cuma simpan hash) + #48 (dipisah tipe `APIKey` vs `CreatedAPIKey` — merender secret dari daftar adalah type error) |
+| 3 | Kredensial revoked ditolak seketika | #47 (test + `curl`), diulang di #49 setelah jendela rate limit lewat — `401` tanpa jeda |
+| 4 | `Idempotency-Key` ulang → lead sama | #47 (test konkurensi 10 request paralel) + #49 (`curl` dua kali berurutan, id identik) |
+| 5 | API key tidak bisa panggil endpoint aplikasi pengguna | #47 — `authz.Require` bercabang di `PrincipalType` sebelum peta role; test tabel atas **seluruh** 26 `Action`; `TestPublicLeadAPI_CannotReachAnyOtherEndpoint` (4 endpoint, `401`, bukan sekadar 403 yang bisa salah tulis) |
+| 6 | Header `X-RateLimit-*` di setiap response, `429` bawa `Retry-After` | #47 (header dipasang sebelum body diparsing, jadi otomatis di semua cabang gagal) + #49 (`curl` mengonfirmasi header muncul di `201` **dan** `429`) |
+| 7 | Lookup index hit, secret constant-time | #46 (`EXPLAIN` membuktikan `Index Scan`, `subtle.ConstantTimeCompare` di `verifySecret`) |
+| 8 | Payload tersimpan apa adanya di `raw_payload`, termasuk field tak dikenal | #47 (test) + #49 (`curl` dengan field asing, dikonfirmasi tersimpan) |
+| 9 | Owner bisa create/list/revoke dari dashboard tanpa `curl` | #48 |
+| 10 | Halaman dokumentasi cukup tanpa bertanya siapa pun | #49 — diverifikasi dengan mengikutinya dari nol, bukan membacanya (lihat di atas) |
+| 11 | Raw API key tidak pernah muncul di log | #46 (buffer log test untuk create) + #47 (buffer log test untuk `POST /v1/leads`, termasuk request gagal) |
+| 12 | Harness isolasi tenant bertambah kasus, terbukti bisa gagal | #46 (`DELETE /v1/api-keys/{id}`, predikat tenant dihapus sementara → merah) — #47 dianalisis sengaja tanpa kasus baru (`multi-tenancy.md`, tidak ada `:id` untuk disasar) |
+| 13 | `idempotency_key` punya retensi | #47 (48 jam, penghapusan malas, throttle 1×/org/jam) |
+
+**Seluruh 13 kriteria terpenuhi. Phase 4 — Public API selesai.**
+
+### Kewajiban yang diteruskan (TD §19) — dikutip di sini, bukan mengandalkan ingatan
+
+> Phase 5 (Mobile) tidak menyentuh API key sama sekali — mewarisi `tenant.Context.Scopes` yang sudah
+> ada, jalur user tidak boleh mulai memakainya. Phase 6 (Embedded Form) menambahkan kredensial ketiga
+> (`public_key`) yang tidak boleh disatukan dengan API key — cabang `PrincipalAPIKey` di `authz` adalah
+> tempat `PrincipalPublicForm` akan menempel, dan itu juga yang menjawab "kirim lead dari browser" yang
+> Phase 4 tolak. Phase 8 (Billing) butuh quota per plan, yang bukan rate limit — dua mekanisme berbeda.
+> `expires_at` sudah siap diisi kapan pun, kode error-nya sudah mencakup kedaluwarsa sebagai penyebab —
+> yang belum ada hanya UI dan pengisiannya.
+
+Ditambah dari checklist `docs/issues/` di atas: angka `PUBLIC_API_RATE_LIMIT`, retensi idempotency di
+volume tinggi, dan peta `last_used_at` tanpa eviction — ketiganya butuh traffic produksi nyata,
+dicatat di `docs/STATUS.md`.

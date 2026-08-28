@@ -6,6 +6,7 @@
 // useEffect that calls listAPIKeys, the same way team-screen.tsx skips
 // listInvitations for a role without ActionInvitationList.
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { FormErrorBanner } from "@/components/form-error-banner";
 import { listAPIKeys, type APIKey } from "@/lib/api-keys";
@@ -22,6 +23,7 @@ function isAbortError(err: unknown): boolean {
 
 export function APIKeysScreen() {
   const session = useSession();
+  const router = useRouter();
   const canManage = canManageAPIKeys(session.role);
 
   const [keys, setKeys] = useState<APIKey[]>([]);
@@ -67,7 +69,12 @@ export function APIKeysScreen() {
     <div>
       <div className="mb-3.5 flex items-center justify-between">
         <h2 className="text-[13.5px] font-semibold">API Key</h2>
-        <Button onClick={() => setCreateOpen(true)}>+ Buat kunci baru</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => router.push("/settings/api-keys/docs")}>
+            Dokumentasi integrasi
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}>+ Buat kunci baru</Button>
+        </div>
       </div>
 
       <FormErrorBanner message={error} />

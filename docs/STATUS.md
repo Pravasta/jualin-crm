@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 28 Agustus 2026 — Issue #48 selesai.
-**Phase sekarang:** Phase 4 — Public API (3/4 issue selesai)
+**Last updated:** 28 Agustus 2026 — Issue #49 selesai. **Phase 4 — Public API selesai.**
+**Phase sekarang:** Phase 4 selesai — phase berikutnya (5) belum dibuka, lihat *Berikutnya*.
 
 ---
 
@@ -44,6 +44,7 @@
 | **Issue #46 — Migration `0005`, domain `api_key`, CRUD kredensial** | — | 4 | Pembuka Phase 4, murni Go, **tanpa UI**. `internal/apikey` baru — bentuk lima berkas penuh (ADR-011). Format kredensial `jln_live_<key_id:12>_<secret:43>` — **256-bit dipakai, bukan "32char"** seperti tertulis literal di ADR-004 (dua angka itu tidak konsisten satu sama lain; 256-bit diambil karena seluruh argumen keamanan ADR bersandar pada angka itu, dicatat sebagai temuan bukan diperbaiki diam-diam). **Parsing kredensial pakai slicing posisional, bukan `strings.Split`** — alfabet base64url memuat `_`, jadi `key_id`/`secret` bisa secara sah mengandung karakter pemisahnya sendiri; dikunci test yang sengaja membangun secret ber-`_`. `POST/GET/DELETE /v1/api-keys` — Owner/Admin **saja**, bukan read-only untuk Manager (beda dari `membership.list`). Raw secret tampil **tepat sekali** di response create, dibuktikan langsung (query database setelah create hanya berisi `secret_hash`, `GET` list tidak pernah membawa field `secret`). Revoke idempoten (`204` kedua kalinya) — dibuktikan lewat repository test dan `curl` sungguhan. `FindByKeyID` dan `verifySecret` dibangun sekarang **tanpa pemanggil HTTP** — disiapkan untuk #47, diuji langsung termasuk `EXPLAIN` yang membuktikan index hit (acceptance criterion #3). **Bug nyata ditemukan lewat test yang salah pakai fixture**: token dengan `membership_id` acak pada test create menabrak `fk_api_keys_created_by` (composite FK sungguhan) → `500`, bukan `201` — diperbaiki dengan men-seed membership asli, bukti FK-nya benar-benar bekerja. Harness isolasi tenant bertambah `DELETE /v1/api-keys/{id}`, **terbukti bisa gagal** (menghapus predikat `organization_id` dari `FindByID` → Org A berhasil mencabut kredensial Org B, `204` bukan `404`). 33 test baru. Diverifikasi lewat `curl` terhadap `crm_be` sungguhan plus `migrate up`→`down`→`up` bersih. |
 | **Issue #47 — Autentikasi API key, `POST /v1/leads` publik, rate limit, idempotency** | — | 4 | Risiko keamanan tertinggi phase ini. `authz.Require` bercabang di `t.PrincipalType` — principal `api_key` dicek terhadap peta terpisah `apiKeyScopeFor` (satu baris: `lead.create → leads:write`), **tidak pernah** menyentuh peta role. Dibuktikan lewat test tabel-atas-**seluruh**-26-`Action`, bukan daftar tulis tangan — **ketemu gap nyata sambil menulisnya**: tiga `Action` `api_key.*` dari #46 tidak pernah masuk tabel per-role `TestRequire` yang sudah ada, dibackfill di issue ini. `authn.MiddlewareWithAPIKey` dipasang **hanya** di `POST /v1/leads`; route lain tetap `authn.Middleware` yang tidak mengenal `jln_*` sama sekali — konsekuensinya, API key di route lain gagal di **autentikasi** (`401`), bukan otorisasi (`403`). **Deviasi sadar dari teks acceptance criteria issue ini sendiri** (yang menulis "→ 403" untuk empat endpoint lain) — TD §3 sendiri menghasilkan `401`, dan itu bentuk Aturan #24 yang lebih kuat (routing-level exclusion, bukan keputusan authz yang bisa salah); diuji langsung, bukan diikuti secara harfiah. `ResolveAPIKey`: parse → lookup → cek revoked/expired → verify — **empat jalur gagal menghasilkan pesan 401 yang identik**, dibuktikan string-persis di unit test dan HTTP end-to-end. Rate limit (`ratelimit.FixedWindow.Take`, baru, `Allow` lama tidak berubah perilaku) dievaluasi paling awal di handler supaya header `X-RateLimit-*` terpasang di **setiap** response termasuk gagal. `raw_payload` dibaca manual (`io.ReadAll` + `http.MaxBytesReader` 64KB, `413` sebelum parsing) hanya untuk jalur API key — jalur dashboard tak disentuh. Retensi `idempotency_key` (utang sejak #20) **ditutup** — `UPDATE ... SET idempotency_key = NULL` di luar transaksi, throttle 1×/org/jam, error dibuang. **Dua bug nyata ditemukan lewat test**: `leadJSON` tidak pernah menyertakan `source_api_key_id` (acceptance criterion eksplisit, ketahuan dari test HTTP pertama); fixture test dengan `APIKeyID` acak menabrak `fk_leads_source_api_key` (composite FK sungguhan) → `500`, kelas bug yang sama seperti #46. 40+ test baru lintas 5 paket. Diverifikasi lewat `curl` end-to-end sungguhan: kredensial dari proses terpisah → lead `source=api` muncul di dashboard; 5 request dengan limit 5/menit → tepat 3×`201`+1×batas terisi lalu `429` berturut; revoke → `401` seketika setelah jendela rate limit lewat; `assigned_to_membership_id` → `403 insufficient_scope`; Origin pelanggan → tanpa header CORS; `grep` raw secret di log server → nihil, termasuk pada request gagal. |
 | **Issue #48 — Dashboard: manajemen API key** | — | 4 | Layar dashboard terakhir Phase 4. Aturan #21 ditegakkan **secara struktural** di level tipe: `APIKey` (dipakai daftar) tidak punya field `secret` sama sekali — hanya `CreatedAPIKey`, tipe terpisah yang cuma dikembalikan `createAPIKey()` — jadi "render secret dari daftar" adalah type error, bukan sekadar bug yang mungkin lolos review. Dialog buat kunci dua tahap **dalam satu komponen** (`step: "form" \| "reveal"`), `secret` tidak pernah diteruskan ke layar daftar. **Guard "penutupan mengharuskan konfirmasi" ada di `onOpenChange` itu sendiri**, bukan cuma tombol footer — `DialogContent` bawaan memicu `onOpenChange(false)` lewat tiga jalur (tombol X, Escape, klik backdrop), jadi tombol X disembunyikan dan ketiganya diblokir di satu titik selama secret belum dikonfirmasi tersimpan. "Menu masuk ke app shell" (checklist issue) diartikan sebagai Card baru di layar Settings, bukan entri baru di `NAV_ITEMS` — `NAV_ITEMS` tidak punya mekanisme per-role sama sekali, sementara TD §12 menaruh path-nya sebagai sub-halaman Pengaturan. Gerbang role di level **fetch**, bukan cuma UI — `listAPIKeys()` di-skip total untuk Manager/Employee, pola yang sama seperti `canManageTeam` di #34, memenuhi "mengetik URL langsung tidak menampilkan daftar" secara harfiah. `formatApproximateID(iso, now)` baru — `last_used_at` yang di-throttle 5 menit di backend (TD §10) dirender sebagai "sekitar N menit/jam/hari lalu", tidak pernah jam presisi, dikunci test regex. `toAPIKeyRow`/`canManageAPIKeys` dipisah dan diuji tanpa React, pola `lib/nav.ts`/`lib/team-permissions.ts`. **Tidak ada bug atau deviasi TD/PRD ditemukan kali ini** — bentuk endpoint sudah stabil sejak #46, tidak disentuh #47. 5 test baru. Diverifikasi lewat `curl` terhadap `crm_be` sungguhan: bentuk response `create` persis `CreatedAPIKey`, `list` setelahnya **tidak pernah** membawa `secret`, kunci revoked tetap tampil dengan `revoked_at` terisi, `created_by_membership_id` cocok persis dengan `id` di `GET /v1/memberships`. |
+| **Issue #49 — Halaman dokumentasi integrasi, penutup Phase 4** | — | 4 | **Kontradiksi TD ditemukan sebelum menulis kode**: "curl bisa disalin dan langsung bekerja" vs "key_prefix kunci yang sedang dilihat sudah terisi" tidak bisa dipenuhi bersamaan oleh halaman statis — raw secret (Aturan #21) tidak pernah ada lagi setelah dialog reveal #48 ditutup. Diselesaikan dengan memisah dua kebutuhan: dialog reveal `CreateAPIKeyDialog` (#48) dapat blok curl **sungguhan bekerja** (satu-satunya momen secret penuh tersedia); halaman `/settings/api-keys/docs` menampilkan format sama dengan `key_prefix` terpilih + placeholder, mengarahkan ke pembuatan kunci bila belum ada yang aktif — bukan kotak "tempel secret Anda" yang terasa mencurigakan. **Acceptance criterion #10 diverifikasi benar-benar dari nol**: register → belum punya kunci → dialog reveal → salin curl → jalankan dari terminal → `201` percobaan pertama, `source=api` terisi; idempotency retry → id sama; `assigned_to_membership_id` → `403 insufficient_scope`; body kosong → `400 validation_failed`; revoke → `401` seketika — setiap klaim di halaman dicek satu per satu terhadap response nyata. `api.md`/`authentication.md`/`authorization.md`/`multi-tenancy.md` diperbarui dari rencana jadi kenyataan (TD §18) — termasuk `multi-tenancy.md`'s struct `tenant.Context` yang ternyata **belum pernah** menyebut `Scopes` sejak #47. **ADR-004 diperbaiki langsung**: dua ketidakkonsistenan yang dicatat sejak #46 (`<secret:32char>` vs "entropi 256-bit"; "8 karakter pertama" vs contohnya sendiri) — diperbaiki di badan ADR dengan catatan koreksi (Aturan #30), bukan didiamkan. `docs/issues/046-*.md` dan `047-*.md` ditinjau penuh: 6 dari 9 poin diselesaikan, 3 poin (angka rate limit, retensi idempotency di volume tinggi, peta `last_used_at` tanpa eviction) **sengaja dibiarkan terbuka** — butuh traffic produksi nyata untuk diputuskan jujur, bukan ditutup paksa demi checklist rapi. **Seluruh 13 acceptance criteria PRD Phase 4 dicek satu per satu dan terpenuhi. Phase 4 selesai.** |
 
 ---
 
@@ -55,35 +56,39 @@ _(kosong)_
 
 ## Berikutnya
 
-**Issue #49 — Halaman dokumentasi integrasi** (frontend, backend #47 sudah berjalan sejak sebelumnya) —
-**penutup Phase 4**, satu-satunya issue tersisa.
+**Phase 4 — Public API selesai** (#46–#49). Dua hal menunggu keputusan manusia sebelum sesi coding
+berikutnya dimulai — bukan sesuatu yang bisa diputuskan sepihak dalam sesi agent, pola yang sama seperti
+saat Phase 3 tutup:
 
-- Cakupan & acceptance: [issue #49](https://github.com/Pravasta/jualin-crm/issues/49) — TD §13, §14,
-  §18, mencakup update `api.md`/`authentication.md`/`authorization.md`/`multi-tenancy.md` dan
-  pengecekan seluruh 13 acceptance criteria PRD Phase 4.
-- Sebelum menutup, cek `docs/issues/046-api-key-crud.md` dan `docs/issues/047-public-lead-api.md` —
-  checklist ringkas hal yang perlu ditinjau ulang dari kedua issue itu (ADR-004 yang belum diperbaiki,
-  angka rate limit yang belum diukur, dll.), bukan pengganti 13 acceptance criteria di atas. Tidak ada
-  berkas serupa untuk #48 — tidak ada temuan yang perlu ditinjau ulang dari issue itu.
-- Halaman dokumentasi butuh contoh `curl` yang benar-benar bekerja — endpoint publiknya (`POST
-  /v1/leads` via API key) sudah berjalan sejak #47, dan layar pembuatan kunci (#48, baru selesai)
-  sudah bisa dipakai untuk mendapatkan kredensial nyata tanpa `curl` manual saat menulis contohnya.
-- Setelah #49 selesai: **Phase 4 tutup**, lanjut ke **Phase 5 — Employee Mobile** (satu-satunya phase
-  MVP tersisa) — cek dulu status Apple Developer Program & Firebase di bagian *Punya Lead Time*
-  sebelum membukanya.
+1. **Demo ke calon pengguna** (freeze bagian 4) — tujuan Phase 3, **masih belum dilakukan**. Dicatat
+   lagi di sini karena penutupan Phase 4 adalah titik alami kedua untuk mengingatkannya — dua phase
+   sudah selesai tanpa satu pun calon pengguna melihatnya.
+2. **Pilih phase berikutnya**: Phase 5 (Employee Mobile) adalah satu-satunya phase MVP yang tersisa dan
+   ada di jalur utama freeze (`Phase 3 → Phase 5 → GATE`) — tapi **cek dulu status Apple Developer
+   Program & Firebase** di bagian *Punya Lead Time* di bawah. Kalau keduanya masih belum diurus, Phase 5
+   akan berhenti tepat di bagian build iOS dan push notification, persis alasan Phase 4 dikerjakan lebih
+   dulu kemarin. Bila keduanya sudah beres, Phase 5 bisa langsung dibuka (PRD + TD, pola yang sama
+   seperti Phase 2→3→4).
 
-### Dua hal yang tetap menunggu keputusan manusia
+### Kewajiban yang diwarisi phase-phase berikutnya (TD phase 4 §19)
 
-Keduanya tercatat sejak Phase 3 tutup dan **tidak** memblokir Phase 4:
+Dicatat di sini supaya tidak bergantung ingatan — detail lengkap di
+`docs/phases/04-public-api/notes.md`'s `## #49`:
 
-1. **Demo ke calon pengguna** (freeze bagian 4) — tujuan Phase 3, belum dilakukan.
-2. **Apple Developer Program & Firebase** — belum dimulai, lihat bagian *Punya Lead Time* di bawah.
-   Keduanya menunggu pihak ketiga dan bisa menghentikan Phase 5 tepat di bagian build iOS dan push
-   notification. **Ini alasan Phase 4 dikerjakan lebih dulu**, bukan karena ia lebih penting — freeze
-   menempatkan keduanya tidak saling bergantung. Mengurusnya selama Phase 4 berjalan adalah cara
-   termurah menghindari Phase 5 berhenti sebelum dimulai.
+- **Phase 5 (Mobile)**: `tenant.Context.Scopes` sekarang ada — jalur user **tidak boleh** mulai
+  memakainya, itu mekanisme khusus principal tanpa role.
+- **Phase 6 (Embedded Form)**: kredensial ketiga (`public_key`, ADR-005) **tidak** boleh disatukan
+  dengan API key. Ingat juga deviasi `CreateLeadInput` tanpa `SourceAPIKeyID`
+  (`docs/issues/047-public-lead-api.md`) — jangan ulangi pola field yang sama untuk `source_form_id`.
+- **Phase 8 (Billing)**: quota per plan **bukan** rate limit — `usage_counters` menghitung, `ratelimit`
+  melindungi, dua mekanisme berbeda.
+- **Kapan pun traffic produksi nyata ada** (integrator sungguhan, bukan simulasi): tinjau ulang
+  `PUBLIC_API_RATE_LIMIT=60`/menit, retensi `idempotency_key` di volume tinggi, dan peta `last_used_at`
+  tanpa eviction — ketiganya dicatat sengaja terbuka di `docs/issues/047-public-lead-api.md`, butuh data
+  nyata untuk diputuskan jujur.
 
-Riwayat #30–#35 di `docs/phases/03-owner-dashboard/issues.md` dan `notes.md`.
+Riwayat #46–#49 di `docs/phases/04-public-api/issues.md` dan `notes.md`. Riwayat #30–#35 (Phase 3) di
+`docs/phases/03-owner-dashboard/issues.md` dan `notes.md`.
 
 ---
 
@@ -93,9 +98,10 @@ Riwayat #30–#35 di `docs/phases/03-owner-dashboard/issues.md` dan `notes.md`.
 |---|---|---|
 | Tidak ada test end-to-end otomatis untuk graceful shutdown | Issue #1 | Diverifikasi manual (build binary + SIGINT). Otomatisasi butuh test yang menjalankan binary sungguhan dan mengirim sinyal OS — `go run` tidak meneruskan sinyal ke child process, jadi tidak bisa diuji lewat itu. Belum ada issue yang mencakup ini; angkat saat menyentuh area shutdown lagi. |
 | Tidak ada auto-migrate saat container `api` start | Issue #2 | `make migrate-up` dijalankan manual. Sengaja dipisah dari entrypoint `api` — migration dan serving punya kelas kegagalan berbeda. |
-| `ratelimit.FixedWindow` tidak pernah membersihkan key lama | Issue #9 | Map tumbuh tanpa batas seiring IP/email baru muncul. Tidak masalah di volume MVP; perlu eviction sebelum traffic produksi nyata. |
-| Angka rate limit (register 5/jam, resend 3/jam+10/jam) belum final | Issue #9 | Cukup untuk membuktikan mekanisme aktif, bukan hasil tuning. **Sebagian ditutup di Phase 4**: batas API publik ditetapkan (D4 — 60/menit per kunci, `PUBLIC_API_RATE_LIMIT`). Angka endpoint email masih default konservatif. |
+| `ratelimit.FixedWindow` tidak pernah membersihkan key lama | Issue #9 | Map tumbuh tanpa batas seiring IP/email baru muncul. Tidak masalah di volume MVP; perlu eviction sebelum traffic produksi nyata. **Pola yang sama sekarang punya dua pemakai lagi sejak Phase 4** (#47): `apikey.Usecase`'s peta throttle `last_used_at` (per kunci, 5 menit) dan `lead.Usecase`'s peta throttle sweep `idempotency_key` (per organization, 1 jam) — keduanya map in-memory tanpa eviction, debt yang sama, belum jadi masalah karena volume MVP masih kecil. |
+| Angka rate limit (register 5/jam, resend 3/jam+10/jam) belum final | Issue #9 | Cukup untuk membuktikan mekanisme aktif, bukan hasil tuning. **Sebagian ditutup di Phase 4**: batas API publik ditetapkan (D4 — 60/menit per kunci, `PUBLIC_API_RATE_LIMIT`) — tapi angka itu sendiri **juga belum hasil pengukuran** (`docs/issues/047-public-lead-api.md`), baru bisa ditinjau ulang begitu integrator produksi nyata mulai mengirim lead. Angka endpoint email masih default konservatif. |
 | `notifications` tidak punya retensi | Issue #22, TD §2 | Sama seperti `idempotency_key` — tidak ada scheduler di Phase 2 untuk membersihkan notifikasi lama. Tidak mendesak di volume MVP. |
+| Retensi `idempotency_key` belum diuji di volume traffic tinggi | Issue #47, TD §7 | Sweep 1×/organization/jam cukup untuk MVP; organization dengan traffic API sangat tinggi (>1 request/jam terus-menerus) belum pernah diukur. Ditinjau ulang begitu ada data nyata (`docs/issues/047-public-lead-api.md`). |
 
 > ~~Test otomatis `db.InTx` dan migration round-trip~~ — selesai di issue #3.
 >
@@ -167,7 +173,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 1 | Auth & Organization | ✅ | ✅ | ✅ #8–#11, #15 | ✅ |
 | 2 | CRM Core | ✅ | ✅ | ✅ #19–#23 | ✅ |
 | 3 | Owner Dashboard | ✅ | ✅ | ✅ #30–#35, #40 | ✅ |
-| 4 | Public API | ✅ | ✅ | ✅ #46–#49 | ⬜ |
+| 4 | Public API | ✅ | ✅ | ✅ #46–#49 | ✅ |
 | 5 | Employee Mobile | ⬜ | ⬜ | ⬜ | ⬜ |
 
 Pekerjaan yang sedang berjalan: `gh issue list --state open`

@@ -83,6 +83,19 @@ Sekarang database **mustahil** menyimpan referensi lintas tenant, apapun bug di 
 
 > Biayanya satu unique index tambahan per tabel. **Ini rasio manfaat-per-biaya tertinggi di seluruh sistem**, dan ia bekerja bahkan ketika kode aplikasi salah.
 
+### Pengecualian tertulis — `api_keys.key_id` unik lintas organization, bukan pelanggaran
+
+`uq_api_keys_key_id` (migration `0005`, Phase 4 #46) **bukan** composite `UNIQUE (key_id,
+organization_id)` seperti pola di atas — ia unik **lintas** seluruh organization. Ini terlihat seperti
+pelanggaran Lapis 2 bila dibaca sekilas; alasannya sama persis dengan `refresh_tokens.token_hash` di
+Phase 1: lookup kredensial terjadi **sebelum** organization diketahui — organization justru *hasil* dari
+lookup itu (Aturan #5, `authentication.md` bagian "API key"). Composite unique di sini tidak mungkin
+dibuat: tidak ada `organization_id` untuk dijadikan bagian kunci sebelum baris ditemukan.
+
+`Repository.FindByKeyID` (`internal/apikey`) adalah pengecualian tertulis yang sama seperti
+`RefreshTokenRepository.FindByHashForUpdate` — tidak menerima `tenant.Context` sama sekali, untuk alasan
+yang sama.
+
 ---
 
 ## Lapis 3 — Row Level Security (ditunda)
@@ -120,7 +133,7 @@ Untuk setiap endpoint tenant-scoped:
 | # | Kasus | Menjaga | Status Phase 1 |
 |---|---|---|---|
 | 1 | Baca resource tenant lain → 404 | Lapis 1 | ✅ `GET /v1/leads/{id}`, `GET /v1/leads/{id}/activities`, `GET /v1/customers/{id}` (dan `PATCH`/`DELETE` yang setara) — `TestTenantIsolation_CrossOrgMutatingByID_Returns404`, ditambah issue #23. Tidak ada endpoint GET-by-id lintas tenant di Phase 1 sendiri (hanya list yang di-scope query, dan `GET /v1/invitations/token/{token}` yang memang publik by design) |
-| 2 | Ubah/hapus resource tenant lain → 404 | Lapis 1 | ✅ `PATCH`/`DELETE /v1/memberships/{id}`, `DELETE /v1/invitations/{id}` (Phase 1); `PATCH`/`DELETE /v1/leads/{id}`, `PATCH`/`DELETE /v1/tasks/{id}`, `PATCH`/`DELETE /v1/customers/{id}` (Phase 2, #23) — `TestTenantIsolation_CrossOrgMutatingByID_Returns404` |
+| 2 | Ubah/hapus resource tenant lain → 404 | Lapis 1 | ✅ `PATCH`/`DELETE /v1/memberships/{id}`, `DELETE /v1/invitations/{id}` (Phase 1); `PATCH`/`DELETE /v1/leads/{id}`, `PATCH`/`DELETE /v1/tasks/{id}`, `PATCH`/`DELETE /v1/customers/{id}` (Phase 2, #23); `DELETE /v1/api-keys/{id}` (Phase 4, #46) — `TestTenantIsolation_CrossOrgMutatingByID_Returns404` |
 | 3 | Menunjuk membership tenant lain di body → ditolak **database** | Lapis 2 | Ditegakkan lewat composite FK sejak #8; belum ada endpoint Phase 1 yang menerima id membership lewat body request (invitation accept menunjuk lewat token, bukan id) |
 | 4 | Employee membaca lead employee lain di org yang sama → 404 | Otorisasi | ✅ `internal/lead/handler_test.go`'s `TestHandler_Get_Employee_OtherPersonsLead_Returns404`, dan padanannya di `internal/task`, `internal/activity`, `internal/customer` (#20–#23) — `authz` sudah memberi Employee akses nol ke membership/invitation sejak Phase 1, `leads` adalah tempat pertama aturan ini punya kasus nyata |
 | 5 | **User dengan dua membership** tidak bisa melihat data org yang tidak sedang aktif di token | ADR-007 | ✅ `TestTenantIsolation_MultiMembership_OnlySeesActiveOrgInToken` |
@@ -143,6 +156,15 @@ seperti direncanakan.
 **bentuk bisnis** tenant lain (jumlah lead, conversion rate) yang bocor lewat agregat. Diuji terpisah:
 `TestTenantIsolation_MetricsAggregate_ScopedToOrganization` di file yang sama, dibuktikan bisa gagal
 dengan cara yang sama seperti kasus lain — lihat komentar di test itu.
+
+### `POST /v1/leads` jalur API key — sengaja tanpa kasus baru (Phase 4, issue #47)
+
+Endpoint publik satu-satunya di Phase 4 **tidak** menerima `:id` tenant lain sama sekali — tidak masuk
+bentuk kasus #1/#2, dan bukan endpoint agregat seperti kasus #7. `t.OrganizationID` untuk request ini
+selalu berasal dari hasil `Repository.FindByKeyID`, tidak pernah dari input request apa pun — secara
+struktural tidak ada permukaan bagi kredensial org A untuk "menunjuk" ke data org B, karena tidak ada
+field yang bisa dipakai menunjuk ke sana. Dianalisis, bukan diuji dengan harness generik yang bentuknya
+tidak cocok untuk kasus ini — dicatat di `docs/phases/04-public-api/notes.md` bagian `## #47`.
 
 ### Kriteria kualitas harness
 
@@ -184,11 +206,16 @@ type TenantContext struct {
     PrincipalType  PrincipalType   // user | api_key | public_form | system
     MembershipID   *uuid.UUID      // nil bila API key
     UserID         *uuid.UUID
-    Role           Role
+    Role           Role            // kosong bila API key — lihat Scopes
     APIKeyID       *uuid.UUID
+    Scopes         []string        // hanya terisi bila PrincipalType == api_key (Phase 4, #47)
     RequestID      string
 }
 ```
+
+`Scopes` adalah mekanisme otorisasi untuk principal **tanpa role** — lihat `authorization.md` bagian
+"Otorisasi berbasis scope". Jalur `PrincipalUser` tidak pernah membacanya; jalur `PrincipalAPIKey` tidak
+pernah membaca `Role`. Keduanya jalur eksklusif, tidak pernah tercampur di satu keputusan otorisasi.
 
 ### Dua aturan yang mudah dilanggar tanpa sadar
 
