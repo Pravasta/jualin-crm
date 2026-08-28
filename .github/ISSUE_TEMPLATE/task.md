@@ -41,4 +41,5 @@ assignees: ''
 - [ ] Otorisasi diuji per role bila menambah endpoint
 - [ ] `docs/phases/<NN>-<slug>/notes.md` diperbarui
 - [ ] `docs/STATUS.md` diperbarui bila ada utang teknis atau phase selesai
+- [ ] `docs/issues/<NNN>-<slug>.md` ditambah/diperbarui bila ada temuan di luar cakupan issue ini yang perlu ditinjau ulang saat penutup phase (skill `jualin-issue-log`) — kosongkan bila tidak ada
 - [ ] PR dibuka dengan `Refs #<issue>` — **bukan** `Closes`
