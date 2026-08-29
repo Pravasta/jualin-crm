@@ -48,7 +48,7 @@ func (h *Handler) create(c *gin.Context) {
 		return
 	}
 
-	k, raw, err := h.usecase.Create(c.Request.Context(), t, CreateInput{Name: req.Name, Scopes: req.Scopes})
+	k, raw, err := h.usecase.Create(c.Request.Context(), t, CreateInput(req))
 	if err != nil {
 		httpx.WriteError(c, err)
 		return

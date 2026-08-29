@@ -27,7 +27,8 @@ func testConfig() *config.Config {
 		AppEnv:             "development",
 		MailProvider:       "log",
 		AppBaseURL:         "http://localhost:3000",
-		PublicAPIRateLimit: 100, // see isolationTestConfig's comment (Phase 4 #47)
+		PublicAPIRateLimit: 100,    // see isolationTestConfig's comment (Phase 4 #47)
+		PushProvider:       "none", // see isolationTestConfig's comment (Phase 5 #68) — a zero-value "" here would hit newPushSender's unreachable default and panic
 	}
 }
 

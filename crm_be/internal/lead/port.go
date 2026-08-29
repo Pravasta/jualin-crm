@@ -56,13 +56,32 @@ type NotificationSender interface {
 	Notify(ctx context.Context, t tenant.Context, recipientMembershipID uuid.UUID, notifType string, leadID, taskID *uuid.UUID, title string, body *string) error
 }
 
+// PushSender is declared locally per ADR-011, bridged the same way as
+// NotificationSender — lead needs only to push to one membership's
+// registered devices, not device's full domain type. Satisfied by
+// device.NewUsecase's return value at the composition root (Phase 5
+// TD §9.3). Deliberately part of Repos, not a NewUsecase parameter: the
+// call happens AFTER InTx commits (Rule #32), reading Repos() a second
+// time outside the transaction, same as every other read-after-write
+// use of Store.Repos() in this codebase — not because it needs a
+// transaction, but so it doesn't require every existing
+// NewUsecase(store) call site (~20 across this package's tests) to
+// also supply a push dependency they never exercise.
+type PushSender interface {
+	PushToMembership(ctx context.Context, t tenant.Context, membershipID uuid.UUID, title, body string, data map[string]string) error
+}
+
 // Repos bundles what a single Usecase call needs. Activity was added in
 // #21 when lead events first needed cross-table atomicity with activity
 // rows (TD §10). Notification was added in #22 for assignment (TD §11).
+// Push was added in Phase 5 #68 — deliberately optional (nil is a valid
+// zero value here, checked by the one caller that reads it) since it's
+// consulted OUTSIDE any transaction, unlike the other three fields.
 type Repos struct {
 	Lead         Repository
 	Activity     ActivityRecorder
 	Notification NotificationSender
+	Push         PushSender
 }
 
 // Store is the Unit of Work Usecase depends on — same shape as every

@@ -114,6 +114,9 @@ func TestLoad_ProductionMode(t *testing.T) {
 	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8")
 	t.Setenv("MAIL_PROVIDER", "smtp")
 	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("PUSH_PROVIDER", "fcm")
+	t.Setenv("FCM_PROJECT_ID", "test-project")
+	t.Setenv("FCM_CREDENTIALS_FILE", "/tmp/fcm-creds.json")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -163,6 +166,9 @@ func TestLoad_ProductionRequiresCookieSecure(t *testing.T) {
 	t.Setenv("TRUSTED_PROXIES", "none")
 	t.Setenv("MAIL_PROVIDER", "smtp")
 	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("PUSH_PROVIDER", "fcm")
+	t.Setenv("FCM_PROJECT_ID", "test-project")
+	t.Setenv("FCM_CREDENTIALS_FILE", "/tmp/fcm-creds.json")
 
 	_, err := config.Load()
 	if err == nil {
@@ -185,6 +191,9 @@ func TestLoad_ProductionRequiresCORSAllowedOrigins(t *testing.T) {
 	t.Setenv("TRUSTED_PROXIES", "none")
 	t.Setenv("MAIL_PROVIDER", "smtp")
 	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("PUSH_PROVIDER", "fcm")
+	t.Setenv("FCM_PROJECT_ID", "test-project")
+	t.Setenv("FCM_CREDENTIALS_FILE", "/tmp/fcm-creds.json")
 	unsetEnv(t, "CORS_ALLOWED_ORIGINS")
 
 	_, err := config.Load()
@@ -210,6 +219,9 @@ func TestLoad_ProductionRequiresTrustedProxies(t *testing.T) {
 	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
 	t.Setenv("MAIL_PROVIDER", "smtp")
 	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("PUSH_PROVIDER", "fcm")
+	t.Setenv("FCM_PROJECT_ID", "test-project")
+	t.Setenv("FCM_CREDENTIALS_FILE", "/tmp/fcm-creds.json")
 	unsetEnv(t, "TRUSTED_PROXIES")
 
 	_, err := config.Load()

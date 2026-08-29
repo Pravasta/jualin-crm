@@ -405,6 +405,15 @@ func TestUnit_ResolveAPIKey_EveryFailureReasonIsIdentical(t *testing.T) {
 	revoked := seedResolvableKey(store, org, []string{"leads:write"})
 	now := time.Now()
 	revoked.RevokedAt = &now
+	// seedResolvableKey always stamps KeyID=testKeyID; without giving
+	// revoked a KeyID of its own, this and valid collide in the fake
+	// repo's byID map and FindByKeyID's range over it (Go's map
+	// iteration order is randomized per call) nondeterministically
+	// returns whichever of the two it hits first — sometimes resolving
+	// the "revoked key" scenario below against the still-valid key
+	// instead, a flaky false pass/fail caught by running this test with
+	// -count=200 (fails intermittently without this line).
+	revoked.KeyID = "revokedkey01"
 
 	valid := seedResolvableKey(store, org, []string{"leads:write"})
 	_ = valid

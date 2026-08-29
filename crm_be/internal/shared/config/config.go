@@ -26,6 +26,10 @@ var validMailProviders = []string{"log", "smtp"}
 
 var validSMTPTLSModes = []string{"starttls", "none"}
 
+// "none" (push.NoopSender) or "fcm" (push.FCMSender) — same shape as
+// validMailProviders (Phase 5 #68).
+var validPushProviders = []string{"none", "fcm"}
+
 // Config holds all environment-derived settings for crm_be.
 type Config struct {
 	AppEnv string `env:"APP_ENV" envDefault:"development"`
@@ -56,6 +60,17 @@ type Config struct {
 	SMTPPassword string        `env:"SMTP_PASSWORD"`
 	SMTPTLS      string        `env:"SMTP_TLS" envDefault:"starttls"`
 	SMTPTimeout  time.Duration `env:"SMTP_TIMEOUT" envDefault:"10s"`
+
+	// Push* configure push.FCMSender (Phase 5, issue #68) — read only
+	// when PushProvider is "fcm". Same shape as MailProvider/SMTP*
+	// above, deliberately: "none" (push.NoopSender) is rejected outright
+	// when APP_ENV=production, for the identical reason MAIL_PROVIDER=log
+	// is — a production process that silently never pushes fails with no
+	// error at all.
+	PushProvider       string        `env:"PUSH_PROVIDER" envDefault:"none"`
+	FCMProjectID       string        `env:"FCM_PROJECT_ID"`
+	FCMCredentialsFile string        `env:"FCM_CREDENTIALS_FILE"`
+	PushTimeout        time.Duration `env:"PUSH_TIMEOUT" envDefault:"10s"`
 
 	// JWTSecret signs and verifies access tokens (HS256, TD phase 1 §4).
 	// Required with no default — an app booting with a generated or empty
@@ -156,6 +171,26 @@ func (c *Config) validate() error {
 		}
 		if c.SMTPTimeout <= 0 {
 			return fmt.Errorf("config invalid: SMTP_TIMEOUT must be positive, got %s", c.SMTPTimeout)
+		}
+	}
+	if !slices.Contains(validPushProviders, c.PushProvider) {
+		return fmt.Errorf("config invalid: PUSH_PROVIDER must be one of %v, got %q", validPushProviders, c.PushProvider)
+	}
+	// Same reasoning as MAIL_PROVIDER=log in production (above): a
+	// process that never pushes fails with no error, no crash — just a
+	// notification that quietly never arrives on anyone's phone.
+	if c.AppEnv == "production" && c.PushProvider == "none" {
+		return fmt.Errorf(`config invalid: PUSH_PROVIDER must not be "none" when APP_ENV=production`)
+	}
+	if c.PushProvider == "fcm" {
+		if c.FCMProjectID == "" {
+			return fmt.Errorf("config invalid: FCM_PROJECT_ID must be set when PUSH_PROVIDER=fcm")
+		}
+		if c.FCMCredentialsFile == "" {
+			return fmt.Errorf("config invalid: FCM_CREDENTIALS_FILE must be set when PUSH_PROVIDER=fcm")
+		}
+		if c.PushTimeout <= 0 {
+			return fmt.Errorf("config invalid: PUSH_TIMEOUT must be positive, got %s", c.PushTimeout)
 		}
 	}
 	if len(c.JWTSecret) < minJWTSecretLength {

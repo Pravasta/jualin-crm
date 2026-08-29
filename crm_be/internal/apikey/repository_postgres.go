@@ -24,9 +24,7 @@ func New(q db.Querier) Repository {
 // apiKeyColumns is deliberately unaliased — every query below references
 // api_keys as its only table, so bare column names never need
 // disambiguating (same reasoning as customer.customerColumns).
-const apiKeyColumns = `
-	id, organization_id, key_id, secret_hash, key_prefix, name, scopes,
-	created_by_membership_id, created_at, last_used_at, revoked_at, expires_at`
+const apiKeyColumns = `id, organization_id, key_id, secret_hash, key_prefix, name, scopes, created_by_membership_id, created_at, last_used_at, revoked_at, expires_at` // #nosec G101 -- a SQL column list, not a credential; gosec's identifier heuristic matches "apiKeyColumns" as a name
 
 func (r *postgresRepository) Create(ctx context.Context, t tenant.Context, k *APIKey) error {
 	const q = `
