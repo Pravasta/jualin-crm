@@ -3,9 +3,10 @@
 Prasyarat: [`00-menjalankan-aplikasi.md`](./00-menjalankan-aplikasi.md) selesai — backend dan
 dashboard menyala, `http://localhost:3000` mengarahkan ke `/login`.
 
-Menguji: registrasi organization baru, verifikasi email (lewat log — belum ada email sungguhan),
-login, logout, lupa password, reset password. Ini membangun **akun Owner** yang dipakai di seluruh
-berkas berikutnya — jangan hapus datanya sampai seluruh urutan panduan ini selesai.
+Menguji: registrasi organization baru, verifikasi email (lewat Mailpit — email sungguhan terkirim,
+lihat [`00-menjalankan-aplikasi.md`](./00-menjalankan-aplikasi.md) §7), login, logout, lupa password,
+reset password. Ini membangun **akun Owner** yang dipakai di seluruh berkas berikutnya — jangan hapus
+datanya sampai seluruh urutan panduan ini selesai.
 
 ## 1.1 Registrasi organization baru
 
@@ -22,27 +23,19 @@ berkas berikutnya — jangan hapus datanya sampai seluruh urutan panduan ini sel
 owner@test.local..."* — **bukan** langsung masuk ke dashboard. Ini sengaja (keputusan B3: verifikasi
 email menggerbangi login).
 
-## 1.2 Cari tautan verifikasi di log
+## 1.2 Buka email verifikasi di Mailpit
 
-Belum ada email sungguhan — tautannya ada di log `api`. Dari akar repo:
+1. Buka **http://localhost:8025**.
+2. Klik email terbaru — subjeknya **"Verifikasi email Jualin CRM Anda"**, ditujukan ke
+   `owner@test.local`.
 
-```bash
-docker compose logs api | grep -o 'http://localhost:3000/verify-email[^\\"]*' | tail -1
-```
-
-**Hasil yang diharapkan:** satu baris bersih siap tempel, mis.
-
-```
-http://localhost:3000/verify-email?token=WrnunLAJuz8vTf6wQtVpAx5MKRKostypB2g4SHRAXtE
-```
-
-> ⚠️ Jangan menyalin URL-nya manual dari baris log mentah — di sana ia diikuti `\n\n` literal yang
-> ikut tersalin dan membuat token tidak valid. Penjelasan lengkap:
-> [`00-menjalankan-aplikasi.md`](./00-menjalankan-aplikasi.md) §8.
+**Hasil yang diharapkan:** isi email berbentuk kalimat lengkap Bahasa Indonesia dengan satu tautan
+`http://localhost:3000/verify-email?token=...` — utuh, tidak terpotong.
 
 ## 1.3 Verifikasi email
 
-1. Tempel URL yang disalin ke address bar browser, buka.
+1. Klik tautannya (kalau tampil sebagai tautan yang bisa diklik di tampilan Mailpit), atau sorot dan
+   salin teksnya lalu tempel ke address bar browser.
 
 **Hasil yang diharapkan:** halaman menampilkan status berhasil terverifikasi, dengan tautan/tombol
 menuju `/login`.
@@ -89,12 +82,9 @@ diarahkan balik ke `/login`, **tidak** menampilkan Beranda sesaat (tidak ada ses
 email yang **tidak pernah didaftarkan** (mis. `tidak-ada@test.local`) — pesannya harus identik,
 supaya orang luar tidak bisa menebak email mana yang punya akun.
 
-3. Ambil tautannya dari log (pola sama seperti §1.2):
-
-```bash
-docker compose logs api | grep -o 'http://localhost:3000/reset-password[^\\"]*' | tail -1
-```
-4. Buka tautan tersebut. Isi **Password baru** + **Konfirmasi password**, submit.
+3. Buka **http://localhost:8025**, klik email terbaru — subjeknya **"Reset password Jualin CRM
+   Anda"** (pola sama seperti §1.2).
+4. Buka tautannya. Isi **Password baru** + **Konfirmasi password**, submit.
 
 **Hasil yang diharapkan:** berhasil, diarahkan ke `/login`.
 

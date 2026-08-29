@@ -16,7 +16,7 @@ Mengikuti kalimat inti MVP (`architecture/freeze.md` bagian 3, `product/decision
 
 Bagian yang **bisa** diuji manual sekarang: semuanya kecuali "follow-up dari HP" — **Phase 5 (mobile)
 belum dibangun**, jadi employee follow-up di panduan ini dilakukan lewat dashboard, bukan HP.
-Phase 0–4.5 sudah selesai (`docs/STATUS.md`); panduan ini menguji hasilnya.
+Phase 0–4.6 sudah selesai (`docs/STATUS.md`); panduan ini menguji hasilnya.
 
 ## Urutan berkas
 
@@ -40,23 +40,16 @@ lead yang sama, dst).
 - Terminal yang bisa dibuka beberapa tab/jendela sekaligus (untuk mengawasi log sambil mengklik di browser)
 - Browser apa saja
 
-## Soal email — LogMailer
+## Soal email — Mailpit
 
-Belum ada penyedia email sungguhan (`docs/STATUS.md`'s *Punya Lead Time* — domain & email provider
-belum diurus). Setiap "email" (verifikasi, reset password, undangan) hanya **dicatat ke log**, tidak
-benar-benar dikirim (`internal/shared/mailer.LogMailer`). Sepanjang panduan ini, tautan yang biasanya
-ada di badan email harus **dicari di log `api`**, bukan di kotak masuk. Caranya dijelaskan di
-`00-menjalankan-aplikasi.md` dan dipakai berulang di berkas-berkas berikutnya.
-
-Baris log-nya selalu berbentuk:
-
-```
-api-1  | time=... level=INFO msg="email (not sent — LogMailer)" to=... subject="..." body="Klik tautan berikut ...: http://localhost:3000/...?token=...\n\nTautan berlaku ..."
-```
-
-Cara mengambilnya tanpa salah salin (URL diikuti `\n\n` literal di dalam `body=`) ada di
-[`00-menjalankan-aplikasi.md`](./00-menjalankan-aplikasi.md) §8 — perintahnya satu baris, dipakai
-berulang di sepanjang panduan ini.
+Belum ada penyedia email produksi (`docs/STATUS.md`'s *Punya Lead Time* — domain & SPF/DKIM/DMARC
+belum diurus), tapi sejak Phase 4.6 **email sungguhan benar-benar terkirim** saat mengembangkan —
+lewat SMTP ke [Mailpit](https://mailpit.axllent.org/), server SMTP lokal yang ditangkap
+`docker-compose.yml`, bukan dikirim ke internet. Setiap email (verifikasi, reset password, undangan)
+muncul di **UI web Mailpit** (`http://localhost:8025`), lengkap dengan tautan yang bisa langsung
+diklik — tidak perlu lagi menggali log server. Caranya dijelaskan di
+[`00-menjalankan-aplikasi.md`](./00-menjalankan-aplikasi.md) §7 dan dipakai berulang di
+berkas-berkas berikutnya.
 
 ## Kalau sesuatu gagal
 
