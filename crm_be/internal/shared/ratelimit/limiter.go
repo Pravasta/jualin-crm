@@ -22,12 +22,30 @@ type Limiter interface {
 // clock time. Simplicity over precision is deliberate — this only needs
 // to make brute-forcing and spam expensive, not implement a perfectly
 // smooth rate.
+//
+// Keys are chosen by the caller — IP addresses and email addresses, for
+// every existing call site (Phase 1 #9, Phase 4 #47's publiclead:key:
+// being the one exception, keyed by an authenticated api_key_id). An IP
+// or email is input from someone who hasn't authenticated yet, so the
+// bucket map is bounded with two-generation eviction (Phase 4.5 #58,
+// TD §2) — without it, an attacker who never repeats a key can grow this
+// map without limit. See docs/phases/04.5-hardening/td.md §2 for why
+// two generations rather than a periodic sweep (a sweep over a
+// multi-million-key map while holding the lock turns the defense into
+// the attack).
 type FixedWindow struct {
 	limit  int
 	window time.Duration
 
-	mu      sync.Mutex
-	buckets map[string]*bucket
+	mu       sync.Mutex
+	current  map[string]*bucket
+	previous map[string]*bucket
+	genStart time.Time
+
+	// now is overridable only from this package's own tests
+	// (limiter_internal_test.go) to drive generation rollover
+	// deterministically — production code always gets time.Now.
+	now func() time.Time
 }
 
 type bucket struct {
@@ -37,9 +55,11 @@ type bucket struct {
 
 func NewFixedWindow(limit int, window time.Duration) *FixedWindow {
 	return &FixedWindow{
-		limit:   limit,
-		window:  window,
-		buckets: make(map[string]*bucket),
+		limit:    limit,
+		window:   window,
+		current:  make(map[string]*bucket),
+		previous: make(map[string]*bucket),
+		now:      time.Now,
 	}
 }
 
@@ -65,15 +85,29 @@ type Result struct {
 // this, not the other way around, so there is exactly one place the
 // bucket logic lives.
 func (f *FixedWindow) Take(key string) Result {
-	now := time.Now()
+	now := f.now()
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	b, ok := f.buckets[key]
-	if !ok || now.Sub(b.windowStart) >= f.window {
-		b = &bucket{windowStart: now}
-		f.buckets[key] = b
+	f.rollLocked(now)
+
+	b, ok := f.current[key]
+	if !ok {
+		// Carry a still-live bucket forward from the previous generation
+		// so a generation swap never hands a key a fresh budget mid-window
+		// — this is what keeps per-key behavior identical to before
+		// eviction existed (Phase 4.5 TD §2.2).
+		if pb, pok := f.previous[key]; pok && now.Sub(pb.windowStart) < f.window {
+			b = &bucket{windowStart: pb.windowStart, count: pb.count}
+		} else {
+			b = &bucket{windowStart: now}
+		}
+		f.current[key] = b
+	}
+	if now.Sub(b.windowStart) >= f.window {
+		b.windowStart = now
+		b.count = 0
 	}
 	resetAt := b.windowStart.Add(f.window)
 
@@ -82,4 +116,43 @@ func (f *FixedWindow) Take(key string) Result {
 	}
 	b.count++
 	return Result{Allowed: true, Limit: f.limit, Remaining: f.limit - b.count, ResetAt: resetAt}
+}
+
+// rollLocked swaps generations roughly every window: current becomes
+// previous (carrying still-live buckets forward on next access), and a
+// fresh current starts. If more than 2*window has passed with no calls
+// at all, both generations are stale and are dropped outright instead of
+// demoting a previous that's just as dead. Caller must hold f.mu.
+func (f *FixedWindow) rollLocked(now time.Time) {
+	if f.genStart.IsZero() {
+		f.genStart = now
+		return
+	}
+	if now.Sub(f.genStart) < f.window {
+		return
+	}
+	if now.Sub(f.genStart) >= 2*f.window {
+		f.previous = map[string]*bucket{}
+	} else {
+		f.previous = f.current
+	}
+	f.current = map[string]*bucket{}
+	f.genStart = now
+}
+
+// Len reports how many distinct keys are currently tracked across both
+// generations. It exists only so tests can prove eviction actually
+// bounds growth (Phase 4.5 #58) — not a general-purpose introspection
+// API, and no production call site needs it.
+func (f *FixedWindow) Len() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	seen := make(map[string]struct{}, len(f.current)+len(f.previous))
+	for k := range f.current {
+		seen[k] = struct{}{}
+	}
+	for k := range f.previous {
+		seen[k] = struct{}{}
+	}
+	return len(seen)
 }

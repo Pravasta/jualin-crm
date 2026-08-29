@@ -96,3 +96,96 @@ sungguhan — komentar itu sekarang menunjuk ke sana secara eksplisit.
 Issue ini menutup akar masalahnya (Aturan #34 kini benar-benar ditegakkan), tapi **belum** menyentuh
 eviction map (`ratelimit.FixedWindow`, `auth.LoginLimiter` masih tumbuh tanpa batas — hanya lebih
 lambat sekarang, karena laju pertumbuhan key terikat pada IP nyata penyerang). Itu #58, penutup phase.
+
+---
+
+## #58 — Eviction map ber-key penyerang + koreksi kategorisasi utang, penutup Phase 4.5
+
+### Keputusan implementasi
+
+- **Dua generasi (`current`/`previous`), bukan sweep berkala** — keputusan H2 diikuti persis seperti
+  ditulis di TD §2.1: memindai map besar sambil memegang lock justru mengubah pertahanan jadi bagian
+  dari serangan. Ditukar setiap kurang lebih satu `window` (`FixedWindow`) atau satu `loginBackoffCap`
+  (`LoginLimiter`, keputusan H4) — dua generasi sekaligus di memori setiap saat, tidak pernah lebih.
+- **Carry-forward lewat lookup, bukan filter saat swap.** Baik `FixedWindow.Take` maupun
+  `LoginLimiter.getLocked` memindahkan entry dari `previous` ke `current` **hanya saat entry itu
+  diakses lagi** dan masih hidup (`FixedWindow`: `windowStart` belum lewat `window`; `LoginLimiter`:
+  `nextAllowedAt` belum lewat). Entry yang tidak pernah diakses lagi setelah demosi cukup dibiarkan —
+  ia akan lenyap otomatis di swap berikutnya tanpa perlu langkah pembersihan terpisah. Ini membuat
+  kedua map memenuhi kriteria #7 (test lama lulus tanpa perubahan asersi): key mana pun yang masih
+  hidup berperilaku **identik** dengan sebelum eviction ada, karena `windowStart`/`count` (atau
+  `failures`/`nextAllowedAt`) disalin apa adanya, bukan direset.
+- **`now func() time.Time` unexported, di-set hanya dari test paket yang sama** — satu-satunya
+  penambahan permukaan ke kode produksi (TD §3.3). `NewFixedWindow`/`NewLoginLimiter` publik keduanya
+  tetap tidak berubah tanda tangannya; tidak ada konstruktor baru yang menerima clock, jadi tidak ada
+  jalan bagi produksi untuk memakai clock palsu. Empat test butuh kontrol waktu presisi
+  (`limiter_internal_test.go`, `login_limiter_internal_test.go`, keduanya `package ratelimit`/`package
+  auth` bukan `_test` — deviasi yang sama seperti `internal/apikey/entity_test.go` sejak #46) — alternatifnya
+  `time.Sleep` dengan window sungguhan, yang berarti test menunggu jam sungguhan untuk lolos.
+- **`Len()` ditambahkan ke kedua tipe**, hanya untuk kebutuhan test membuktikan batas memori lewat
+  pengukuran (kriteria #5), bukan API introspeksi umum — tidak ada pemanggil produksi.
+- **Dua map ber-key entity bisnis (`apikey.lastUsedThrottle`, `lead.idempotencyCleanupThrottle`)
+  sengaja tidak disentuh** (keputusan H3) — komentarnya diperbarui di kedua tempat untuk berhenti
+  menyamakan diri dengan `ratelimit.FixedWindow`; sekarang menjelaskan alasan sebenarnya (ber-key
+  entity bisnis yang terbatas jumlahnya, bukan input penyerang tanpa batas) dan menunjuk balik ke #58.
+
+### Test yang membuktikan batas memori — diukur, bukan dibaca
+
+| Test | Membuktikan |
+|---|---|
+| `TestFixedWindow_EvictsAcrossGenerations` | 20 generasi × 50 key unik (1000 total) tetap terlacak ≤100 sepanjang waktu |
+| `TestFixedWindow_LiveWindowSurvivesGenerationSwap` | Key yang jendelanya masih hidup melewati swap dengan `Remaining`/`ResetAt` **identik** seolah tidak ada swap sama sekali |
+| `TestLoginLimiter_EvictsExpiredBackoff` | Sama untuk `LoginLimiter` — 20×50 key tetap terlacak ≤100 |
+| `TestLoginLimiter_ActiveBackoffSurvivesGenerationSwap` | Backoff yang masih aktif (di-dorong ke batas `loginBackoffCap` lewat 10 kegagalan berturut) tetap menahan permintaan setelah swap |
+
+### Verifikasi — terbukti bisa gagal
+
+Prosedur sama seperti #57 dan harness isolasi tenant. Dua titik dirusak sementara di **masing-masing**
+tipe, dijalankan, dicatat, dikembalikan — total empat run terpisah, `git diff` bersih setelah setiap
+pengembalian:
+
+```
+FixedWindow — rollLocked dipaksa `return` di awal (generasi tidak pernah ditukar):
+--- FAIL: TestFixedWindow_EvictsAcrossGenerations
+    peaked at 1000 — seharusnya ≤100
+
+FixedWindow — carry-forward previous→current dipaksa mati (kondisi `false &&`):
+--- FAIL: TestFixedWindow_LiveWindowSurvivesGenerationSwap
+    Remaining got 2 (seharusnya 1), ResetAt bergeser +31s — window K ter-reset oleh swap
+
+LoginLimiter — rollLocked dipaksa `return` di awal:
+--- FAIL: TestLoginLimiter_EvictsExpiredBackoff
+    peaked at 1000 — seharusnya ≤100
+
+LoginLimiter — carry-forward previous→current dipaksa mati:
+--- FAIL: TestLoginLimiter_ActiveBackoffSurvivesGenerationSwap
+    got allowed — backoff aktif hilang begitu saja saat swap
+```
+
+Keempat kali merah persis seperti diprediksi. Tidak satu pun perusakan ter-commit.
+
+### Verifikasi
+
+- `go test -race ./...` — seluruh paket lulus, termasuk 4 test baru di `ratelimit` dan 2 test baru di
+  `auth`, tanpa perubahan asersi pada test lama manapun di kedua paket.
+- `go build ./...`, `go vet ./...`, `gofmt -l .` — bersih.
+- Dokumentasi: `internal/apikey/usecase.go` dan `internal/lead/usecase.go`'s komentar diperbarui
+  (dijelaskan di atas). `docs/issues/047-public-lead-api.md` sudah dikoreksi sejak PR pembuka phase
+  (#59) — ditinjau ulang di sini, tidak perlu perubahan lagi.
+
+### Seluruh 10 acceptance criteria PRD Phase 4.5
+
+| # | Kriteria | Bukti |
+|---|---|---|
+| 1 | `X-Forwarded-For` palsu tidak mengubah `ClientIP()` tanpa proxy tepercaya | `TestClientIP_Register/Resend/ForgotPassword_ForgedIPDoesNotBypassRateLimit`, `TestClientIP_Login_BackoffNotBypassableByForgedIP` (#57) |
+| 2 | `TRUSTED_PROXIES` wajib saat produksi, boot gagal tanpanya | `TestLoad_ProductionRequiresTrustedProxies` (#57) |
+| 3 | Proxy tepercaya meneruskan IP klien asli | `TestClientIP_TrustedProxyHeaderIsHonored` (#57) |
+| 4 | Test yang mencoba melewati Aturan #34, kedua sisi | `TestClientIP_Resend_*`, `TestClientIP_ForgotPassword_*` (#57) |
+| 5 | Map tidak tumbuh tanpa batas — diukur | `TestFixedWindow_EvictsAcrossGenerations`, `TestLoginLimiter_EvictsExpiredBackoff` (#58) |
+| 6 | Dua map ber-key entity tidak disentuh, alasan tertulis | `internal/apikey/usecase.go`, `internal/lead/usecase.go` komentar (#58) |
+| 7 | Seluruh test lama lulus tanpa perubahan asersi | `go test -race ./...` bersih di #57 dan #58, nol asersi diubah |
+| 8 | Setiap proteksi terbukti bisa gagal | Prosedur adversarial #57 (5 kasus) dan #58 (4 kasus), transkrip di atas |
+| 9 | `docs/issues/047` dikoreksi | Dikoreksi di PR pembuka phase (#59), sebelum #57/#58 dikerjakan |
+| 10 | `authentication.md` menyatakan model kepercayaan jaringan | Bagian *Model kepercayaan jaringan* (#57) |
+
+**Seluruh 10 kriteria terpenuhi. Phase 4.5 — Hardening selesai.**

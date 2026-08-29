@@ -37,8 +37,13 @@ type Usecase struct {
 	store Store
 
 	// idempotencyCleanupThrottle is an in-memory map[organization_id]
-	// last-sweep-time — no eviction, same accepted debt as
-	// ratelimit.FixedWindow's bucket map (tracked since #9).
+	// last-sweep-time. Deliberately WITHOUT eviction, unlike
+	// ratelimit.FixedWindow and auth.LoginLimiter (Phase 4.5 #58) —
+	// those are keyed by IP/email, input from someone who hasn't
+	// authenticated yet, so an attacker can grow them without limit.
+	// This map is keyed by organization_id, bounded by how many tenants
+	// actually exist. Adding eviction here would be solving a problem
+	// that doesn't exist (Rule #27–#29).
 	idempotencyCleanupMu       sync.Mutex
 	idempotencyCleanupThrottle map[uuid.UUID]time.Time
 }
