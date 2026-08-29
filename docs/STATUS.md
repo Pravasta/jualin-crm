@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 29 Agustus 2026 — Issue #64 selesai. **Phase 4.6 — Email Delivery selesai.**
-**Phase sekarang:** Phase 4.6 selesai — phase berikutnya (5) belum dibuka, lihat *Berikutnya*.
+**Last updated:** 29 Agustus 2026 — **Phase 5 — Employee Mobile dibuka** (#68–#73), Android dulu, iOS ditunda.
+**Phase sekarang:** Phase 5 — Employee Mobile. Phase 4.6 selesai; ini phase MVP terakhir sebelum GATE.
 
 ---
 
@@ -60,29 +60,34 @@ _(kosong)_
 
 ## Berikutnya
 
-**Phase 4.6 — Email Delivery selesai** (#63, #64) — diminta pemilik produk sebagai prasyarat demo ke
-calon pengguna. Ringkasan lengkap di baris Selesai #63/#64 dan
-`docs/phases/04.6-email-delivery/notes.md`; intinya: `mailer.Mailer` (interface sejak Phase 1)
-akhirnya punya implementasi SMTP sungguhan, `MAIL_FROM` yang sejak Phase 1 tidak pernah dibaca
-siapa pun akhirnya dipakai, dan `MAIL_PROVIDER=log`/`SMTP_TLS=none` keduanya ditolak boot saat
-`APP_ENV=production`. `docs/testing/flow/` diperbarui — tidak ada lagi langkah "gali log", email
-verifikasi/reset/undangan sekarang muncul di Mailpit (`http://localhost:8025`) saat `make dev`.
+### Phase 5 — Employee Mobile (#68–#73) — sedang dibuka
 
-Satu hal menunggu keputusan manusia — bukan sesuatu yang bisa diputuskan sepihak dalam sesi agent,
-pola yang sama seperti saat Phase 3 tutup:
+**Phase MVP terakhir.** Setelah ini GATE freeze terbuka: cari 3–5 pengguna nyata sebelum Phase 6.
+Dokumen: `docs/phases/05-employee-mobile/`.
 
-1. **Pilih phase berikutnya**: Phase 5 (Employee Mobile) adalah satu-satunya phase MVP yang tersisa dan
-   ada di jalur utama freeze (`Phase 3 → Phase 5 → GATE`) — tapi **cek dulu status Apple Developer
-   Program & Firebase** di bagian *Punya Lead Time* di bawah. Kalau keduanya masih belum diurus, Phase 5
-   akan berhenti tepat di bagian build iOS dan push notification, persis alasan Phase 4 dikerjakan lebih
-   dulu sebelumnya. Bila keduanya sudah beres, Phase 5 bisa langsung dibuka (PRD + TD, pola yang sama
-   seperti Phase 2→3→4).
+**Android dulu, iOS ditunda** (keputusan M1) — Apple Developer Program berbayar dan belum ada. Ini
+**tidak** mengorbankan satu pun kriteria selesai phase: freeze menulis *"siklus penuh berjalan di HP
+nyata"* tanpa menyebut platform, dan push Android tidak melibatkan Apple sama sekali.
+
+Riset saat membuka phase menemukan **backend hampir seluruhnya sudah siap** — jalur auth mobile,
+visibilitas Employee, permission, activity `call_logged`/`whatsapp_opened`, `version`, tabel
+`notifications` semuanya ada sejak Phase 1–2. `authz.go` bahkan sudah menuliskan komentarnya:
+*"Employee gets mobile in Phase 5"*. **`device_tokens` + FCM adalah satu-satunya pekerjaan backend**;
+sisanya Flutter, dan `crm_employee/` masih berisi satu berkas `README.md`.
+
+**Kontradiksi freeze dilaporkan, bukan diputuskan diam-diam** (Aturan #30): bagian 4 menulis cakupan
+*"cache **baca** offline"* dan kriteria selesai *"daftar lead tetap **terbaca**"*, sementara bagian
+2.3 menyebut *"antrian aksi offline di Phase 5"*. Interpretasi yang diambil — **cache baca saja**,
+antrian tulis di luar cakupan — beserta alasannya ada di `prd.md`. Ini mengubah ukuran phase secara
+mendasar, jadi **katakan sebelum implementasi dimulai** bila maksud Anda berbeda.
+
+Yang dibutuhkan dari pemilik produk: **project Firebase** (gratis, hitungan menit) — hanya memblokir
+issue penutup #73, bukan phase-nya. Langkah persisnya di `td.md` §14.
 
 **Demo ke calon pengguna** (freeze bagian 4, tujuan Phase 3) — kedua hambatan teknis yang tercatat di
 sini sejak Phase 3 tutup sekarang **sudah ditutup**: panduan langkah-demi-langkah ada
 (`docs/testing/flow/`), dan email sungguhan terkirim (Phase 4.6). Tidak ada lagi penghalang teknis
-yang tercatat di dokumen ini — sisanya jadwal dan keputusan pemilik produk, di luar yang bisa dicatat
-sebagai item kerja di sini.
+yang tercatat di dokumen ini — sisanya jadwal dan keputusan pemilik produk.
 
 ### Kewajiban yang diwarisi phase-phase berikutnya (TD phase 4 §19)
 
@@ -169,8 +174,8 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | Hal | Kode dipakai di | Mulai diurus | Kenapa |
 |---|---|---|---|
 | **Domain + email sender** (SPF/DKIM/DMARC) | Phase 1 | **Sekarang** | Verifikasi email menggerbangi login (keputusan B3), jadi ia jalur kritis Phase 1. Propagasi DNS dan pemanasan reputasi pengirim butuh waktu — dan email verifikasi yang masuk spam akan membunuh funnel registrasi **tanpa menghasilkan satu pun error**. |
-| **Apple Developer Program** | Phase 5 | Sebelum Phase 3 | Enrollment bisa berhari-hari sampai berminggu (verifikasi identitas / D-U-N-S untuk organisasi). Tanpa ini, build iOS dan APNs tidak bisa jalan sama sekali. |
-| **Firebase project (FCM)** | Phase 5 | Bersama Apple Developer | Pembuatannya cepat, tapi konfigurasi sisi iOS bergantung pada APNs key dari akun Apple di atas. |
+| **Apple Developer Program** | Phase 5 — **iOS saja** | Saat iOS diaktifkan | Enrollment bisa berhari-hari sampai berminggu (verifikasi identitas / D-U-N-S untuk organisasi). **Tidak lagi memblokir Phase 5** sejak keputusan M1 (Android dulu) — yang terhalang hanya build iOS & push iOS, bukan satu pun kriteria selesai phase. |
+| **Firebase project (FCM)** | Phase 5 | **Sebelum issue #73** | Gratis, hitungan menit. Push **Android** tidak melibatkan Apple sama sekali. Langkah persisnya di `docs/phases/05-employee-mobile/td.md` §14. Hanya memblokir satu issue (#73), bukan phase-nya — `PUSH_PROVIDER=none` membuat sisanya bisa dikerjakan tanpa Firebase. |
 
 **Tidak ada yang memblokir Phase 0.** Dicatat di sini justru supaya tidak tersadar terlambat.
 
@@ -179,8 +184,8 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 - [ ] Domain final dipilih & dibeli
 - [ ] Email provider dipilih (Resend / Postmark / SES)
 - [ ] SPF, DKIM, DMARC terpasang & terverifikasi
-- [ ] Apple Developer Program terdaftar
-- [ ] Firebase project dibuat
+- [ ] Firebase project dibuat ← **dibutuhkan #73**, langkahnya di TD Phase 5 §14
+- [ ] Apple Developer Program terdaftar ← hanya untuk iOS, ditunda (keputusan M1)
 
 > Domain juga menentukan konfigurasi cookie (`Secure`, `SameSite`, scope), CORS, dan alamat pengirim email — semuanya disentuh di Phase 1.
 
@@ -214,6 +219,6 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 4 | Public API | ✅ | ✅ | ✅ #46–#49 | ✅ |
 | 4.5 | Hardening | ✅ | ✅ | ✅ #57–#58 | ✅ |
 | 4.6 | Email Delivery | ✅ | ✅ | ✅ #63–#64 | ✅ |
-| 5 | Employee Mobile | ⬜ | ⬜ | ⬜ | ⬜ |
+| 5 | Employee Mobile | ✅ | ✅ | ✅ #68–#73 | ⬜ |
 
 Pekerjaan yang sedang berjalan: `gh issue list --state open`
