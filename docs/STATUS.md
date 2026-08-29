@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 28 Agustus 2026 — Issue #49 selesai. **Phase 4 — Public API selesai.**
-**Phase sekarang:** Phase 4 selesai — phase berikutnya (5) belum dibuka, lihat *Berikutnya*.
+**Last updated:** 29 Agustus 2026 — **Phase 4.5 — Hardening dibuka** (#57, #58) setelah pemeriksaan `docs/issues/` menemukan Aturan #34 tidak pernah ditegakkan.
+**Phase sekarang:** Phase 4.5 — Hardening. Phase 4 selesai; Phase 5 menunggu, lihat *Berikutnya*.
 
 ---
 
@@ -56,9 +56,39 @@ _(kosong)_
 
 ## Berikutnya
 
-**Phase 4 — Public API selesai** (#46–#49). Dua hal menunggu keputusan manusia sebelum sesi coding
-berikutnya dimulai — bukan sesuatu yang bisa diputuskan sepihak dalam sesi agent, pola yang sama seperti
-saat Phase 3 tutup:
+### Phase 4.5 — Hardening (#57, #58) — dikerjakan lebih dulu
+
+**Tidak direncanakan.** Lahir dari pemeriksaan ulang `docs/issues/046` & `047` sebelum Phase 5 dibuka —
+pemeriksaan yang memang gunanya untuk itu. Dokumen: `docs/phases/04.5-hardening/`.
+
+Penutupan Phase 4 mencatat tiga poin "butuh traffic produksi nyata". Dua di antaranya memang begitu.
+Yang ketiga (peta tanpa eviction) **salah dikategorikan** — empat map digabung jadi satu baris utang
+padahal dua ber-key entity bisnis (terbatas, penundaannya benar) dan dua ber-key input penyerang
+(tidak butuh data apa pun untuk diketahui salah). Menarik benang itu menemukan bahwa **Aturan #34
+secara faktual tidak pernah ditegakkan sejak Phase 1**:
+
+- `cmd/api/main.go:85` memakai `gin.New()` tanpa `SetTrustedProxies`; default Gin 1.12 mempercayai
+  setiap peer sebagai proxy, sehingga `c.ClientIP()` mengembalikan isi `X-Forwarded-For` — **dibuktikan
+  langsung**. Seluruh limit per-IP bisa dilewati satu header; sisi per-email dilewati dengan mengganti
+  alamat tiap request. Konsekuensinya: email verifikasi & reset password tak terbatas ke alamat mana
+  pun, membakar reputasi domain pengirim yang justru item lead-time di bawah.
+- `auth.LoginLimiter` diukur menahan **64,7 MB untuk 500.000 email karangan, tidak pernah dibebaskan**.
+- Test-nya memberi lampu hijau palsu: `internal/auth/handler_test.go:125` justru **bersandar** pada
+  `RemoteAddr` konstan. Tidak ada satu pun test di `crm_be` yang pernah mengirim `X-Forwarded-For`.
+  Standar "harness terbukti bisa gagal" yang diterapkan ketat untuk isolasi tenant (#8, #11, #23, #30,
+  #46) tidak pernah diterapkan ke rate limit.
+
+**Bukan darurat** — belum ada yang ter-deploy. Tapi tidak boleh dibawa ke produksi, dan lebih murah
+sekarang: `TRUSTED_PROXIES` adalah keputusan deployment, dan hosting belum dipilih — jadi hosting bisa
+dipilih untuk memenuhi kontraknya, bukan kontraknya ditambal untuk memenuhi hosting.
+
+**Tidak memblokir Phase 5.** Dikerjakan lebih dulu karena murah, terbatas, dan menyentuh kode yang akan
+lebih mahal diubah setelah ada klien kedua menempel padanya.
+
+### Setelah itu
+
+Dua hal menunggu keputusan manusia — bukan sesuatu yang bisa diputuskan sepihak dalam sesi agent, pola
+yang sama seperti saat Phase 3 tutup:
 
 1. **Demo ke calon pengguna** (freeze bagian 4) — tujuan Phase 3, **masih belum dilakukan**. Dicatat
    lagi di sini karena penutupan Phase 4 adalah titik alami kedua untuk mengingatkannya — dua phase
@@ -98,7 +128,8 @@ Riwayat #46–#49 di `docs/phases/04-public-api/issues.md` dan `notes.md`. Riway
 |---|---|---|
 | Tidak ada test end-to-end otomatis untuk graceful shutdown | Issue #1 | Diverifikasi manual (build binary + SIGINT). Otomatisasi butuh test yang menjalankan binary sungguhan dan mengirim sinyal OS — `go run` tidak meneruskan sinyal ke child process, jadi tidak bisa diuji lewat itu. Belum ada issue yang mencakup ini; angkat saat menyentuh area shutdown lagi. |
 | Tidak ada auto-migrate saat container `api` start | Issue #2 | `make migrate-up` dijalankan manual. Sengaja dipisah dari entrypoint `api` — migration dan serving punya kelas kegagalan berbeda. |
-| `ratelimit.FixedWindow` tidak pernah membersihkan key lama | Issue #9 | Map tumbuh tanpa batas seiring IP/email baru muncul. Tidak masalah di volume MVP; perlu eviction sebelum traffic produksi nyata. **Pola yang sama sekarang punya dua pemakai lagi sejak Phase 4** (#47): `apikey.Usecase`'s peta throttle `last_used_at` (per kunci, 5 menit) dan `lead.Usecase`'s peta throttle sweep `idempotency_key` (per organization, 1 jam) — keduanya map in-memory tanpa eviction, debt yang sama, belum jadi masalah karena volume MVP masih kecil. |
+| `ratelimit.FixedWindow` & `auth.LoginLimiter` tidak pernah membersihkan key lama | Issue #9, #10 | **Dijadwalkan Phase 4.5 (#58).** Keduanya ber-key email/IP — yaitu **input penyerang yang belum terautentikasi**, bukan entity bisnis. `LoginLimiter` diukur menahan 64,7 MB untuk 500.000 email karangan tanpa pernah membebaskannya (`RecordSuccess` hanya menghapus saat login *berhasil*). Catatan #49 sebelumnya menggabungkan ini dengan dua map Phase 4 di bawah dan menunda semuanya dengan alasan "butuh traffic" — **kategorisasi itu salah**, lihat `docs/phases/04.5-hardening/prd.md`. |
+| `apikey.lastUsedThrottle` & `lead.idempotencyCleanupThrottle` tanpa eviction | Issue #47 | **Sengaja dibiarkan** (keputusan H3 Phase 4.5). Ber-key `api_key_id` dan `organization_id` — terbatas oleh jumlah entity bisnis yang benar-benar ada, dan hanya bertambah lewat jalur terautentikasi. Menambahkan eviction ke sini berarti membangun mekanisme untuk masalah yang belum ada (Aturan #27–#29). |
 | Angka rate limit (register 5/jam, resend 3/jam+10/jam) belum final | Issue #9 | Cukup untuk membuktikan mekanisme aktif, bukan hasil tuning. **Sebagian ditutup di Phase 4**: batas API publik ditetapkan (D4 — 60/menit per kunci, `PUBLIC_API_RATE_LIMIT`) — tapi angka itu sendiri **juga belum hasil pengukuran** (`docs/issues/047-public-lead-api.md`), baru bisa ditinjau ulang begitu integrator produksi nyata mulai mengirim lead. Angka endpoint email masih default konservatif. |
 | `notifications` tidak punya retensi | Issue #22, TD §2 | Sama seperti `idempotency_key` — tidak ada scheduler di Phase 2 untuk membersihkan notifikasi lama. Tidak mendesak di volume MVP. |
 | Retensi `idempotency_key` belum diuji di volume traffic tinggi | Issue #47, TD §7 | Sweep 1×/organization/jam cukup untuk MVP; organization dengan traffic API sangat tinggi (>1 request/jam terus-menerus) belum pernah diukur. Ditinjau ulang begitu ada data nyata (`docs/issues/047-public-lead-api.md`). |
@@ -167,6 +198,13 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 > **Status per issue tidak dicatat di sini** — ia hidup di GitHub Issues (ADR-008).
 > Dokumen ini hanya melacak level phase.
 
+> **Kenapa "4.5" dan bukan phase bernomor baru:** penomoran phase berasal dari `freeze.md`, yang
+> 🔒 FROZEN dan sudah memakai 5–9. Menyisipkan phase baru berarti menggeser Phase 5–9 dan membuat
+> setiap rujukan "Phase 6" di dokumen lain menjadi ambigu. Nomor pecahan menandai phase ini apa
+> adanya: **perbaikan tak terencana yang menyela**, bukan bagian dari rencana produk. Freeze tidak
+> disentuh — Aturan #34 tidak berubah; yang diperbaiki adalah implementasi yang tidak pernah
+> memenuhinya.
+
 | Phase | Nama | PRD | TD | Issues | Selesai |
 |---|---|---|---|---|---|
 | 0 | Foundation | ✅ | ✅ | ✅ #1–#3 | ✅ |
@@ -174,6 +212,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 2 | CRM Core | ✅ | ✅ | ✅ #19–#23 | ✅ |
 | 3 | Owner Dashboard | ✅ | ✅ | ✅ #30–#35, #40 | ✅ |
 | 4 | Public API | ✅ | ✅ | ✅ #46–#49 | ✅ |
+| 4.5 | Hardening | ✅ | ✅ | ✅ #57–#58 | ⬜ |
 | 5 | Employee Mobile | ⬜ | ⬜ | ⬜ | ⬜ |
 
 Pekerjaan yang sedang berjalan: `gh issue list --state open`
