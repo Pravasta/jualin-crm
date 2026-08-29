@@ -259,3 +259,162 @@ dicatat secara eksplisit di sini karena itu, bukan diam-diam dianggap bagian nor
 alasan **kenapa** disertakan dalam PR yang sama (memblokir CI hijau PR #68 sendiri, dan keduanya kecil,
 terverifikasi, tidak mengubah perilaku produksi) dicatat di badan commit terpisah, bukan digabung ke
 commit awal #68.
+
+---
+
+## #69 — Fondasi Flutter: FVM, scaffold, `ApiClient` single-flight, secure storage, login + biometric
+
+Pembuka `crm_employee/` sungguhan — sebelumnya hanya `README.md` + persiapan FVM manual dari pemilik
+produk (`.fvmrc`, `.fvm/`, `.vscode/settings.json`). Boleh paralel dengan #68 (sudah selesai duluan) —
+tidak menunggu hasil desain (keputusan M6): tampilan sengaja seadanya, penataan visual jadi kerjaan #70.
+
+### `flutter create` dan `applicationId`
+
+`fvm flutter create --org com.jualin --project-name crm_employee --platforms android,ios .` dijalankan
+di tempat, **bukan** `--org com.jualin.crm --project-name employee` — opsi kedua akan memberi
+`applicationId` yang benar (`com.jualin.crm.employee`) secara otomatis tapi mengubah nama paket Dart
+jadi `employee`, tidak konsisten dengan konvensi monorepo ini (`crm_dashboard`, `crm_be`). Diselesaikan
+dengan membiarkan nama paket Dart `crm_employee` (default dari `--project-name`) lalu **mengubah
+`applicationId` secara manual** di `android/app/build.gradle.kts` — `namespace` (dipakai untuk resolusi
+`R` class internal) dan `applicationId` (identitas publik Play Store) sudah dipisah sejak Android Gradle
+Plugin modern, jadi keduanya sengaja **berbeda** di sini (`namespace = com.jualin.crm_employee`,
+`applicationId = com.jualin.crm.employee`) — bukan kelalaian. Bundle ID iOS (`ios/Runner.xcodeproj`)
+diselaraskan ke nilai yang sama meski iOS tidak pernah dibangun phase ini (M1) — murni supaya kedua
+platform konsisten sejak hari pertama, tidak menambah biaya apa pun.
+
+`README.md` sempat **tertimpa** oleh `flutter create` (isinya diganti template default bahasa Inggris)
+— dikembalikan ke isi Bahasa Indonesia semula, dengan baris "Belum dibuat" dihapus karena sudah tidak
+benar.
+
+### `ApiClient` — bentuk `api-client.ts` disalin, dengan satu penyimpangan disengaja
+
+`lib/core/api_client.dart` meniru `crm_dashboard/src/lib/api-client.ts` baris demi baris untuk bagian
+single-flight (`_refreshFuture ??= _performRefresh().whenComplete(() => _refreshFuture = null)` — Dart
+`??=` pada Future punya semantik sinkron yang sama seperti JS, dibuktikan test di bawah). Yang **beda**
+dari dashboard, sengaja: parameter `authorize` mengontrol dua hal sekaligus — apakah header
+`Authorization` dipasang, **dan** apakah `401` boleh memicu percobaan refresh. `login()`/`refresh()`
+sendiri selalu memanggil dengan `authorize: false`.
+
+**Ini bukan sekadar gaya berbeda — ini memperbaiki kelas bug yang ada di `api-client.ts`.**
+`crm_dashboard`'s `login()` memanggil `apiFetch()` yang sama seperti endpoint lain, dan `apiFetch`'s
+percabangan 401 tidak mengecualikan path `/v1/auth/login` (hanya mengecualikan `/v1/auth/refresh`
+sendiri). Password salah di `crm_be` mengembalikan `401 invalid_credentials` (dikonfirmasi langsung dari
+`internal/auth/usecase.go`'s `invalidCredentialsError()`) — artinya di dashboard, percobaan login gagal
+memicu `doRefresh()` dengan sesi yang belum pernah ada, refresh itu pasti gagal (tidak ada cookie
+`refresh_token`), lalu `redirectToLogin()` + `sessionExpiredError` ("Sesi Anda berakhir. Silakan masuk
+kembali.") ditampilkan — **bukan** "Email atau password salah." yang sebenarnya. Ditemukan sambil
+membaca `api-client.ts` untuk menyalinnya, bukan dicari sengaja. **Tidak diperbaiki di `crm_dashboard`**
+— itu di luar cakupan #69 (aplikasi berbeda, PR berbeda); dicatat di sini apa adanya sebagai temuan,
+bukan diam-diam dibiarkan tidak tercatat. `authorize: false` di Flutter menghindari mewarisi kelas bug
+yang sama, didokumentasikan langsung sebagai komentar kode di `ApiClient`.
+
+### `TokenStorage` — interface dipisah dari `flutter_secure_storage`, alasan sama seperti `port.go`
+
+`ApiClient`/`Session` bergantung pada `TokenStorage` (abstract), bukan `FlutterSecureStorage` langsung —
+`flutter_secure_storage` tidak punya channel platform sungguhan di lingkungan host `flutter test`, jadi
+tanpa lapis ini `api_client_test.dart` tidak bisa jalan tanpa perangkat. Pola yang sama seperti
+ADR-011's `port.go` (consumer mendeklarasikan interface), diterapkan di Flutter meski TD tidak
+menuliskannya eksplisit sejauh itu.
+
+### `Session` sengaja tidak menyentuh jaringan
+
+`core/session.dart` hanya menyimpan `SessionStatus` (`unknown`/`authenticated`/`unauthenticated`) dan
+membaca `TokenStorage` saat `bootstrap()` — **tidak** memanggil `AuthApi` sama sekali. Draf pertama
+menaruh `login()`/`logout()` langsung di `Session` (memanggil `AuthApi` di dalamnya), tapi itu berarti
+`core/session.dart` mengimpor `features/auth/auth_api.dart` — arah dependensi terbalik dari yang
+digambar TD §3 (`core/` semestinya lebih rendah dari `features/`, bukan sebaliknya). Diperbaiki sebelum
+lanjut menulis layar: `Session` hanya punya `markAuthenticated()`/`markUnauthenticated()`, dipanggil
+oleh `features/auth/` setelah `AuthApi` selesai — `core/` tidak pernah mengimpor `features/` satu pun.
+
+### Biometric — `local_auth` 3.0.2's API sudah berbeda dari yang diasumsikan draf pertama
+
+Draf pertama menulis `AuthenticationOptions(biometricOnly: true, stickyAuth: true)` sebagai argumen
+`authenticate()`, mengikuti dokumentasi lama yang pernah dibaca — `flutter analyze` langsung menandai
+`options` sebagai parameter yang tidak ada. Versi terpasang (3.0.2, dari `pubspec.lock`) sudah pindah ke
+named parameter datar (`biometricOnly`, `persistAcrossBackgrounding` menggantikan `stickyAuth`).
+**Kesalahan kedua ditemukan sambil memperbaiki yang pertama**: `canCheckBiometrics` di versi ini berarti
+"perangkat mendukung biometric secara hardware", **bukan** "ada biometric terdaftar" — draf pertama
+memakainya sendirian untuk kriteria acceptance #6 ("perangkat tanpa biometric terdaftar jatuh ke
+password"), yang berarti perangkat dengan hardware sidik jari tapi **belum pernah didaftarkan sama
+sekali** akan tetap lolos ke `authenticate()` alih-alih jatuh ke password lebih dulu. Diperbaiki dengan
+menambah `getAvailableBiometrics().isNotEmpty` — method yang dokumentasi `local_auth` sendiri sebutkan
+mencerminkan apa yang **benar-benar bisa dipakai sekarang**, bukan `isDeviceSupported()` (yang juga
+`true` untuk perangkat yang hanya punya fallback PIN/pola tanpa biometric sama sekali).
+
+### Android — tiga penyesuaian yang tidak disebut TD, ketahuan saat `flutter build apk` sungguhan dicoba
+
+`flutter analyze`/`flutter test` bersih tidak menjamin **Android sungguhan bisa dibangun** — tiga
+masalah baru muncul saat `fvm flutter build apk --debug` benar-benar dijalankan, seluruhnya persyaratan
+`local_auth`/`flutter_secure_storage` di Android yang tidak otomatis terpasang `flutter create`:
+`MainActivity.kt` harus `FlutterFragmentActivity` (bukan `FlutterActivity`), `AndroidManifest.xml` butuh
+izin `USE_BIOMETRIC`, `LaunchTheme` harus berparent `Theme.AppCompat.DayNight.NoActionBar` (tema polos
+bawaan bikin dialog biometric crash di Android 8 ke bawah), dan `compileSdk` dinaikkan manual ke **37**
+(`flutter_secure_storage` mensyaratkannya, default Flutter 3.44.0 masih 36 — build gagal dengan pesan
+error yang eksplisit menyebutkan ini, bukan ditebak). Detail lengkap ada di
+`docs/issues/069-flutter-foundation.md`. Build APK debug akhirnya sukses (`app-debug.apk`, ~keluaran
+`assembleDebug`), dijalankan dua kali — sebelum dan sesudah seluruh perbaikan ini — untuk memastikan
+tidak regresi.
+
+### Test
+
+`test/api_client_test.dart` — 5 test, satu-satunya file yang TD §12 sebut eksplisit untuk issue ini:
+
+- **Single-flight terbukti dengan konkurensi nyata**: 6 panggilan `apiClient.send()` paralel yang
+  sama-sama mendapat `401`, refresh ditahan lewat `Completer` (pola `deferred()` `api-client.test.ts`)
+  sampai keenam panggilan sempat mencapai titik pemeriksaan single-flight, lalu dilepas — **tepat 1**
+  panggilan ke `/v1/auth/refresh` tercatat, seluruh 6 hasil retry sukses dengan token baru. Diulang
+  manual 5× berturut untuk memastikan tidak flaky (delay 20ms nyata, bukan yield microtask, memberi
+  margin besar dibanding kerja non-jaringan `MockClient`).
+- Permintaan yang tidak pernah `401` tidak pernah memicu refresh sama sekali (bukti negatif — mencegah
+  regresi "refresh dipanggil terlalu bersemangat").
+- Refresh yang gagal (`401` dari `/v1/auth/refresh`) membersihkan kedua token dan melempar
+  `SessionExpiredException` — juga untuk kasus tidak ada refresh token tersimpan sama sekali.
+- `authorize: false` (dipakai `login()`) terbukti **tidak pernah** memicu refresh pada `401` —
+  mengunci perbaikan kelas bug di atas sebagai perilaku, bukan cuma niat di komentar.
+
+### Verifikasi manual — apa yang bisa dan tidak bisa dilakukan di lingkungan ini
+
+**Tidak ada perangkat/emulator Android tersedia** di lingkungan kerja sesi ini (`flutter devices` hanya
+melaporkan macOS desktop dan Chrome; `flutter emulators` hanya punya iOS Simulator) — kriteria
+acceptance yang secara eksplisit butuh "HP Android sungguhan" (biometric sungguhan, instalasi APK
+sungguhan) **tidak bisa diklaim terverifikasi** dan harus dilakukan pemilik produk sendiri sebelum #73
+menutup phase. Dicatat jujur di sini, bukan diasumsikan lolos.
+
+Yang **bisa** dan **sudah** diverifikasi langsung terhadap `crm_be` sungguhan (Postgres asli via
+`docker compose`, migrasi 0001→0006, server lokal `PUSH_PROVIDER=none`) — lewat skrip `flutter test`
+sekali-pakai yang memanggil `ApiClient`/`AuthApi` **produksi** yang sama persis dengan yang dipakai
+aplikasi (bukan reimplementasi), `TokenStorage` diganti fake in-memory (satu-satunya bagian yang perlu
+perangkat sungguhan untuk `flutter_secure_storage`'s channel platform asli):
+
+1. Undang & terima karyawan sungguhan (`POST /v1/invitations` → `accept`) → `AuthApi.login(client:
+   "mobile")` sungguhan → `200`, token tersimpan.
+2. `AuthApi.me()` dengan access token segar → `200`, data cocok (`full_name`, `role=employee`,
+   `organization_name`).
+3. Access token **dirusak sengaja** (mensimulasikan kedaluwarsa) → panggilan berikutnya tetap `200` —
+   membuktikan jalur `401 → refresh single-flight → retry` benar-benar berjalan melawan backend
+   sungguhan, bukan cuma lolos lewat mock.
+4. **Rotasi refresh token dibuktikan langsung**: refresh token sebelum dan sesudah langkah 3 dibandingkan
+   — berbeda, sesuai TD §4 ("rotasi setiap refresh").
+5. `AuthApi.logout()` → kedua token lokal terhapus; panggilan setelahnya gagal seperti seharusnya.
+6. **Kriteria acceptance #7 dibuktikan lewat kode produksi, bukan `curl` saja**: karyawan kedua login
+   (`AuthApi.login`, token asli tersimpan) → membership-nya dinonaktifkan dari sisi Owner
+   (`DELETE /v1/memberships/{id}`, di luar aplikasi, mensimulasikan aksi dashboard) → **`ApiClient.send()`
+   milik karyawan itu sendiri** dipanggil dengan access token yang sudah kedaluwarsa (memicu refresh) →
+   refresh ditolak backend (`401`, membership tidak aktif) → `ApiClient` melempar
+   `SessionExpiredException` **dan** kedua token lokal terhapus — persis perilaku yang diminta TD §4.2,
+   dibuktikan lewat pemanggilan `ApiClient` sungguhan, bukan diasumsikan dari baca kode `internal/membership`
+   Phase 2 saja.
+
+Skrip-skrip verifikasi ini **tidak di-commit** — sekali pakai, dihapus dari `crm_employee/` setelah
+dijalankan (isinya cuma memanggil ulang kode produksi yang sudah diuji `api_client_test.dart` terhadap
+jaringan sungguhan, tidak menambah cakupan test yang perlu dipertahankan).
+
+Temuan yang perlu ditinjau ulang saat #73 dicatat di `docs/issues/069-flutter-foundation.md`.
+
+### Batas issue ini
+
+Tidak ada layar selain login + satu layar placeholder (`PlaceholderHomeScreen`, memanggil `GET /v1/me`
+dan menyediakan tombol Keluar — dibutuhkan supaya login+biometric+refresh punya sesuatu nyata untuk
+dibuktikan, digantikan total oleh #71). Tema, navigasi antarlayar, daftar lead — seluruhnya #70/#71.
+Push notification, deeplink — #73.
+
