@@ -124,6 +124,13 @@ func TestHandler_Register_RateLimited(t *testing.T) {
 
 	// httptest.NewRequest defaults RemoteAddr to the same value across
 	// calls, so every request in this test shares one rate-limit key.
+	// This only proves the limiter itself works when its key doesn't
+	// change — it does NOT prove the key can't be forged, because
+	// newTestRouter above builds a bare gin.New() with no
+	// SetTrustedProxies call, same as any router without it (Gin's
+	// default trusts every peer as a proxy). That proof needs the real
+	// production router (cmd/api's newRouter, wired in issue #57) and
+	// lives in cmd/api/trusted_proxy_test.go instead.
 	var last *httptest.ResponseRecorder
 	for i := 0; i < 6; i++ {
 		last = doJSON(r, http.MethodPost, "/v1/auth/register", map[string]string{

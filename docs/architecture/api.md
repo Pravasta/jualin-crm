@@ -212,6 +212,10 @@ Idempotency-Key: <uuid dari client>
 
 Endpoint yang wajib dibatasi sejak Phase 1: login, kirim ulang verifikasi, lupa password, undangan (Aturan #34).
 
+Header per-IP di atas hanya berarti sesuatu bila `TRUSTED_PROXIES` dikonfigurasi benar — tanpanya,
+`ClientIP()` bisa dipalsukan lewat `X-Forwarded-For` dan seluruh batas per-IP bisa dilewati satu
+header. Lihat `authentication.md` bagian *Model kepercayaan jaringan* (Phase 4.5, issue #57).
+
 ---
 
 ## API Publik (Phase 4)

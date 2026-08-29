@@ -194,3 +194,73 @@ Angka-angka di kode adalah default konservatif, bukan hasil tuning. **Sebagian d
 batas `POST /v1/leads` jalur API key ditetapkan (`PUBLIC_API_RATE_LIMIT`, `api.md` bagian *Rate
 limiting*) — tapi baris di atas (`login`, `register`, dst.) belum ikut ditinjau, masih default sejak
 #9. Dua mekanisme berbeda, dan hanya satu yang sudah dipertimbangkan ulang.
+
+Setiap baris di tabel di atas ber-key `c.ClientIP()`. Sebelum Phase 4.5, key itu bisa dipalsukan
+lewat header — lihat bagian *Model kepercayaan jaringan* di bawah. Angka yang benar tidak berarti
+apa-apa bila key-nya bisa dipilih penyerang.
+
+## Model kepercayaan jaringan (Phase 4.5)
+
+`c.ClientIP()` (Gin) bukan fakta jaringan — ia adalah **isi header**, dan hanya benar bila diminta
+percaya dari sumber yang tepat. Tanpa konfigurasi eksplisit, Gin 1.x mempercayai **setiap** peer
+sebagai proxy (`trustedProxies: ["0.0.0.0/0", "::/0"]`), sehingga siapa pun bisa mengatur
+`X-Forwarded-For: 1.2.3.4` dan `ClientIP()` akan memercayainya begitu saja. Setiap baris di tabel
+*Rate limiting* di atas bergantung pada `ClientIP()` — dan sebelum Phase 4.5, **Aturan #34 secara
+faktual tidak ditegakkan** karena inilah yang terjadi.
+
+### Konfigurasi
+
+`TRUSTED_PROXIES` (`internal/shared/config`) — daftar CIDR/IP dipisah koma, atau literal `none`
+untuk "tidak ada proxy di depan proses ini, pakai alamat peer koneksi langsung". **Wajib diisi**
+saat `APP_ENV=production` (Aturan #36) — boot gagal tanpanya, pola yang sama seperti
+`CORS_ALLOWED_ORIGINS` (#30).
+
+```go
+r := gin.New()
+r.SetTrustedProxies(cfg.TrustedProxyCIDRs())   // sebelum middleware apa pun
+r.Use(httpx.RequestID(), httpx.Logging(log), ...)
+```
+
+Dipasang di `cmd/api/main.go`'s `newRouter`, **sebelum** middleware apa pun — `httpx.Logging` sendiri
+membaca `ClientIP()`, jadi ia harus melihat konfigurasi yang benar sejak baris pertama.
+
+### Bagaimana `ClientIP()` memutuskan
+
+```
+Request masuk
+     │
+     ▼
+Peer (RemoteAddr) ada di TRUSTED_PROXIES?
+     │                              │
+    Ya                             Tidak
+     │                              │
+     ▼                              ▼
+Baca X-Forwarded-For          Abaikan header —
+(header terakhir yang         ClientIP() = RemoteAddr
+belum tepercaya, dari         (alamat peer koneksi
+kanan ke kiri)                 langsung)
+     │
+     ▼
+ClientIP() = alamat itu
+```
+
+Konsekuensinya: mempercayai **sebagian** proxy tidak berarti mempercayai **semua** koneksi. Peer di
+luar `TRUSTED_PROXIES` tetap diperlakukan sebagai klien langsung — headernya diabaikan sepenuhnya,
+bukan dipercaya sebagian.
+
+### Dua kesalahan konfigurasi, dua gejala berlawanan
+
+| Kesalahan | Gejala | Kenapa buruk |
+|---|---|---|
+| `TRUSTED_PROXIES` **terlalu longgar** (atau tidak diisi — default Gin) | `ClientIP()` bisa dipalsukan lewat header | Rate limit per-IP bisa dilewati siapa pun (Aturan #34) |
+| `TRUSTED_PROXIES=none` **padahal ada** load balancer di depan | Semua pengguna terlihat berasal dari satu IP (alamat LB) | Semua pengguna berbagi satu jatah rate limit — pengguna keenam diblokir tanpa sebab, bukan penyerang yang diblokir |
+
+Tidak ada nilai default yang benar untuk keduanya sekaligus — itu sebabnya ia wajib dinyatakan, bukan
+diberi default diam-diam. Nilai lokal (`.env.example`, `docker-compose.yml`) adalah `none`: `api`
+diekspos langsung ke host, tidak ada proxy di depannya. Nilai produksi ditentukan saat hosting
+dipilih.
+
+**Dibuktikan bisa gagal** (freeze bagian 5, lapis 4) — `cmd/api/trusted_proxy_test.go` mencoba
+melewati Aturan #34 secara aktif (header dipalsukan, IP diganti tiap request) alih-alih hanya
+membaca kode. Prosedurnya sama seperti harness isolasi tenant: `SetTrustedProxies` dilepas sementara
+→ lima dari enam test merah → dikembalikan. Detail di `docs/phases/04.5-hardening/notes.md`.
