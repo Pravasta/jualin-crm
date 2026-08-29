@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 29 Agustus 2026 — Issue #58 selesai. **Phase 4.5 — Hardening selesai.**
-**Phase sekarang:** Phase 4.5 selesai — phase berikutnya (5) belum dibuka, lihat *Berikutnya*.
+**Last updated:** 29 Agustus 2026 — **Phase 4.6 — Email Delivery dibuka** (#63, #64), prasyarat demo ke calon pengguna.
+**Phase sekarang:** Phase 4.6 — Email Delivery. Phase 4.5 selesai; Phase 5 menunggu, lihat *Berikutnya*.
 
 ---
 
@@ -65,12 +65,36 @@ Phase 1 (`c.ClientIP()` bisa dipalsukan lewat header karena `SetTrustedProxies` 
 — sekarang ditegakkan dan dua map yang ber-key input penyerang (`ratelimit.FixedWindow`,
 `auth.LoginLimiter`) punya batas memori yang terbukti lewat pengukuran, bukan cuma dibaca dari kode.
 
-Dua hal menunggu keputusan manusia sebelum sesi coding berikutnya dimulai — bukan sesuatu yang bisa
-diputuskan sepihak dalam sesi agent, pola yang sama seperti saat Phase 3 tutup:
+### Phase 4.6 — Email Delivery (#63, #64) — sedang dibuka
 
-1. **Demo ke calon pengguna** (freeze bagian 4) — tujuan Phase 3, **masih belum dilakukan**. Dicatat
-   lagi di sini karena penutupan Phase 4.5 adalah titik alami ketiga berturut-turut untuk
-   mengingatkannya — tiga penutupan phase sudah lewat tanpa satu pun calon pengguna melihatnya.
+**Prasyarat demo ke calon pengguna** (poin 1 di bawah), diminta pemilik produk. Dokumen:
+`docs/phases/04.6-email-delivery/`.
+
+Sejak Phase 1, `MAIL_PROVIDER` hanya punya satu nilai sah (`log`) — **tidak ada satu email pun yang
+pernah benar-benar terkirim**. Verifikasi email menggerbangi login (keputusan B3), jadi calon pengguna
+yang mencoba produk ini tidak akan bisa masuk kecuali ada yang membacakan tautan dari log server.
+Dua hal ikut ketahuan saat menyiapkan phase ini:
+
+- **`MAIL_FROM` tidak pernah dibaca siapa pun** sejak Phase 1 — `LogMailer` mengabaikan `From`
+  sepenuhnya. Konfigurasi mati sejak awal.
+- **`LogMailer` menulis token verifikasi ke log** — wajar untuk dev, tapi berarti `MAIL_PROVIDER=log`
+  di produksi menaruh kredensial sekali-pakai ke berkas log. Kombinasi itu ditolak boot mulai phase ini.
+
+`mailer.Mailer` **sudah** interface sejak Phase 1 dan komentarnya sendiri menyebut implementasi kedua
+akan datang — phase ini mengisinya, bukan membuat abstraksi baru. SMTP dipilih (bukan SDK provider)
+justru supaya **pemilihan provider produksi bisa ditunda tanpa biaya**: Resend, Postmark, dan SES
+ketiganya berbicara SMTP, jadi menggantinya nanti = mengganti env, bukan menulis adapter.
+
+### Setelah itu
+
+Dua hal menunggu keputusan manusia — bukan sesuatu yang bisa diputuskan sepihak dalam sesi agent,
+pola yang sama seperti saat Phase 3 tutup:
+
+1. **Demo ke calon pengguna** (freeze bagian 4) — tujuan Phase 3, **masih belum dilakukan** setelah
+   tiga penutupan phase. Dua hambatan praktisnya sedang/sudah ditutup: panduan langkah-demi-langkah
+   sekarang ada (`docs/testing/flow/`), dan email sungguhan sedang dikerjakan (Phase 4.6 di atas —
+   tanpanya calon pengguna berhenti di layar "cek email Anda"). Setelah #64 merge, tidak ada lagi
+   penghalang teknis.
 2. **Pilih phase berikutnya**: Phase 5 (Employee Mobile) adalah satu-satunya phase MVP yang tersisa dan
    ada di jalur utama freeze (`Phase 3 → Phase 5 → GATE`) — tapi **cek dulu status Apple Developer
    Program & Firebase** di bagian *Punya Lead Time* di bawah. Kalau keduanya masih belum diurus, Phase 5
@@ -137,7 +161,7 @@ Tidak ada yang memblokir. Semuanya diputuskan saat fitur terkait dikerjakan.
 
 | Kode | Keputusan | Diputuskan sebelum |
 |---|---|---|
-| — | Email provider (Resend / Postmark / SES) | Phase 1 — ⏳ *lead time, lihat bawah* |
+| — | Email provider (Resend / Postmark / SES) | **Tidak lagi memblokir** sejak Phase 4.6 — transport SMTP, ganti provider = ganti env |
 | — | Domain final & branding | Phase 1 — ⏳ *lead time, lihat bawah* |
 | — | Hosting & managed PostgreSQL | Phase 0 akhir |
 | — | Retensi data free tier | Phase 8 |
@@ -178,6 +202,13 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 
 > Domain juga menentukan konfigurasi cookie (`Secure`, `SameSite`, scope), CORS, dan alamat pengirim email — semuanya disentuh di Phase 1.
 
+> **Diperbarui saat Phase 4.6 dibuka.** Memilih **provider** (baris kedua) tidak lagi memblokir
+> apa pun: transportnya SMTP, dan Resend/Postmark/SES ketiganya berbicara SMTP — menggantinya nanti
+> adalah perubahan env, bukan perubahan kode. Yang **tetap** punya lead time dan **tetap** wajib
+> sebelum email produksi bisa dipercaya adalah **domain + SPF/DKIM/DMARC** (baris pertama dan ketiga
+> di daftar status). Phase 4.6 membuat email terkirim; ia **tidak** membuat email sampai ke inbox
+> alih-alih folder spam — itu pekerjaan DNS, di luar repository.
+
 ---
 
 ## Progress per Phase
@@ -200,6 +231,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 3 | Owner Dashboard | ✅ | ✅ | ✅ #30–#35, #40 | ✅ |
 | 4 | Public API | ✅ | ✅ | ✅ #46–#49 | ✅ |
 | 4.5 | Hardening | ✅ | ✅ | ✅ #57–#58 | ✅ |
+| 4.6 | Email Delivery | ✅ | ✅ | ✅ #63–#64 | ⬜ |
 | 5 | Employee Mobile | ⬜ | ⬜ | ⬜ | ⬜ |
 
 Pekerjaan yang sedang berjalan: `gh issue list --state open`
