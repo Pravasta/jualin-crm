@@ -28,16 +28,29 @@
 Ketiga poin ini **sengaja dibiarkan terbuka** saat Phase 4 ditutup (#49) — bukan terlewat. Tidak ada
 cara jujur menutupnya tanpa data traffic produksi sungguhan, yang belum ada.
 
+> **Ditinjau ulang 29 Agustus 2026, sebelum Phase 5 dibuka.** Dua poin pertama tetap berlaku. Poin
+> ketiga **tidak** — ia salah dikategorikan dan sebenarnya bug, bukan tuning. Koreksinya di poin itu
+> sendiri. Pelajarannya dicatat di sini karena mudah terulang: *"pola kodenya sama"* bukan alasan yang
+> cukup untuk menyimpulkan *"risikonya sama"* — yang menentukan adalah **siapa yang mengendalikan
+> key-nya**.
+
 - [ ] **`PUBLIC_API_RATE_LIMIT=60`/menit bukan hasil pengukuran** (TD §6, keputusan D4) — dua orde
       besaran di atas dugaan traffic SMB normal. Perlu ditinjau ulang begitu integrator sungguhan
       (bukan simulasi) mulai mengirim lead — bisa jadi terlalu longgar atau terlalu ketat.
 - [ ] **Retensi `idempotency_key` 48 jam, penghapusan malas tanpa scheduler** — throttle 1×/organization/
       jam. Untuk organization dengan traffic API sangat tinggi (>1 request/jam terus-menerus), sweep ini
       akan berjalan sesering itu; belum pernah diuji di bawah volume produksi nyata.
-- [ ] **`last_used_at` di-throttle 5 menit/kunci, peta in-memory tanpa eviction** — sama seperti
-      `ratelimit.FixedWindow`'s bucket map (utang sejak #9). Volume MVP aman; catat kembali bila jumlah
-      API key aktif per proses mulai besar. Dicatat lagi di `docs/STATUS.md`'s Utang Teknis (#49) sebagai
-      pemakai kedua dari pola map-tanpa-eviction yang sama.
+- [x] ~~**`last_used_at` di-throttle 5 menit/kunci, peta in-memory tanpa eviction** — sama seperti
+      `ratelimit.FixedWindow`'s bucket map (utang sejak #9).~~ **Dikoreksi 29 Agustus 2026 — poin ini
+      salah dikategorikan.** Menyamakan `lastUsedThrottle` dengan `ratelimit.FixedWindow` menggabungkan
+      dua hal yang berbeda kelas: yang pertama ber-key `api_key_id` (terbatas jumlah kunci, hanya
+      bertambah lewat jalur terautentikasi), yang kedua ber-key email/IP — **input penyerang yang belum
+      terautentikasi, tanpa batas**. Karena disamakan, keduanya ikut ditunda dengan alasan "butuh
+      traffic produksi", padahal hanya yang pertama yang begitu.
+      Menelusuri kesalahan ini menemukan bahwa **Aturan #34 tidak pernah benar-benar ditegakkan**
+      (`ClientIP()` bisa dipalsukan lewat `X-Forwarded-For`). Keduanya sekarang ditangani terpisah di
+      **Phase 4.5 — Hardening** (#57, #58): `FixedWindow` & `LoginLimiter` mendapat eviction;
+      `lastUsedThrottle` **sengaja dibiarkan** (keputusan H3). Lihat `docs/phases/04.5-hardening/prd.md`.
 
 ## Bug ditemukan & sudah diperbaiki (tidak perlu tindakan lanjut, dicatat untuk arsip)
 
@@ -50,6 +63,13 @@ cara jujur menutupnya tanpa data traffic produksi sungguhan, yang belum ada.
 
 ---
 
-**Ditinjau saat penutupan Phase 4 (#49).** Dua bagian pertama selesai. Bagian "keputusan yang dibawa
-maju" **sengaja tetap terbuka** — akan relevan lagi begitu ada integrator produksi nyata, dicatat di
-`docs/STATUS.md` supaya tidak terlupa, bukan diselesaikan sekarang dengan tebakan.
+**Ditinjau saat penutupan Phase 4 (#49).** Dua bagian pertama selesai.
+
+**Ditinjau ulang 29 Agustus 2026 sebelum Phase 5 dibuka** — dan pemeriksaan itu berbuah. Dari tiga poin
+"dibawa maju", **dua tetap terbuka** (angka rate limit, retensi `idempotency_key` di volume tinggi;
+keduanya betul-betul butuh integrator produksi nyata) dan **satu ternyata bug yang menyamar sebagai
+tuning**, yang menelusurinya menemukan Aturan #34 tidak pernah ditegakkan → **Phase 4.5 — Hardening**
+(#57, #58).
+
+> Berkas ini bekerja sebagaimana mestinya. Poin yang ditunda dengan alasan salah tidak akan pernah
+> ketahuan bila tidak ada tempat yang memaksa membacanya lagi.
