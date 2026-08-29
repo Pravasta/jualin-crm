@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 29 Agustus 2026 — **Phase 4.6 — Email Delivery dibuka** (#63, #64), prasyarat demo ke calon pengguna.
-**Phase sekarang:** Phase 4.6 — Email Delivery. Phase 4.5 selesai; Phase 5 menunggu, lihat *Berikutnya*.
+**Last updated:** 29 Agustus 2026 — Issue #64 selesai. **Phase 4.6 — Email Delivery selesai.**
+**Phase sekarang:** Phase 4.6 selesai — phase berikutnya (5) belum dibuka, lihat *Berikutnya*.
 
 ---
 
@@ -48,6 +48,7 @@
 | **Issue #57 — Trusted proxy: tegakkan Aturan #34** | — | 4.5 | Ditemukan saat meninjau `docs/issues/047` sebelum Phase 5 dibuka — bukan direncanakan. `cmd/api/main.go`'s `newRouter` memakai `gin.New()` tanpa `SetTrustedProxies`; default Gin 1.12 mempercayai setiap peer sebagai proxy, sehingga `c.ClientIP()` bisa dipalsukan lewat `X-Forwarded-For` — **dibuktikan langsung** sebelum implementasi (satu peer asli, tiga header palsu, tiga IP berbeda dilaporkan). Akibatnya **Aturan #34 secara faktual tidak ditegakkan sejak Phase 1** — seluruh limit per-IP (`register`, `resend`, `forgot`, `login`) bisa dilewati satu header. `TRUSTED_PROXIES` baru (`internal/shared/config`) — daftar IP/CIDR atau literal `none`, wajib diisi saat `APP_ENV=production` (Aturan #36, pola sama seperti `CORS_ALLOWED_ORIGINS`). `SetTrustedProxies` dipasang di `newRouter` sebelum middleware apa pun. **6 test baru di `cmd/api/trusted_proxy_test.go`** terhadap router produksi sungguhan, mencakup keempat titik panggil `ClientIP()` (bukan satu endpoint wakil) — **terbukti bisa gagal**: `SetTrustedProxies` dilepas sementara → 5 dari 6 test merah (satu test positif tetap hijau, sebagaimana mestinya) → dikembalikan, tidak pernah ter-commit. Test lama (`TestHandler_Register_RateLimited` dari #9) **tidak diubah asersinya** — hanya komentarnya diperbarui untuk jujur bahwa router tiruan `internal/auth` tidak pernah memanggil `SetTrustedProxies` sama sekali, sehingga bukti anti-spoofing yang sebenarnya sekarang hidup di `cmd/api`. 7 test baru di `internal/shared/config`. `authentication.md` mendapat bagian baru *Model kepercayaan jaringan* (diagram alur, tabel dua kesalahan konfigurasi dan gejala berlawanannya); `api.md` menunjuk ke sana. **Belum menutup phase** — eviction map (#58) belum disentuh; map masih tumbuh, hanya lebih lambat karena laju pertumbuhannya kini terikat pada IP nyata penyerang. |
 | **Issue #58 — Eviction map ber-key penyerang, penutup Phase 4.5** | — | 4.5 | Eviction **dua generasi** (`current`/`previous`, ditukar tiap ~1 window) di `ratelimit.FixedWindow` dan `auth.LoginLimiter` — bukan sweep berkala (memindai map besar sambil memegang lock justru mengubah pertahanan jadi bagian serangan, dan freeze melarang worker tanpa kebutuhan async nyata). **Carry-forward lewat lookup, bukan filter saat swap**: bucket/backoff yang masih hidup dipindahkan dari `previous` ke `current` hanya saat diakses lagi, disalin apa adanya (`windowStart`/`count` atau `failures`/`nextAllowedAt`) — sehingga key manapun yang masih aktif berperilaku **identik** dengan sebelum eviction ada, dan seluruh test lama lulus tanpa perubahan asersi. Field `now func() time.Time` unexported ditambahkan ke kedua tipe untuk kontrol waktu deterministik di test, di-set hanya dari file test internal paket yang sama (`limiter_internal_test.go`, `login_limiter_internal_test.go` — deviasi `package ratelimit`/`package auth`, pola sama seperti `internal/apikey/entity_test.go`). **4 test baru membuktikan batas memori lewat pengukuran**: 20 generasi × 50 key unik (1000 total) tetap terlacak ≤100 di kedua tipe. **Terbukti bisa gagal** — empat run adversarial terpisah (roll dimatikan, carry-forward dimatikan, di kedua tipe), semuanya merah persis seperti diprediksi, dikembalikan, tidak pernah ter-commit. Dua map ber-key entity bisnis (`apikey.lastUsedThrottle`, `lead.idempotencyCleanupThrottle`) **sengaja tetap tanpa eviction** (keputusan H3) — komentarnya diperbarui untuk berhenti menyamakan diri dengan `ratelimit.FixedWindow` dan menjelaskan alasan sebenarnya. **Seluruh 10 acceptance criteria PRD Phase 4.5 dicek satu per satu dan terpenuhi. Phase 4.5 — Hardening selesai.** |
 | **Issue #63 — `SMTPMailer`, tutup `MAIL_FROM` yang tidak pernah dipakai** | — | 4.6 | `mailer.Mailer` sudah interface sejak Phase 1 — komentarnya sendiri menyebut implementasi kedua akan datang. `SMTPMailer` mengisinya, **tanpa** abstraksi baru. Percakapan SMTP dibangun **manual** (bukan `smtp.SendMail`, yang tidak punya batas waktu sama sekali) — `Send` dipanggil sinkron di jalur request, jadi server menggantung = request menggantung; satu `conn.SetDeadline` menutup seluruh percakapan sejak dial sampai `QUIT`. **`MAIL_FROM` akhirnya dipakai** — sejak Phase 1 ada di config tapi tidak dibaca siapa pun. `MAIL_PROVIDER=log` di `APP_ENV=production` **menghentikan boot** (keputusan E2) — produksi yang tidak pernah kirim email gagal diam-diam, dan `LogMailer` menulis token verifikasi ke log. `SMTP_TLS=none` juga ditolak di produksi (E3). **Dua perilaku stdlib diverifikasi sebelum ditulis**: `mime.QEncoding.Encode` membiarkan subject ASCII produk hari ini apa adanya; `strings.ContainsAny(s, "\r\n")` menangkap ketiga bentuk injeksi header. **10 test baru** — 6 unit tanpa jaringan (`message_internal_test.go`, deviasi `package mailer` mengikuti preseden `apikey`/`ratelimit`) + **4 integrasi terhadap Mailpit sungguhan lewat testcontainers**, membaca pesan kembali lewat API Mailpit alih-alih memeriksa `Send` mengembalikan `nil`. **Terbukti bisa gagal** — defense injeksi header dan `SetDeadline` masing-masing dirusak sementara, keduanya merah persis seperti diprediksi (yang kedua digantung sampai dipotong paksa `-timeout=15s`, membuktikan tanpa deadline `Send` benar-benar tidak pernah berhenti sendiri), dikembalikan, tidak pernah ter-commit. Test produksi lama (`TestLoad_ProductionMode` dkk.) ditambahi setup `MAIL_PROVIDER=smtp`+`SMTP_HOST` — bukan perubahan asersi. **Belum menutup phase** — Mailpit belum menyala di `make dev`, `docs/testing/flow/` masih menyuruh menggali log. |
+| **Issue #64 — Mailpit di dev environment, penutup Phase 4.6** | — | 4.6 | `docker-compose.yml` bertambah service `mailpit` — **tanpa** `depends_on` di `api` (SMTP hanya disentuh saat email benar-benar dikirim, bukan saat boot; diverifikasi langsung: registrasi 0,3 detik setelah `docker compose up` tetap `201`, Mailpit tanpa healthcheck sudah siap jauh lebih cepat dari Postgres). `.env.example`'s `SMTP_HOST=localhost` sengaja **beda** dari `docker-compose.yml`'s `SMTP_HOST=mailpit` — dua sudut pandang jaringan berbeda (host vs container Docker), bukan inkonsistensi. Enam tempat di lima berkas `docs/testing/flow/` diperbarui — instruksi `docker compose logs | grep` diganti "buka `http://localhost:8025`, klik email terbaru"; §8 lama (cara menyalin tautan dari log tanpa ikut membawa `\n\n` literal) **dihapus seluruhnya**, bukan disunting, karena masalahnya sudah tidak ada. Satu baris troubleshooting baru **awalnya salah**: draf pertama mengklaim race condition boot `api`/`mailpit` sebagai penyebab utama email tidak muncul — **diverifikasi langsung sebelum ditulis final, klaimnya tidak terbukti** (urutan langkah di panduan sendiri sudah memberi Mailpit cukup waktu naik); ditulis ulang lebih berhati-hati, menyebut kemungkinan itu jarang. `authentication.md` mendapat bagian baru *Pengiriman email* (dua provider, kenapa `SMTPMailer` bukan `smtp.SendMail`, kenapa kegagalan kirim tidak membatalkan apa pun yang commit, Mailpit di dev, batas untuk produksi). **Verifikasi manual end-to-end dari nol**: `docker compose down -v` → `up --build` → `migrate-up` → registrasi → email verifikasi muncul di Mailpit (`From: no-reply@jualin.local`, subjek benar) → token diekstrak dari body → `200 verified`; diulang untuk reset password. **Seluruh 12 acceptance criteria PRD Phase 4.6 dicek satu per satu dan terpenuhi. Phase 4.6 — Email Delivery selesai.** |
 
 ---
 
@@ -59,49 +60,29 @@ _(kosong)_
 
 ## Berikutnya
 
-**Phase 4.5 — Hardening selesai** (#57, #58) — tidak direncanakan, lahir dari pemeriksaan ulang
-`docs/issues/046` & `047` sebelum Phase 5 dibuka. Ringkasan lengkap ada di baris Selesai #57/#58 dan
-`docs/phases/04.5-hardening/notes.md`; intinya: Aturan #34 tidak pernah benar-benar ditegakkan sejak
-Phase 1 (`c.ClientIP()` bisa dipalsukan lewat header karena `SetTrustedProxies` tidak pernah dipanggil)
-— sekarang ditegakkan dan dua map yang ber-key input penyerang (`ratelimit.FixedWindow`,
-`auth.LoginLimiter`) punya batas memori yang terbukti lewat pengukuran, bukan cuma dibaca dari kode.
+**Phase 4.6 — Email Delivery selesai** (#63, #64) — diminta pemilik produk sebagai prasyarat demo ke
+calon pengguna. Ringkasan lengkap di baris Selesai #63/#64 dan
+`docs/phases/04.6-email-delivery/notes.md`; intinya: `mailer.Mailer` (interface sejak Phase 1)
+akhirnya punya implementasi SMTP sungguhan, `MAIL_FROM` yang sejak Phase 1 tidak pernah dibaca
+siapa pun akhirnya dipakai, dan `MAIL_PROVIDER=log`/`SMTP_TLS=none` keduanya ditolak boot saat
+`APP_ENV=production`. `docs/testing/flow/` diperbarui — tidak ada lagi langkah "gali log", email
+verifikasi/reset/undangan sekarang muncul di Mailpit (`http://localhost:8025`) saat `make dev`.
 
-### Phase 4.6 — Email Delivery (#63, #64) — sedang dibuka
-
-**Prasyarat demo ke calon pengguna** (poin 1 di bawah), diminta pemilik produk. Dokumen:
-`docs/phases/04.6-email-delivery/`.
-
-Sejak Phase 1, `MAIL_PROVIDER` hanya punya satu nilai sah (`log`) — **tidak ada satu email pun yang
-pernah benar-benar terkirim**. Verifikasi email menggerbangi login (keputusan B3), jadi calon pengguna
-yang mencoba produk ini tidak akan bisa masuk kecuali ada yang membacakan tautan dari log server.
-Dua hal ikut ketahuan saat menyiapkan phase ini:
-
-- **`MAIL_FROM` tidak pernah dibaca siapa pun** sejak Phase 1 — `LogMailer` mengabaikan `From`
-  sepenuhnya. Konfigurasi mati sejak awal.
-- **`LogMailer` menulis token verifikasi ke log** — wajar untuk dev, tapi berarti `MAIL_PROVIDER=log`
-  di produksi menaruh kredensial sekali-pakai ke berkas log. Kombinasi itu ditolak boot mulai phase ini.
-
-`mailer.Mailer` **sudah** interface sejak Phase 1 dan komentarnya sendiri menyebut implementasi kedua
-akan datang — phase ini mengisinya, bukan membuat abstraksi baru. SMTP dipilih (bukan SDK provider)
-justru supaya **pemilihan provider produksi bisa ditunda tanpa biaya**: Resend, Postmark, dan SES
-ketiganya berbicara SMTP, jadi menggantinya nanti = mengganti env, bukan menulis adapter.
-
-### Setelah itu
-
-Dua hal menunggu keputusan manusia — bukan sesuatu yang bisa diputuskan sepihak dalam sesi agent,
+Satu hal menunggu keputusan manusia — bukan sesuatu yang bisa diputuskan sepihak dalam sesi agent,
 pola yang sama seperti saat Phase 3 tutup:
 
-1. **Demo ke calon pengguna** (freeze bagian 4) — tujuan Phase 3, **masih belum dilakukan** setelah
-   tiga penutupan phase. Dua hambatan praktisnya sedang/sudah ditutup: panduan langkah-demi-langkah
-   sekarang ada (`docs/testing/flow/`), dan email sungguhan sedang dikerjakan (Phase 4.6 di atas —
-   tanpanya calon pengguna berhenti di layar "cek email Anda"). Setelah #64 merge, tidak ada lagi
-   penghalang teknis.
-2. **Pilih phase berikutnya**: Phase 5 (Employee Mobile) adalah satu-satunya phase MVP yang tersisa dan
+1. **Pilih phase berikutnya**: Phase 5 (Employee Mobile) adalah satu-satunya phase MVP yang tersisa dan
    ada di jalur utama freeze (`Phase 3 → Phase 5 → GATE`) — tapi **cek dulu status Apple Developer
    Program & Firebase** di bagian *Punya Lead Time* di bawah. Kalau keduanya masih belum diurus, Phase 5
    akan berhenti tepat di bagian build iOS dan push notification, persis alasan Phase 4 dikerjakan lebih
    dulu sebelumnya. Bila keduanya sudah beres, Phase 5 bisa langsung dibuka (PRD + TD, pola yang sama
    seperti Phase 2→3→4).
+
+**Demo ke calon pengguna** (freeze bagian 4, tujuan Phase 3) — kedua hambatan teknis yang tercatat di
+sini sejak Phase 3 tutup sekarang **sudah ditutup**: panduan langkah-demi-langkah ada
+(`docs/testing/flow/`), dan email sungguhan terkirim (Phase 4.6). Tidak ada lagi penghalang teknis
+yang tercatat di dokumen ini — sisanya jadwal dan keputusan pemilik produk, di luar yang bisa dicatat
+sebagai item kerja di sini.
 
 ### Kewajiban yang diwarisi phase-phase berikutnya (TD phase 4 §19)
 
@@ -232,7 +213,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 3 | Owner Dashboard | ✅ | ✅ | ✅ #30–#35, #40 | ✅ |
 | 4 | Public API | ✅ | ✅ | ✅ #46–#49 | ✅ |
 | 4.5 | Hardening | ✅ | ✅ | ✅ #57–#58 | ✅ |
-| 4.6 | Email Delivery | ✅ | ✅ | ✅ #63–#64 | ⬜ |
+| 4.6 | Email Delivery | ✅ | ✅ | ✅ #63–#64 | ✅ |
 | 5 | Employee Mobile | ⬜ | ⬜ | ⬜ | ⬜ |
 
 Pekerjaan yang sedang berjalan: `gh issue list --state open`

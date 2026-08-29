@@ -16,12 +16,9 @@ ganti role, nonaktifkan anggota (tiga cabang), notifikasi.
 dropdown — harus ada **Admin, Manager, Employee** (bukan Owner — Owner tidak bisa diundang langsung,
 hanya dipromosikan belakangan).
 
-4. Ambil tautan undangan dari log (pola sama seperti
-   [`01-registrasi-dan-autentikasi.md`](./01-registrasi-dan-autentikasi.md) §1.2):
-
-```bash
-docker compose logs api | grep -o 'http://localhost:3000/invitations/accept[^\\"]*' | tail -1
-```
+4. Buka **http://localhost:8025**, klik email terbaru — subjeknya **"Anda diundang bergabung di
+   Jualin CRM"** (pola sama seperti [`01-registrasi-dan-autentikasi.md`](./01-registrasi-dan-autentikasi.md)
+   §1.2). Tautannya berbentuk `http://localhost:3000/invitations/accept?token=...`.
 
 ## 2.2 Terima undangan — cabang "user baru"
 
@@ -64,11 +61,11 @@ daftarkan dulu akun mandiri di organization **lain**, baru undang emailnya ke `T
 
 1. **Logout.** Daftar organization **baru** (ulangi [`01-registrasi-dan-autentikasi.md`](./01-registrasi-dan-autentikasi.md)
    §1.1–§1.3): **Nama organization** `Toko Lain`, **Nama lengkap** `Rina Sudah Terdaftar`, **Email**
-   `manager1@test.local`, password bebas. Verifikasi emailnya lewat tautan di log seperti biasa.
+   `manager1@test.local`, password bebas. Verifikasi emailnya lewat Mailpit seperti biasa.
 2. **Logout** dari `manager1@test.local`, login kembali sebagai `owner@test.local`.
 3. Di `/team` milik `Toko Testing`, klik **+ Undang anggota** dengan **Email**: `manager1@test.local`,
    **Role**: `Manager`.
-4. Cari tautan undangannya di log (§2.1 langkah 4), lalu **logout** dan login sebagai
+4. Buka tautan undangannya dari Mailpit (§2.1 langkah 4), lalu **logout** dan login sebagai
    `manager1@test.local` (pakai password dari langkah 1).
 
 **Hasil yang diharapkan saat login:** karena `manager1@test.local` sekarang anggota **dua**

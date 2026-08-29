@@ -113,3 +113,109 @@ setelah setiap pengembalian.
 Issue ini membuat SMTP **bisa** dipakai dan **terbukti** mengirim ke Mailpit sungguhan di test. Tapi
 `make dev` **belum** menyalakan Mailpit, dan `docs/testing/flow/` masih menyuruh penguji menggali
 tautan dari log `api`. Itu #64, penutup phase.
+
+---
+
+## #64 — Mailpit di dev environment + perbarui alur testing, penutup Phase 4.6
+
+### Keputusan implementasi
+
+- **Tanpa `depends_on: mailpit` di service `api`** — persis seperti TD §8 memutuskan. SMTP hanya
+  disentuh saat ada email yang benar-benar dikirim, bukan saat boot; menunggu Mailpit sehat sebelum
+  `api` boleh menyajikan traffic hanya memperlambat `docker compose up` tanpa manfaat nyata. Diverifikasi
+  langsung: registrasi segera setelah `docker compose up --build -d` (tanpa jeda) tetap `201` — Mailpit
+  yang tanpa healthcheck sudah siap menerima koneksi jauh lebih cepat daripada Postgres yang punya
+  healthcheck `interval: 2s, retries: 15`.
+- **`.env.example`'s `SMTP_HOST=localhost`, bukan `mailpit`** — berbeda sengaja dari nilai
+  `docker-compose.yml`'s `SMTP_HOST=mailpit`. `.env.example` dipakai proses yang jalan **di host**
+  (`cmd/migrate` lewat `make migrate-up`, dan siapa pun yang menjalankan `cmd/api` secara native tanpa
+  Docker) — dari situ, container `mailpit` hanya terlihat lewat port yang dipetakan ke `localhost:1025`,
+  bukan lewat nama service Docker. Dua nilai berbeda untuk dua sudut pandang jaringan yang berbeda,
+  bukan inkonsistensi.
+- **`MAIL_FROM=no-reply@jualin.local`** dipakai di kedua tempat (compose dan `.env.example`) — domain
+  `.local` sengaja dipilih supaya tidak ada yang salah kira ini alamat produksi sungguhan; nilainya
+  hanya perlu valid secara sintaks untuk Mailpit, yang tidak memvalidasi domain penerima sama sekali.
+
+### `docs/testing/flow/` — pola perubahan yang konsisten
+
+Setiap tempat yang sebelumnya menyuruh `docker compose logs api | grep -o '...' | tail -1` diganti
+dua langkah yang sama: **"Buka `http://localhost:8025`, klik email terbaru — subjeknya '...'"**.
+Enam tempat di lima berkas: `README.md` (bagian *Soal email*, judulnya sendiri diganti dari
+"LogMailer" ke "Mailpit"), `00-menjalankan-aplikasi.md` (§7 bertambah langkah buka Mailpit; §8 lama —
+"cara mengambil tautan dari log" — **dihapus seluruhnya**, bukan disunting, karena masalah yang
+dipecahkannya, `\n\n` literal yang ikut tersalin dari baris log, tidak ada lagi begitu tidak ada lagi
+yang perlu disalin dari log), `01-registrasi-dan-autentikasi.md` (§1.2 verifikasi, §1.6 reset
+password), `02-tim-dan-undangan.md` (§2.1 undangan pertama, §2.3 undangan kedua ke organization
+lain), `06-checklist-akhir.md` (tiga baris checklist + satu baris baru "Mailpit bisa dibuka" di
+bagian 0).
+
+**Satu baris troubleshooting baru ditambahkan, bukan dihapus** — `00-menjalankan-aplikasi.md`'s
+tabel *Kalau ada yang tidak beres* bertambah baris untuk kasus email terkirim (`201`/`202`) tapi
+tidak muncul di Mailpit. Draf pertama baris ini mengklaim race condition boot antara `api` dan
+`mailpit` sebagai penyebab utama — **diverifikasi langsung sebelum ditulis final, dan klaimnya
+tidak terbukti** (percobaan registrasi 0.3 detik setelah `docker compose up` tetap `201`, bukan
+karena race itu tidak mungkin terjadi sama sekali, tapi karena urutan langkah di berkas ini sendiri
+— `make migrate-up` berjalan sebelum aksi manapun yang mengirim email — sudah memberi Mailpit banyak
+waktu). Baris troubleshooting final ditulis lebih berhati-hati: menyebut kemungkinan itu **jarang**
+dan mengarahkan ke `grep "failed to send"` (frasa log yang sungguhan dipakai `internal/auth` dan
+`internal/invitation` sejak Phase 1) alih-alih mengklaim penyebab pasti yang belum tentu benar.
+
+### Verifikasi manual end-to-end — dari nol, mengikuti `docs/testing/flow/00` persis
+
+```
+docker compose down -v && rm .env && cp .env.example .env
+docker compose up --build -d        → postgres, mailpit, api ketiganya naik
+make migrate-up                     → goose: successfully migrated database to version: 5
+curl /health, /health/ready         → 200, 200
+curl -o /dev/null http://localhost:8025 → 200
+
+POST /v1/auth/register              → 201
+GET Mailpit /api/v1/messages        → Subject "Verifikasi email Jualin CRM Anda",
+                                       From no-reply@jualin.local, To (email yang didaftarkan)
+                                     → token diekstrak dari body, POST /v1/auth/verify-email → 200 verified
+
+POST /v1/auth/password/forgot       → 202
+GET Mailpit /api/v1/messages        → Subject "Reset password Jualin CRM Anda" muncul sebagai pesan terbaru
+```
+
+Ketiga jenis email (verifikasi, reset password — di atas; undangan diverifikasi terpisah lewat
+langkah manual `docs/testing/flow/02` §2.1) dikonfirmasi benar-benar terkirim, bukan diasumsikan dari
+membaca kode `internal/auth`/`internal/invitation` yang tidak berubah sejak Phase 1.
+
+### `authentication.md` — bagian baru *Pengiriman email*
+
+Ditambahkan setelah bagian *Reset password* (tempat paling dekat pemakainya) — bukan menggantikan
+bagian manapun yang sudah ada. Isinya: tabel dua provider (`log`/`smtp`) dan kapan masing-masing
+ditolak boot, kenapa `SMTPMailer` tidak memakai `smtp.SendMail`, kenapa kegagalan kirim tidak pernah
+membatalkan apa pun yang sudah commit (menegaskan kembali Aturan #32, bukan mengubahnya), Mailpit di
+development, dan batas yang jelas untuk produksi (SPF/DKIM/DMARC tetap di luar cakupan, dicatat lagi
+supaya phase ini tidak terbaca sebagai "email selesai").
+
+### Verifikasi
+
+- `docker compose config` — valid.
+- Seluruh langkah `docs/testing/flow/00-menjalankan-aplikasi.md` dijalankan ulang dari nol setelah
+  setiap perubahan berkas, bukan hanya sekali di awal — memastikan urutan baru (termasuk §7 yang
+  bertambah langkah Mailpit) benar-benar bisa diikuti apa adanya oleh pembaca, bukan cuma masuk akal
+  di atas kertas.
+- Tidak ada perubahan kode Go di issue ini — `go test -race ./...` tidak dijalankan ulang karena tidak
+  ada yang bisa berubah hasilnya; `gofmt -l .` dicek tetap bersih sebagai sanity check murah.
+
+### Seluruh 12 acceptance criteria PRD Phase 4.6
+
+| # | Kriteria | Bukti |
+|---|---|---|
+| 1 | SMTP mengirim sungguhan, dibuktikan pesan sampai & terbaca | `TestSMTPMailer_MessageActuallyArrives` (#63) + verifikasi manual end-to-end (#64) |
+| 2 | `make dev` menyalakan Mailpit, email terlihat tanpa konfigurasi tambahan | Service `mailpit` di `docker-compose.yml`, dikonfirmasi lewat verifikasi manual (#64) |
+| 3 | Ganti SMTP lain tidak menyentuh kode | `SMTPConfig` seluruhnya dari env (#63); `.env.example`/`docker-compose.yml` dua nilai `SMTP_HOST` berbeda untuk dua sudut pandang jaringan tanpa menyentuh kode (#64) |
+| 4 | `MAIL_FROM` benar-benar dipakai | `TestSMTPMailer_UsesMailFromAsSender` (#63) + verifikasi manual: `From: no-reply@jualin.local` (#64) |
+| 5 | `MAIL_PROVIDER=log` + produksi → boot gagal | `TestLoad_ProductionRejectsLogMailProvider` (#63) |
+| 6 | `smtp` tanpa host sah → boot gagal | `TestLoad_SMTPRequiresHost` (#63) |
+| 7 | Server menggantung tidak menggantung request | `TestSMTPMailer_UnreachableServerFailsWithinTimeout` + adversarial proof (#63) |
+| 8 | Karakter kontrol tidak bisa menyuntik header | `TestBuildRFC5322_RejectsHeaderInjection*` + adversarial proof (#63) |
+| 9 | Password SMTP tidak pernah di log | `smtp.go`'s `c.Auth` error tidak pernah dibungkus (#63, verifikasi kode) |
+| 10 | Subject/body non-ASCII sampai utuh | `TestBuildRFC5322_NonASCIISubjectEncoded` + `TestSMTPMailer_NonASCIISubjectArrivesIntact` (#63) |
+| 11 | Test lama lulus tanpa perubahan asersi | `go test -race ./...` bersih di #63, nol asersi diubah |
+| 12 | `docs/testing/flow/` diperbarui | 5 berkas, 6 tempat, pola konsisten (#64) |
+
+**Seluruh 12 kriteria terpenuhi. Phase 4.6 — Email Delivery selesai.**

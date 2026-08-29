@@ -7,7 +7,7 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 ## Kalimat inti MVP — dari nol sampai selesai
 
 - [ ] Owner mendaftar
-- [ ] Verifikasi email (lewat tautan di log — LogMailer)
+- [ ] Verifikasi email (email sungguhan terkirim ke Mailpit)
 - [ ] Login
 - [ ] Undang employee
 - [ ] Employee menerima undangan & login
@@ -22,23 +22,24 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 
 ## 0 — Menjalankan aplikasi
 
-- [ ] `docker compose` (postgres + api) menyala tanpa error
+- [ ] `docker compose` (postgres + mailpit + api) menyala tanpa error
 - [ ] Migration berhasil sampai versi terbaru
 - [ ] `GET /health` dan `/health/ready` keduanya `200`
 - [ ] Dashboard (`npm run dev`) menyala, `http://localhost:3000` bisa dibuka
 - [ ] Belum login → otomatis diarahkan ke `/login`
+- [ ] `http://localhost:8025` (Mailpit) bisa dibuka
 
 ## 1 — Registrasi & Autentikasi
 
 - [ ] Registrasi organization baru berhasil, **tidak** langsung login
-- [ ] Tautan verifikasi ditemukan di log, berhasil memverifikasi
+- [ ] Email verifikasi muncul di Mailpit, tautannya berhasil memverifikasi
 - [ ] Membuka tautan verifikasi **kedua kalinya** tidak error/500
 - [ ] Login berhasil setelah verifikasi
 - [ ] Password salah → pesan generik, bukan detail teknis
 - [ ] Login berulang gagal → mulai diblokir (backoff)
 - [ ] Logout mengembalikan ke `/login`, sesi benar-benar hilang
 - [ ] Lupa password: pesan sama persis untuk email terdaftar maupun tidak
-- [ ] Reset password via tautan di log berhasil
+- [ ] Reset password via tautan di Mailpit berhasil
 - [ ] Password lama tidak lagi berlaku setelah reset
 
 ## 2 — Tim & Undangan

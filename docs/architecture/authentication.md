@@ -183,6 +183,59 @@ Client memanggil ulang dengan organization_id terisi
 
 ---
 
+## Pengiriman email (Phase 4.6)
+
+Verifikasi email, reset password, dan undangan tim (`internal/invitation`) semuanya lewat satu
+interface, `mailer.Mailer` — sudah ada sejak Phase 1, sengaja dibuat lebih awal karena implementasi
+kedua (provider sungguhan) sudah diketahui akan datang.
+
+| Provider | `MAIL_PROVIDER` | Dipakai untuk | Catatan |
+|---|---|---|---|
+| `LogMailer` | `log` | Test otomatis saja | Mencatat pesan ke logger, **tidak pernah dikirim**. **Ditolak boot saat `APP_ENV=production`** — proses yang tidak pernah mengirim email gagal sepenuhnya diam-diam (tidak ada crash, tidak ada error, hanya funnel registrasi yang berhenti bekerja), dan `LogMailer` juga menulis token verifikasi — kredensial sekali-pakai — ke log (Aturan #26) |
+| `SMTPMailer` | `smtp` | Development (→ Mailpit) dan produksi | Satu-satunya provider yang benar-benar mengirim |
+
+### `SMTPMailer` — kenapa bukan `smtp.SendMail`
+
+`smtp.SendMail` (stdlib) memakai `net.Dial` telanjang — **tidak ada batas waktu sama sekali**. Setiap
+pemanggil `mailer.Send` (`auth.Usecase.sendVerificationEmail`, `…sendPasswordResetEmail`,
+`invitation.Usecase.sendInvitationEmail`) memanggilnya **sinkron di jalur request**, sesudah commit
+(Aturan #32) tapi masih di dalam handler HTTP yang sama. Server SMTP yang menggantung berarti request
+HTTP ikut menggantung.
+
+`SMTPMailer` karena itu membangun percakapannya sendiri: `net.Dialer{Timeout: ...}.DialContext` untuk
+dial, lalu satu `conn.SetDeadline` yang menutup **seluruh** sisa percakapan (STARTTLS, AUTH, MAIL
+FROM, RCPT TO, DATA, QUIT) — bukan batas waktu per operasi. Server yang menjawab satu byte per detik
+tetap terputus tepat waktu, bukan lolos operasi demi operasi.
+
+### Kenapa kegagalan kirim tidak membatalkan apa pun
+
+Freeze bagian 6 (Aturan #32) sudah memutuskan ini sebelum Phase 1: kirim email **selalu setelah**
+commit, tidak pernah di dalam transaksi yang sama. Konsekuensinya, kegagalan `Send` **tidak pernah**
+membatalkan pendaftaran/undangan yang sudah tersimpan — ia dicatat sebagai error terstruktur
+(`u.logger.Error("failed to send ...", "err", err, "to", email)`) dan pemulihannya adalah tombol
+**kirim ulang**, yang sudah ada sejak Phase 1 untuk verifikasi email dan sejak awal untuk undangan.
+Password SMTP tidak pernah muncul di pesan error ini — kegagalan `AUTH` dikembalikan sebagai pesan
+polos (`"mailer: smtp authentication failed"`), bukan error asli dari `net/smtp`, yang bisa
+meng-echo detail dari respons server.
+
+### Development — Mailpit
+
+`docker-compose.yml`'s service `mailpit` menangkap setiap email `make dev` kirim, tanpa benar-benar
+mengirimkannya ke internet — dibaca lewat UI web-nya di `http://localhost:8025`. `api` **tidak**
+menunggu `mailpit` sehat sebelum boot (tidak ada `depends_on`) — SMTP hanya disentuh saat ada email
+yang benar-benar dikirim, bukan saat boot, jadi container yang lambat naik tidak pernah memblokir
+`docker compose up` menyajikan traffic.
+
+### Produksi
+
+Domain pengirim, SPF/DKIM/DMARC **tidak** disentuh oleh `SMTPMailer` — itu pekerjaan DNS di luar
+repository, tercatat sebagai item *Punya Lead Time* di `docs/STATUS.md`. Tanpanya, email yang
+terkirim secara teknis benar bisa tetap berakhir di folder spam. `SMTP_TLS=none` ditolak saat
+`APP_ENV=production` (Aturan #36) — kredensial dan token verifikasi tidak boleh melintasi jaringan
+produksi tanpa enkripsi.
+
+---
+
 ## Rate limiting
 
 | Endpoint | Batas | Implementasi |

@@ -24,8 +24,9 @@ baris mirip:
 api-1  | time=2026-08-29T15:23:53.922Z level=INFO msg="server starting" port=8080 env=development
 ```
 
-**Biarkan terminal ini terbuka** — inilah tempat mencari "email" (LogMailer) di langkah-langkah
-berikutnya. Buka **terminal baru** untuk langkah selanjutnya.
+Perhatikan juga bahwa `mailpit` ikut menyala di sini — server SMTP lokal yang menangkap setiap email
+yang akan dikirim aplikasi ini, tanpa benar-benar mengirimnya ke internet (lihat §7). Buka **terminal
+baru** untuk langkah selanjutnya.
 
 ## 3. Jalankan migration
 
@@ -96,44 +97,12 @@ Buka **http://localhost:3000**.
 memanggil `GET /v1/me`, dapat `401`, redirect). Ini **bukan** bug — memang begitu perilakunya untuk
 siapa pun yang belum login.
 
-Kalau langkah ini lolos, lanjut ke [`01-registrasi-dan-autentikasi.md`](./01-registrasi-dan-autentikasi.md).
+Buka juga **http://localhost:8025** — UI web Mailpit. Kosong sekarang; ini tempat setiap email
+aplikasi (verifikasi, reset password, undangan) akan muncul mulai berkas berikutnya, lengkap dengan
+tautan yang bisa langsung diklik. Tidak ada langkah tambahan untuk menyalakannya — sudah ikut naik
+bersama `make dev` di langkah 2.
 
----
-
-## 8. Cara mengambil tautan "email" dari log
-
-Dipakai berulang di berkas-berkas berikutnya (verifikasi email, reset password, undangan) — belum ada
-penyedia email sungguhan, jadi setiap tautan hanya tercatat di log `api`
-(`internal/shared/mailer.LogMailer`).
-
-Baris log-nya berbentuk seperti ini:
-
-```
-api-1  | time=... level=INFO msg="email (not sent — LogMailer)" to=owner@test.local subject="Verifikasi email Jualin CRM Anda" body="Klik tautan berikut untuk memverifikasi email Anda: http://localhost:3000/verify-email?token=WrnunLAJuz8v...\n\nTautan berlaku 24 jam."
-```
-
-⚠️ **Jangan salin manual dengan mata.** Di dalam `body=`, URL diikuti langsung oleh `\n\n` (dua
-karakter literal, bukan baris baru) — ikut tersalin dan token jadi tidak valid. Pakai perintah ini,
-yang sudah memotong tepat di ujung token:
-
-```bash
-docker compose logs api | grep -o 'http://localhost:3000/[^\\"]*' | tail -1
-```
-
-Hasilnya satu baris bersih siap tempel ke browser, misalnya:
-
-```
-http://localhost:3000/verify-email?token=WrnunLAJuz8vTf6wQtVpAx5MKRKostypB2g4SHRAXtE
-```
-
-`tail -1` mengambil **tautan terbaru**. Kalau sedang menguji beberapa email sekaligus (mis. beberapa
-undangan berturut-turut), saring dulu per jenis:
-
-```bash
-docker compose logs api | grep -o 'http://localhost:3000/verify-email[^\\"]*'      | tail -1
-docker compose logs api | grep -o 'http://localhost:3000/reset-password[^\\"]*'    | tail -1
-docker compose logs api | grep -o 'http://localhost:3000/invitations/accept[^\\"]*' | tail -1
-```
+Kalau kedua langkah ini lolos, lanjut ke [`01-registrasi-dan-autentikasi.md`](./01-registrasi-dan-autentikasi.md).
 
 ---
 
@@ -146,6 +115,7 @@ docker compose logs api | grep -o 'http://localhost:3000/invitations/accept[^\\"
 | `make migrate-up` → `DATABASE_URL required` | Lupa `source .env` di terminal yang sama sebelum `make migrate-up` — env var ini **tidak** otomatis terbaca dari file `.env`. |
 | Dashboard menampilkan error jaringan terus-menerus | `crm_dashboard/.env.local` belum ada, atau `next dev` dinyalakan **sebelum** file itu dibuat — restart `npm run dev` setelah membuat/mengubah `.env.local` (Next.js hanya membaca env saat start). |
 | `curl http://localhost:8080/health` → connection refused | `api` container belum selesai boot, atau gagal boot — cek log di terminal langkah 2 untuk pesan `failed to connect to database` atau error validasi config. |
+| Registrasi/undangan/reset berhasil (`201`/`202`) tapi email tidak muncul di `http://localhost:8025` | `docker compose logs api \| grep "failed to send"` — kalau ada baris `mailer: dial mailpit:1025: ...`, container `mailpit` belum sehat saat itu (jarang terjadi mengikuti urutan langkah di berkas ini, karena `make migrate-up` sendiri sudah memberi Mailpit cukup waktu naik). Kirim ulang aksinya (tombol kirim ulang verifikasi/undangan yang sudah ada sejak Phase 1). |
 
 ## Mematikan semuanya
 
