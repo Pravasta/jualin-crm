@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 29 Agustus 2026 — **Phase 4.5 — Hardening dibuka** (#57, #58) setelah pemeriksaan `docs/issues/` menemukan Aturan #34 tidak pernah ditegakkan.
-**Phase sekarang:** Phase 4.5 — Hardening. Phase 4 selesai; Phase 5 menunggu, lihat *Berikutnya*.
+**Last updated:** 29 Agustus 2026 — Issue #58 selesai. **Phase 4.5 — Hardening selesai.**
+**Phase sekarang:** Phase 4.5 selesai — phase berikutnya (5) belum dibuka, lihat *Berikutnya*.
 
 ---
 
@@ -46,6 +46,7 @@
 | **Issue #48 — Dashboard: manajemen API key** | — | 4 | Layar dashboard terakhir Phase 4. Aturan #21 ditegakkan **secara struktural** di level tipe: `APIKey` (dipakai daftar) tidak punya field `secret` sama sekali — hanya `CreatedAPIKey`, tipe terpisah yang cuma dikembalikan `createAPIKey()` — jadi "render secret dari daftar" adalah type error, bukan sekadar bug yang mungkin lolos review. Dialog buat kunci dua tahap **dalam satu komponen** (`step: "form" \| "reveal"`), `secret` tidak pernah diteruskan ke layar daftar. **Guard "penutupan mengharuskan konfirmasi" ada di `onOpenChange` itu sendiri**, bukan cuma tombol footer — `DialogContent` bawaan memicu `onOpenChange(false)` lewat tiga jalur (tombol X, Escape, klik backdrop), jadi tombol X disembunyikan dan ketiganya diblokir di satu titik selama secret belum dikonfirmasi tersimpan. "Menu masuk ke app shell" (checklist issue) diartikan sebagai Card baru di layar Settings, bukan entri baru di `NAV_ITEMS` — `NAV_ITEMS` tidak punya mekanisme per-role sama sekali, sementara TD §12 menaruh path-nya sebagai sub-halaman Pengaturan. Gerbang role di level **fetch**, bukan cuma UI — `listAPIKeys()` di-skip total untuk Manager/Employee, pola yang sama seperti `canManageTeam` di #34, memenuhi "mengetik URL langsung tidak menampilkan daftar" secara harfiah. `formatApproximateID(iso, now)` baru — `last_used_at` yang di-throttle 5 menit di backend (TD §10) dirender sebagai "sekitar N menit/jam/hari lalu", tidak pernah jam presisi, dikunci test regex. `toAPIKeyRow`/`canManageAPIKeys` dipisah dan diuji tanpa React, pola `lib/nav.ts`/`lib/team-permissions.ts`. **Tidak ada bug atau deviasi TD/PRD ditemukan kali ini** — bentuk endpoint sudah stabil sejak #46, tidak disentuh #47. 5 test baru. Diverifikasi lewat `curl` terhadap `crm_be` sungguhan: bentuk response `create` persis `CreatedAPIKey`, `list` setelahnya **tidak pernah** membawa `secret`, kunci revoked tetap tampil dengan `revoked_at` terisi, `created_by_membership_id` cocok persis dengan `id` di `GET /v1/memberships`. |
 | **Issue #49 — Halaman dokumentasi integrasi, penutup Phase 4** | — | 4 | **Kontradiksi TD ditemukan sebelum menulis kode**: "curl bisa disalin dan langsung bekerja" vs "key_prefix kunci yang sedang dilihat sudah terisi" tidak bisa dipenuhi bersamaan oleh halaman statis — raw secret (Aturan #21) tidak pernah ada lagi setelah dialog reveal #48 ditutup. Diselesaikan dengan memisah dua kebutuhan: dialog reveal `CreateAPIKeyDialog` (#48) dapat blok curl **sungguhan bekerja** (satu-satunya momen secret penuh tersedia); halaman `/settings/api-keys/docs` menampilkan format sama dengan `key_prefix` terpilih + placeholder, mengarahkan ke pembuatan kunci bila belum ada yang aktif — bukan kotak "tempel secret Anda" yang terasa mencurigakan. **Acceptance criterion #10 diverifikasi benar-benar dari nol**: register → belum punya kunci → dialog reveal → salin curl → jalankan dari terminal → `201` percobaan pertama, `source=api` terisi; idempotency retry → id sama; `assigned_to_membership_id` → `403 insufficient_scope`; body kosong → `400 validation_failed`; revoke → `401` seketika — setiap klaim di halaman dicek satu per satu terhadap response nyata. `api.md`/`authentication.md`/`authorization.md`/`multi-tenancy.md` diperbarui dari rencana jadi kenyataan (TD §18) — termasuk `multi-tenancy.md`'s struct `tenant.Context` yang ternyata **belum pernah** menyebut `Scopes` sejak #47. **ADR-004 diperbaiki langsung**: dua ketidakkonsistenan yang dicatat sejak #46 (`<secret:32char>` vs "entropi 256-bit"; "8 karakter pertama" vs contohnya sendiri) — diperbaiki di badan ADR dengan catatan koreksi (Aturan #30), bukan didiamkan. `docs/issues/046-*.md` dan `047-*.md` ditinjau penuh: 6 dari 9 poin diselesaikan, 3 poin (angka rate limit, retensi idempotency di volume tinggi, peta `last_used_at` tanpa eviction) **sengaja dibiarkan terbuka** — butuh traffic produksi nyata untuk diputuskan jujur, bukan ditutup paksa demi checklist rapi. **Seluruh 13 acceptance criteria PRD Phase 4 dicek satu per satu dan terpenuhi. Phase 4 selesai.** |
 | **Issue #57 — Trusted proxy: tegakkan Aturan #34** | — | 4.5 | Ditemukan saat meninjau `docs/issues/047` sebelum Phase 5 dibuka — bukan direncanakan. `cmd/api/main.go`'s `newRouter` memakai `gin.New()` tanpa `SetTrustedProxies`; default Gin 1.12 mempercayai setiap peer sebagai proxy, sehingga `c.ClientIP()` bisa dipalsukan lewat `X-Forwarded-For` — **dibuktikan langsung** sebelum implementasi (satu peer asli, tiga header palsu, tiga IP berbeda dilaporkan). Akibatnya **Aturan #34 secara faktual tidak ditegakkan sejak Phase 1** — seluruh limit per-IP (`register`, `resend`, `forgot`, `login`) bisa dilewati satu header. `TRUSTED_PROXIES` baru (`internal/shared/config`) — daftar IP/CIDR atau literal `none`, wajib diisi saat `APP_ENV=production` (Aturan #36, pola sama seperti `CORS_ALLOWED_ORIGINS`). `SetTrustedProxies` dipasang di `newRouter` sebelum middleware apa pun. **6 test baru di `cmd/api/trusted_proxy_test.go`** terhadap router produksi sungguhan, mencakup keempat titik panggil `ClientIP()` (bukan satu endpoint wakil) — **terbukti bisa gagal**: `SetTrustedProxies` dilepas sementara → 5 dari 6 test merah (satu test positif tetap hijau, sebagaimana mestinya) → dikembalikan, tidak pernah ter-commit. Test lama (`TestHandler_Register_RateLimited` dari #9) **tidak diubah asersinya** — hanya komentarnya diperbarui untuk jujur bahwa router tiruan `internal/auth` tidak pernah memanggil `SetTrustedProxies` sama sekali, sehingga bukti anti-spoofing yang sebenarnya sekarang hidup di `cmd/api`. 7 test baru di `internal/shared/config`. `authentication.md` mendapat bagian baru *Model kepercayaan jaringan* (diagram alur, tabel dua kesalahan konfigurasi dan gejala berlawanannya); `api.md` menunjuk ke sana. **Belum menutup phase** — eviction map (#58) belum disentuh; map masih tumbuh, hanya lebih lambat karena laju pertumbuhannya kini terikat pada IP nyata penyerang. |
+| **Issue #58 — Eviction map ber-key penyerang, penutup Phase 4.5** | — | 4.5 | Eviction **dua generasi** (`current`/`previous`, ditukar tiap ~1 window) di `ratelimit.FixedWindow` dan `auth.LoginLimiter` — bukan sweep berkala (memindai map besar sambil memegang lock justru mengubah pertahanan jadi bagian serangan, dan freeze melarang worker tanpa kebutuhan async nyata). **Carry-forward lewat lookup, bukan filter saat swap**: bucket/backoff yang masih hidup dipindahkan dari `previous` ke `current` hanya saat diakses lagi, disalin apa adanya (`windowStart`/`count` atau `failures`/`nextAllowedAt`) — sehingga key manapun yang masih aktif berperilaku **identik** dengan sebelum eviction ada, dan seluruh test lama lulus tanpa perubahan asersi. Field `now func() time.Time` unexported ditambahkan ke kedua tipe untuk kontrol waktu deterministik di test, di-set hanya dari file test internal paket yang sama (`limiter_internal_test.go`, `login_limiter_internal_test.go` — deviasi `package ratelimit`/`package auth`, pola sama seperti `internal/apikey/entity_test.go`). **4 test baru membuktikan batas memori lewat pengukuran**: 20 generasi × 50 key unik (1000 total) tetap terlacak ≤100 di kedua tipe. **Terbukti bisa gagal** — empat run adversarial terpisah (roll dimatikan, carry-forward dimatikan, di kedua tipe), semuanya merah persis seperti diprediksi, dikembalikan, tidak pernah ter-commit. Dua map ber-key entity bisnis (`apikey.lastUsedThrottle`, `lead.idempotencyCleanupThrottle`) **sengaja tetap tanpa eviction** (keputusan H3) — komentarnya diperbarui untuk berhenti menyamakan diri dengan `ratelimit.FixedWindow` dan menjelaskan alasan sebenarnya. **Seluruh 10 acceptance criteria PRD Phase 4.5 dicek satu per satu dan terpenuhi. Phase 4.5 — Hardening selesai.** |
 
 ---
 
@@ -57,48 +58,24 @@ _(kosong)_
 
 ## Berikutnya
 
-### Phase 4.5 — Hardening (#57, #58) — dikerjakan lebih dulu
+**Phase 4.5 — Hardening selesai** (#57, #58) — tidak direncanakan, lahir dari pemeriksaan ulang
+`docs/issues/046` & `047` sebelum Phase 5 dibuka. Ringkasan lengkap ada di baris Selesai #57/#58 dan
+`docs/phases/04.5-hardening/notes.md`; intinya: Aturan #34 tidak pernah benar-benar ditegakkan sejak
+Phase 1 (`c.ClientIP()` bisa dipalsukan lewat header karena `SetTrustedProxies` tidak pernah dipanggil)
+— sekarang ditegakkan dan dua map yang ber-key input penyerang (`ratelimit.FixedWindow`,
+`auth.LoginLimiter`) punya batas memori yang terbukti lewat pengukuran, bukan cuma dibaca dari kode.
 
-**Tidak direncanakan.** Lahir dari pemeriksaan ulang `docs/issues/046` & `047` sebelum Phase 5 dibuka —
-pemeriksaan yang memang gunanya untuk itu. Dokumen: `docs/phases/04.5-hardening/`.
-
-Penutupan Phase 4 mencatat tiga poin "butuh traffic produksi nyata". Dua di antaranya memang begitu.
-Yang ketiga (peta tanpa eviction) **salah dikategorikan** — empat map digabung jadi satu baris utang
-padahal dua ber-key entity bisnis (terbatas, penundaannya benar) dan dua ber-key input penyerang
-(tidak butuh data apa pun untuk diketahui salah). Menarik benang itu menemukan bahwa **Aturan #34
-secara faktual tidak pernah ditegakkan sejak Phase 1**:
-
-- `cmd/api/main.go:85` memakai `gin.New()` tanpa `SetTrustedProxies`; default Gin 1.12 mempercayai
-  setiap peer sebagai proxy, sehingga `c.ClientIP()` mengembalikan isi `X-Forwarded-For` — **dibuktikan
-  langsung**. Seluruh limit per-IP bisa dilewati satu header; sisi per-email dilewati dengan mengganti
-  alamat tiap request. Konsekuensinya: email verifikasi & reset password tak terbatas ke alamat mana
-  pun, membakar reputasi domain pengirim yang justru item lead-time di bawah.
-- `auth.LoginLimiter` diukur menahan **64,7 MB untuk 500.000 email karangan, tidak pernah dibebaskan**.
-- Test-nya memberi lampu hijau palsu: `internal/auth/handler_test.go:125` justru **bersandar** pada
-  `RemoteAddr` konstan. Tidak ada satu pun test di `crm_be` yang pernah mengirim `X-Forwarded-For`.
-  Standar "harness terbukti bisa gagal" yang diterapkan ketat untuk isolasi tenant (#8, #11, #23, #30,
-  #46) tidak pernah diterapkan ke rate limit.
-
-**Bukan darurat** — belum ada yang ter-deploy. Tapi tidak boleh dibawa ke produksi, dan lebih murah
-sekarang: `TRUSTED_PROXIES` adalah keputusan deployment, dan hosting belum dipilih — jadi hosting bisa
-dipilih untuk memenuhi kontraknya, bukan kontraknya ditambal untuk memenuhi hosting.
-
-**Tidak memblokir Phase 5.** Dikerjakan lebih dulu karena murah, terbatas, dan menyentuh kode yang akan
-lebih mahal diubah setelah ada klien kedua menempel padanya.
-
-### Setelah itu
-
-Dua hal menunggu keputusan manusia — bukan sesuatu yang bisa diputuskan sepihak dalam sesi agent, pola
-yang sama seperti saat Phase 3 tutup:
+Dua hal menunggu keputusan manusia sebelum sesi coding berikutnya dimulai — bukan sesuatu yang bisa
+diputuskan sepihak dalam sesi agent, pola yang sama seperti saat Phase 3 tutup:
 
 1. **Demo ke calon pengguna** (freeze bagian 4) — tujuan Phase 3, **masih belum dilakukan**. Dicatat
-   lagi di sini karena penutupan Phase 4 adalah titik alami kedua untuk mengingatkannya — dua phase
-   sudah selesai tanpa satu pun calon pengguna melihatnya.
+   lagi di sini karena penutupan Phase 4.5 adalah titik alami ketiga berturut-turut untuk
+   mengingatkannya — tiga penutupan phase sudah lewat tanpa satu pun calon pengguna melihatnya.
 2. **Pilih phase berikutnya**: Phase 5 (Employee Mobile) adalah satu-satunya phase MVP yang tersisa dan
    ada di jalur utama freeze (`Phase 3 → Phase 5 → GATE`) — tapi **cek dulu status Apple Developer
    Program & Firebase** di bagian *Punya Lead Time* di bawah. Kalau keduanya masih belum diurus, Phase 5
    akan berhenti tepat di bagian build iOS dan push notification, persis alasan Phase 4 dikerjakan lebih
-   dulu kemarin. Bila keduanya sudah beres, Phase 5 bisa langsung dibuka (PRD + TD, pola yang sama
+   dulu sebelumnya. Bila keduanya sudah beres, Phase 5 bisa langsung dibuka (PRD + TD, pola yang sama
    seperti Phase 2→3→4).
 
 ### Kewajiban yang diwarisi phase-phase berikutnya (TD phase 4 §19)
@@ -129,7 +106,6 @@ Riwayat #46–#49 di `docs/phases/04-public-api/issues.md` dan `notes.md`. Riway
 |---|---|---|
 | Tidak ada test end-to-end otomatis untuk graceful shutdown | Issue #1 | Diverifikasi manual (build binary + SIGINT). Otomatisasi butuh test yang menjalankan binary sungguhan dan mengirim sinyal OS — `go run` tidak meneruskan sinyal ke child process, jadi tidak bisa diuji lewat itu. Belum ada issue yang mencakup ini; angkat saat menyentuh area shutdown lagi. |
 | Tidak ada auto-migrate saat container `api` start | Issue #2 | `make migrate-up` dijalankan manual. Sengaja dipisah dari entrypoint `api` — migration dan serving punya kelas kegagalan berbeda. |
-| `ratelimit.FixedWindow` & `auth.LoginLimiter` tidak pernah membersihkan key lama | Issue #9, #10 | **Dijadwalkan Phase 4.5 (#58).** Keduanya ber-key email/IP — yaitu **input penyerang yang belum terautentikasi**, bukan entity bisnis. `LoginLimiter` diukur menahan 64,7 MB untuk 500.000 email karangan tanpa pernah membebaskannya (`RecordSuccess` hanya menghapus saat login *berhasil*). Catatan #49 sebelumnya menggabungkan ini dengan dua map Phase 4 di bawah dan menunda semuanya dengan alasan "butuh traffic" — **kategorisasi itu salah**, lihat `docs/phases/04.5-hardening/prd.md`. |
 | `apikey.lastUsedThrottle` & `lead.idempotencyCleanupThrottle` tanpa eviction | Issue #47 | **Sengaja dibiarkan** (keputusan H3 Phase 4.5). Ber-key `api_key_id` dan `organization_id` — terbatas oleh jumlah entity bisnis yang benar-benar ada, dan hanya bertambah lewat jalur terautentikasi. Menambahkan eviction ke sini berarti membangun mekanisme untuk masalah yang belum ada (Aturan #27–#29). |
 | Angka rate limit (register 5/jam, resend 3/jam+10/jam) belum final | Issue #9 | Cukup untuk membuktikan mekanisme aktif, bukan hasil tuning. **Sebagian ditutup di Phase 4**: batas API publik ditetapkan (D4 — 60/menit per kunci, `PUBLIC_API_RATE_LIMIT`) — tapi angka itu sendiri **juga belum hasil pengukuran** (`docs/issues/047-public-lead-api.md`), baru bisa ditinjau ulang begitu integrator produksi nyata mulai mengirim lead. Angka endpoint email masih default konservatif. |
 | `notifications` tidak punya retensi | Issue #22, TD §2 | Sama seperti `idempotency_key` — tidak ada scheduler di Phase 2 untuk membersihkan notifikasi lama. Tidak mendesak di volume MVP. |
@@ -140,6 +116,16 @@ Riwayat #46–#49 di `docs/phases/04-public-api/issues.md` dan `notes.md`. Riway
 > ~~`leads.idempotency_key` tidak punya retensi~~ — **selesai di issue #47.** `UPDATE ... SET
 > idempotency_key = NULL` untuk baris > 48 jam, di luar transaksi lead, throttle 1×/organization/jam,
 > hanya berjalan di jalur API key (keputusan D3).
+>
+> ~~`ratelimit.FixedWindow` & `auth.LoginLimiter` tidak pernah membersihkan key lama~~ — **selesai di
+> issue #58.** Eviction dua generasi (`current`/`previous`, ditukar tiap ~1 window) — bukan sweep
+> berkala (freeze bagian 6 aturan 4 melarang worker; memindai map besar sambil memegang lock justru
+> mengubah pertahanan jadi bagian serangan). Bucket/backoff yang masih hidup dibawa maju apa adanya
+> saat generasi ditukar, jadi tidak ada perilaku rate limit yang berubah untuk key manapun yang masih
+> aktif — dibuktikan lewat `TestFixedWindow_EvictsAcrossGenerations`/`…LiveWindowSurvivesGenerationSwap`
+> dan `TestLoginLimiter_EvictsExpiredBackoff`/`…ActiveBackoffSurvivesGenerationSwap`. `docs/issues/047`
+> sudah mengoreksi kategorisasi sebelumnya — dua map lain (`apikey.lastUsedThrottle`,
+> `lead.idempotencyCleanupThrottle`) **tetap sengaja tanpa eviction** (baris di atas, keputusan H3).
 
 > Bagian ini sama pentingnya dengan bagian Selesai. Kompromi yang diambil di session 3 akan terlupa di session 12 lalu ditemukan kembali sebagai bug produksi.
 
@@ -213,7 +199,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 2 | CRM Core | ✅ | ✅ | ✅ #19–#23 | ✅ |
 | 3 | Owner Dashboard | ✅ | ✅ | ✅ #30–#35, #40 | ✅ |
 | 4 | Public API | ✅ | ✅ | ✅ #46–#49 | ✅ |
-| 4.5 | Hardening | ✅ | ✅ | ✅ #57–#58 | ⬜ |
+| 4.5 | Hardening | ✅ | ✅ | ✅ #57–#58 | ✅ |
 | 5 | Employee Mobile | ⬜ | ⬜ | ⬜ | ⬜ |
 
 Pekerjaan yang sedang berjalan: `gh issue list --state open`

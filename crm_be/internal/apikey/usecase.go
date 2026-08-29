@@ -24,11 +24,16 @@ const lastUsedThrottleWindow = 5 * time.Minute
 type Usecase struct {
 	store Store
 
-	// lastUsedThrottle is an in-memory map[api_key_id]last-write-time,
-	// same shape as ratelimit.FixedWindow's own bucket map — no
-	// eviction, same accepted debt as that map (tracked since #9). A
-	// process restart empties it, which costs at most one extra write
-	// per key; TD §10 explicitly says no correction is needed for that.
+	// lastUsedThrottle is an in-memory map[api_key_id]last-write-time.
+	// Deliberately WITHOUT eviction, unlike ratelimit.FixedWindow and
+	// auth.LoginLimiter (Phase 4.5 #58) — those are keyed by IP/email,
+	// input from someone who hasn't authenticated yet, so an attacker
+	// can grow them without limit. This map is keyed by api_key_id,
+	// bounded by how many keys actually exist, and only grows through
+	// an authenticated, paying path. Adding eviction here would be
+	// solving a problem that doesn't exist (Rule #27–#29). A process
+	// restart empties it, which costs at most one extra write per key;
+	// TD §10 explicitly says no correction is needed for that.
 	lastUsedMu       sync.Mutex
 	lastUsedThrottle map[uuid.UUID]time.Time
 }
