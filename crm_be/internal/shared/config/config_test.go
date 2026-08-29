@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/config"
 )
@@ -111,6 +112,8 @@ func TestLoad_ProductionMode(t *testing.T) {
 	t.Setenv("COOKIE_SECURE", "true")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
 	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8")
+	t.Setenv("MAIL_PROVIDER", "smtp")
+	t.Setenv("SMTP_HOST", "smtp.example.com")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -158,6 +161,8 @@ func TestLoad_ProductionRequiresCookieSecure(t *testing.T) {
 	t.Setenv("COOKIE_SECURE", "false")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
 	t.Setenv("TRUSTED_PROXIES", "none")
+	t.Setenv("MAIL_PROVIDER", "smtp")
+	t.Setenv("SMTP_HOST", "smtp.example.com")
 
 	_, err := config.Load()
 	if err == nil {
@@ -178,6 +183,8 @@ func TestLoad_ProductionRequiresCORSAllowedOrigins(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("COOKIE_SECURE", "true")
 	t.Setenv("TRUSTED_PROXIES", "none")
+	t.Setenv("MAIL_PROVIDER", "smtp")
+	t.Setenv("SMTP_HOST", "smtp.example.com")
 	unsetEnv(t, "CORS_ALLOWED_ORIGINS")
 
 	_, err := config.Load()
@@ -201,6 +208,8 @@ func TestLoad_ProductionRequiresTrustedProxies(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("COOKIE_SECURE", "true")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
+	t.Setenv("MAIL_PROVIDER", "smtp")
+	t.Setenv("SMTP_HOST", "smtp.example.com")
 	unsetEnv(t, "TRUSTED_PROXIES")
 
 	_, err := config.Load()
@@ -306,5 +315,113 @@ func TestLoad_CORSAllowedOrigins_SplitsOnComma(t *testing.T) {
 		if cfg.CORSAllowedOrigins[i] != origin {
 			t.Errorf("expected origin[%d] = %q, got %q", i, origin, cfg.CORSAllowedOrigins[i])
 		}
+	}
+}
+
+// TestLoad_ProductionRejectsLogMailProvider is Phase 4.6 decision E2's
+// direct acceptance criterion (issue #63): a production process that
+// never sends email fails completely silently — no crash, no error, just
+// a registration funnel that quietly stops working. Boot must fail
+// instead of defaulting to LogMailer, which also writes the verification
+// token itself to the log (Rule #26).
+func TestLoad_ProductionRejectsLogMailProvider(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
+	t.Setenv("TRUSTED_PROXIES", "none")
+	t.Setenv("MAIL_PROVIDER", "log")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when APP_ENV=production and MAIL_PROVIDER=log, got nil")
+	}
+	if !strings.Contains(err.Error(), "MAIL_PROVIDER") {
+		t.Errorf("expected error to mention MAIL_PROVIDER, got: %v", err)
+	}
+}
+
+// TestLoad_SMTPRequiresHost is issue #63's direct acceptance criterion:
+// MAIL_PROVIDER=smtp without a host must fail at boot, not at the first
+// user's registration attempt.
+func TestLoad_SMTPRequiresHost(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("MAIL_PROVIDER", "smtp")
+	unsetEnv(t, "SMTP_HOST")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when MAIL_PROVIDER=smtp and SMTP_HOST is unset, got nil")
+	}
+	if !strings.Contains(err.Error(), "SMTP_HOST") {
+		t.Errorf("expected error to mention SMTP_HOST, got: %v", err)
+	}
+}
+
+// TestLoad_ProductionRejectsSMTPWithoutTLS is decision E3: production
+// must never send credentials and verification tokens over an
+// unencrypted connection.
+func TestLoad_ProductionRejectsSMTPWithoutTLS(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
+	t.Setenv("TRUSTED_PROXIES", "none")
+	t.Setenv("MAIL_PROVIDER", "smtp")
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_TLS", "none")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when APP_ENV=production and SMTP_TLS=none, got nil")
+	}
+	if !strings.Contains(err.Error(), "SMTP_TLS") {
+		t.Errorf("expected error to mention SMTP_TLS, got: %v", err)
+	}
+}
+
+// TestLoad_InvalidSMTPTLSMode proves a typo'd SMTP_TLS is a boot-time
+// error, not a value silently ignored until the first send attempt.
+func TestLoad_InvalidSMTPTLSMode(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("MAIL_PROVIDER", "smtp")
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_TLS", "implicit")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for an invalid SMTP_TLS value, got nil")
+	}
+	if !strings.Contains(err.Error(), "SMTP_TLS") {
+		t.Errorf("expected error to mention SMTP_TLS, got: %v", err)
+	}
+}
+
+// TestLoad_SMTPDefaults proves the SMTP_* defaults (port 587, starttls,
+// 10s timeout) match what Mailpit-free development and every provider
+// candidate in freeze.md bagian 7 actually need — Mailpit itself
+// overrides SMTP_TLS=none via docker-compose.yml, not via this default.
+func TestLoad_SMTPDefaults(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("MAIL_PROVIDER", "smtp")
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SMTPPort != 587 {
+		t.Errorf("expected default SMTPPort=587, got %d", cfg.SMTPPort)
+	}
+	if cfg.SMTPTLS != "starttls" {
+		t.Errorf("expected default SMTPTLS=starttls, got %q", cfg.SMTPTLS)
+	}
+	if cfg.SMTPTimeout != 10*time.Second {
+		t.Errorf("expected default SMTPTimeout=10s, got %s", cfg.SMTPTimeout)
 	}
 }
