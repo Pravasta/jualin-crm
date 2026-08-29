@@ -21,8 +21,7 @@ func New(q db.Querier) Repository {
 	return &postgresRepository{q: q}
 }
 
-const deviceTokenColumns = `
-	id, organization_id, membership_id, token, platform, created_at, last_seen_at`
+const deviceTokenColumns = `id, organization_id, membership_id, token, platform, created_at, last_seen_at` // #nosec G101 -- a SQL column list, not a credential; gosec's identifier heuristic matches "deviceTokenColumns" as a name
 
 // Upsert relies on uq_device_tokens_token — the same physical device
 // registering again (app reopened, token refreshed by FCM, or the

@@ -212,3 +212,50 @@ Registrasi token dari aplikasi (Flutter belum ada — diverifikasi `curl` + toke
 issue di `issues.md`). Push benar-benar sampai ke perangkat fisik lewat `FCMSender` — butuh kredensial
 FCM asli dan aplikasi terpasang, keduanya di luar cakupan #68 (klien FCM: #73). Layar apa pun di
 `crm_employee` — #69 dan seterusnya.
+
+### Addendum — CI gagal setelah PR dibuka, bukan disebabkan #68 sendiri
+
+`gh pr checks` menunjukkan `lint` dan `test` merah pada PR #68. Diperiksa satu per satu sebelum
+disimpulkan:
+
+- **`lint` sudah merah di `main` sejak PR #46 digabung (27 Agustus)** — dikonfirmasi lewat
+  `gh run list --branch main`, seluruh 5 CI run `main` sejak itu (#46, #47, #57, #58, #63/#64) gagal di
+  `lint` dengan temuan yang **sama persis**: `gosec` G101 ("Potential hardcoded credentials") pada
+  `apiKeyColumns` (daftar kolom SQL) dan dua konstanta `Action` (`ActionAPIKeyList`,
+  `ActionAPIKeyRevoke`) — bukan kredensial sungguhan, gosec mencocokkan substring `apiKey`/`token` di
+  **nama identifier**, bukan isinya. Penyebabnya `ci-backend.yml` memasang `golangci-lint@latest` tanpa
+  pin versi, jadi setiap update `gosec` di hulu bisa mengubah hasil linting tanpa perubahan kode apa
+  pun. Ini utang yang sudah ada lima PR sebelum #68 dibuka dan tidak pernah diperbaiki — dilaporkan di
+  sini apa adanya, bukan disembunyikan sebagai "sudah diperbaiki #68".
+  **Kode #68 sendiri menambah dua temuan baru dengan pola persis sama** (`deviceTokenColumns`,
+  `ActionDeviceTokenRegister`) — jadi tetap bagian tanggung jawab issue ini untuk tidak menambah utang
+  yang sama. Diperbaiki dengan `#nosec G101 -- <alasan>` inline, mengikuti konvensi yang sudah ada di
+  codebase ini (`internal/auth/login_limiter.go`, `internal/shared/password/argon2.go`,
+  `internal/shared/db/db.go`) — bukan mematikan `gosec` secara global di `.golangci.yml`, yang akan ikut
+  membungkam temuan sungguhan di masa depan. **Satu kesalahan sempat dibuat lalu ketahuan sebelum
+  commit**: menambahkan `// #nosec G101` sebagai trailing comment tepat setelah backtick pembuka raw
+  string (`` const apiKeyColumns = ` // #nosec... ``) — di Go, isi antara dua backtick adalah literal,
+  bukan komentar, jadi baris itu **akan menyisipkan teks komentar ke dalam string SQL sungguhan**.
+  Diperbaiki dengan menyatukan daftar kolom jadi satu baris supaya trailing comment valid di baris yang
+  sama dengan `const`, bukan di tengah string. Dua temuan `staticcheck` S1016 (`CreateInput{Name:
+  req.Name, Scopes: req.Scopes}` → `CreateInput(req)`) juga diperbaiki — struct sumber dan tujuan cocok
+  field-demi-field, jadi konversi tipe langsung valid, bukan sekadar kosmetik.
+- **`test` gagal karena bug flaky nyata di `internal/apikey`, bukan `internal/device`** —
+  `TestUnit_ResolveAPIKey_EveryFailureReasonIsIdentical` (dari #47, jauh sebelum #68) menyeed dua kunci
+  API dalam satu `fakeStore`, keduanya lewat `seedResolvableKey` yang selalu men-stamp `KeyID` yang sama
+  (`testKeyID`) kecuali diubah manual setelahnya. Kunci "revoked" DIUBAH `RevokedAt`-nya tapi TIDAK
+  `KeyID`-nya, jadi `FindByKeyID`'s `range` atas `map[uuid.UUID]*apikey.APIKey` — urutan iterasi Go
+  **diacak setiap pemanggilan** — bisa mengembalikan objek "valid" alih-alih "revoked" untuk `key_id`
+  yang sama, membuat skenario "revoked key" kadang lolos otentikasi alih-alih ditolak. **Dibuktikan
+  lewat pengulangan**: `go test -run TestUnit_ResolveAPIKey_EveryFailureReasonIsIdentical -count=200`
+  gagal berulang kali sebelum perbaikan, `-count=500` lolos bersih setelahnya. Diperbaiki dengan satu
+  baris — `revoked.KeyID = "revokedkey01"` setelah seeding, memberi kunci revoked `key_id` yang tidak
+  bertabrakan dengan kunci `valid` di map yang sama. Ini bukan bug yang diperkenalkan #68; kebetulan
+  baru terpicu pada run CI PR #68 karena keacakan `range` map, bukan karena kode #68 menyentuh paket
+  `apikey` sama sekali.
+
+Kedua perbaikan ini menyentuh berkas di luar `internal/device`/`internal/shared/push`/migration 0006 —
+dicatat secara eksplisit di sini karena itu, bukan diam-diam dianggap bagian normal cakupan #68. Baik
+alasan **kenapa** disertakan dalam PR yang sama (memblokir CI hijau PR #68 sendiri, dan keduanya kecil,
+terverifikasi, tidak mengubah perilaku produksi) dicatat di badan commit terpisah, bukan digabung ke
+commit awal #68.

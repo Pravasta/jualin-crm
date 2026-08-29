@@ -42,7 +42,7 @@ func (h *Handler) register(c *gin.Context) {
 		return
 	}
 
-	tok, err := h.usecase.Register(c.Request.Context(), t, RegisterInput{Token: req.Token, Platform: req.Platform})
+	tok, err := h.usecase.Register(c.Request.Context(), t, RegisterInput(req))
 	if err != nil {
 		httpx.WriteError(c, err)
 		return

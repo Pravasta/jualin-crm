@@ -99,8 +99,8 @@ const (
 	// do" is #47's apiKeyScopeFor, which deliberately excludes all three
 	// of these (Rule #24: an API key cannot create another API key).
 	ActionAPIKeyCreate Action = "api_key.create"
-	ActionAPIKeyList   Action = "api_key.list"
-	ActionAPIKeyRevoke Action = "api_key.revoke"
+	ActionAPIKeyList   Action = "api_key.list"   // #nosec G101 -- an RBAC action name, not a credential; gosec's identifier heuristic matches "APIKey" in the const name
+	ActionAPIKeyRevoke Action = "api_key.revoke" // #nosec G101 -- same false positive as ActionAPIKeyList above
 
 	// ActionDeviceTokenRegister/Delete (Phase 5 #68) are granted to
 	// EVERY role, Owner through Employee — unlike api_key.*, which is
@@ -109,7 +109,7 @@ const (
 	// data; Owner and Admin use the dashboard today, but nothing stops
 	// either of them from installing the mobile app too, and there's no
 	// security reason to make them the exception.
-	ActionDeviceTokenRegister Action = "device_token.register"
+	ActionDeviceTokenRegister Action = "device_token.register" // #nosec G101 -- an RBAC action name, not a credential; gosec's identifier heuristic matches "Token" in the const name
 	ActionDeviceTokenDelete   Action = "device_token.delete"
 )
 
