@@ -110,6 +110,7 @@ func TestLoad_ProductionMode(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("COOKIE_SECURE", "true")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
+	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -156,6 +157,7 @@ func TestLoad_ProductionRequiresCookieSecure(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("COOKIE_SECURE", "false")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
+	t.Setenv("TRUSTED_PROXIES", "none")
 
 	_, err := config.Load()
 	if err == nil {
@@ -175,6 +177,7 @@ func TestLoad_ProductionRequiresCORSAllowedOrigins(t *testing.T) {
 	t.Setenv("JWT_SECRET", validJWTSecret)
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("TRUSTED_PROXIES", "none")
 	unsetEnv(t, "CORS_ALLOWED_ORIGINS")
 
 	_, err := config.Load()
@@ -183,6 +186,103 @@ func TestLoad_ProductionRequiresCORSAllowedOrigins(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "CORS_ALLOWED_ORIGINS") {
 		t.Errorf("expected error to mention CORS_ALLOWED_ORIGINS, got: %v", err)
+	}
+}
+
+// TestLoad_ProductionRequiresTrustedProxies is issue #57's direct
+// acceptance criterion (Phase 4.5 TD §1, Rule #36): booting in production
+// without ever deciding TRUSTED_PROXIES leaves Gin's own default in
+// place — which trusts every peer as a proxy and makes every per-IP
+// rate limit forgeable (Rule #34). Boot must fail instead of defaulting
+// to that.
+func TestLoad_ProductionRequiresTrustedProxies(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
+	unsetEnv(t, "TRUSTED_PROXIES")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when APP_ENV=production and TRUSTED_PROXIES is unset, got nil")
+	}
+	if !strings.Contains(err.Error(), "TRUSTED_PROXIES") {
+		t.Errorf("expected error to mention TRUSTED_PROXIES, got: %v", err)
+	}
+}
+
+// TestLoad_TrustedProxiesNoneIsValidOutsideProduction proves "none" is a
+// real, accepted value (not just "happens to be absent") — the literal a
+// single-process deployment with no reverse proxy is expected to set.
+func TestLoad_TrustedProxiesNoneIsValidOutsideProduction(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("TRUSTED_PROXIES", "none")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := cfg.TrustedProxyCIDRs(); got != nil {
+		t.Errorf(`expected TrustedProxyCIDRs() to be nil for "none", got %v`, got)
+	}
+}
+
+// TestLoad_TrustedProxiesRejectsInvalidEntry proves a typo'd CIDR/IP is a
+// boot-time error, not a proxy that silently never gets trusted.
+func TestLoad_TrustedProxiesRejectsInvalidEntry(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("TRUSTED_PROXIES", "not-an-ip")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for an invalid TRUSTED_PROXIES entry, got nil")
+	}
+	if !strings.Contains(err.Error(), "TRUSTED_PROXIES") || !strings.Contains(err.Error(), "not-an-ip") {
+		t.Errorf("expected error to mention TRUSTED_PROXIES and the offending value, got: %v", err)
+	}
+}
+
+// TestLoad_TrustedProxiesRejectsNoneMixedWithCIDR proves "none" can't be
+// combined with real entries — it means "no proxy", so pairing it with a
+// CIDR is a contradiction, not a partial trust list.
+func TestLoad_TrustedProxiesRejectsNoneMixedWithCIDR(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("TRUSTED_PROXIES", "none,10.0.0.0/8")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal(`expected error when TRUSTED_PROXIES mixes "none" with a CIDR, got nil`)
+	}
+	if !strings.Contains(err.Error(), "TRUSTED_PROXIES") {
+		t.Errorf("expected error to mention TRUSTED_PROXIES, got: %v", err)
+	}
+}
+
+// TestLoad_TrustedProxiesAcceptsCIDRList proves a real multi-entry list
+// parses and survives round-trip to TrustedProxyCIDRs() unchanged — the
+// exact form (*gin.Engine).SetTrustedProxies needs.
+func TestLoad_TrustedProxiesAcceptsCIDRList(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8,172.16.0.5")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"10.0.0.0/8", "172.16.0.5"}
+	got := cfg.TrustedProxyCIDRs()
+	if len(got) != len(want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+	for i, v := range want {
+		if got[i] != v {
+			t.Errorf("expected entry[%d] = %q, got %q", i, v, got[i])
+		}
 	}
 }
 

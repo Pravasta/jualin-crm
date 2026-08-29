@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"slices"
 	"time"
 
@@ -74,6 +75,17 @@ type Config struct {
 	// SMB traffic, exposed via env so it can be tuned once real
 	// integrators exist without a deploy.
 	PublicAPIRateLimit int `env:"PUBLIC_API_RATE_LIMIT" envDefault:"60"`
+
+	// TrustedProxies lists the IPs/CIDRs whose X-Forwarded-For/X-Real-IP
+	// header may be believed (Phase 4.5 TD §1). The literal "none" means
+	// no reverse proxy sits in front of this process, so the connection's
+	// own peer address is used directly. Required when AppEnv is
+	// production (Rule #36) — both wrong settings fail silently in
+	// opposite directions: trusting everyone (Gin's own default) makes
+	// every per-IP rate limit forgeable with one header (Rule #34);
+	// trusting nobody while actually behind a load balancer collapses
+	// every real client onto one IP and one shared limiter bucket.
+	TrustedProxies []string `env:"TRUSTED_PROXIES" envSeparator:","`
 }
 
 // Load parses environment variables into a Config and validates it.
@@ -120,10 +132,52 @@ func (c *Config) validate() error {
 	if c.PublicAPIRateLimit <= 0 {
 		return fmt.Errorf("config invalid: PUBLIC_API_RATE_LIMIT must be positive, got %d", c.PublicAPIRateLimit)
 	}
+	if c.AppEnv == "production" && len(c.TrustedProxies) == 0 {
+		return fmt.Errorf(`config invalid: TRUSTED_PROXIES must be set when APP_ENV=production (use "none" when no reverse proxy sits in front of this process)`)
+	}
+	if len(c.TrustedProxies) > 1 && slices.Contains(c.TrustedProxies, "none") {
+		return fmt.Errorf(`config invalid: TRUSTED_PROXIES cannot mix "none" with actual proxy entries`)
+	}
+	for _, p := range c.TrustedProxies {
+		if p == "none" {
+			continue
+		}
+		if !validProxyEntry(p) {
+			return fmt.Errorf("config invalid: TRUSTED_PROXIES entry %q is not a valid IP or CIDR", p)
+		}
+	}
 	return nil
+}
+
+// validProxyEntry mirrors what gin.Engine.SetTrustedProxies itself accepts
+// (gin.go's prepareTrustedCIDRs) — a bare IP or a CIDR block — so a value
+// that passes validation here is guaranteed to be accepted there too.
+// Rejecting it at boot means a typo is a startup error, not a proxy that
+// silently never gets trusted.
+func validProxyEntry(entry string) bool {
+	if net.ParseIP(entry) != nil {
+		return true
+	}
+	_, _, err := net.ParseCIDR(entry)
+	return err == nil
 }
 
 // IsProduction reports whether the app is running in production mode.
 func (c *Config) IsProduction() bool {
 	return c.AppEnv == "production"
+}
+
+// TrustedProxyCIDRs returns TrustedProxies in the form
+// (*gin.Engine).SetTrustedProxies expects. Empty or ["none"] returns nil,
+// which is gin's own signal to trust no peer at all — ClientIP() then
+// returns the connection's real remote address instead of consulting any
+// header (see gin.Engine.isTrustedProxy).
+func (c *Config) TrustedProxyCIDRs() []string {
+	if len(c.TrustedProxies) == 0 {
+		return nil
+	}
+	if len(c.TrustedProxies) == 1 && c.TrustedProxies[0] == "none" {
+		return nil
+	}
+	return c.TrustedProxies
 }

@@ -85,6 +85,17 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	r := gin.New()
 	r.HandleMethodNotAllowed = true
 
+	// Must run before any middleware that reads c.ClientIP() — Logging
+	// (below) is one, and every rate limiter keyed by IP is another
+	// (Phase 4.5 TD §1). config.Validate already proved every entry
+	// parses as an IP/CIDR, so the only remaining failure mode here is
+	// this build's Gin disagreeing with net.ParseIP/ParseCIDR — a bug,
+	// not a config problem, and ADR-010 says boot must not proceed
+	// half-ready.
+	if err := r.SetTrustedProxies(cfg.TrustedProxyCIDRs()); err != nil {
+		panic(fmt.Sprintf("trusted proxies rejected by gin despite passing config validation: %v", err))
+	}
+
 	r.Use(httpx.RequestID(), httpx.Logging(log), httpx.Recovery(log))
 	// CORS runs before any route is registered and before authMW is built
 	// below — a preflight OPTIONS request carries no credentials and must
