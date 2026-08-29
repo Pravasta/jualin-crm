@@ -197,13 +197,23 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 }
 
 // newMailer picks the mailer implementation for cfg.MailProvider.
-// "log" (LogMailer) is the only option today — config.validate rejects
-// any other value, so the default case here is unreachable, not a
-// silent fallback.
+// config.validate rejects any value outside {"log", "smtp"} and rejects
+// "log" outright when APP_ENV=production (Phase 4.6 decision E2), so the
+// default case here stays unreachable, not a silent fallback.
 func newMailer(cfg *config.Config, log *slog.Logger) mailer.Mailer {
 	switch cfg.MailProvider {
 	case "log":
 		return mailer.NewLogMailer(log)
+	case "smtp":
+		return mailer.NewSMTPMailer(mailer.SMTPConfig{
+			Host:     cfg.SMTPHost,
+			Port:     cfg.SMTPPort,
+			Username: cfg.SMTPUsername,
+			Password: cfg.SMTPPassword,
+			From:     cfg.MailFrom,
+			TLS:      cfg.SMTPTLS,
+			Timeout:  cfg.SMTPTimeout,
+		})
 	default:
 		panic(fmt.Sprintf("unreachable: unknown MAIL_PROVIDER %q passed config validation", cfg.MailProvider))
 	}

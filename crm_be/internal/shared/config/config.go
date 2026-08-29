@@ -19,10 +19,12 @@ var validLogLevels = []string{"debug", "info", "warn", "error"}
 // signatures aren't brute-forceable.
 const minJWTSecretLength = 32
 
-// "log" is the only provider that exists so far — LogMailer. A real
-// provider is added to this list when it's actually implemented, not
-// before (Rule #27).
-var validMailProviders = []string{"log"}
+// "smtp" added in Phase 4.6 (issue #63) — mailer.Mailer's second real
+// implementation, the one its own Phase 1 comment already said was
+// coming (Rule #27).
+var validMailProviders = []string{"log", "smtp"}
+
+var validSMTPTLSModes = []string{"starttls", "none"}
 
 // Config holds all environment-derived settings for crm_be.
 type Config struct {
@@ -43,6 +45,17 @@ type Config struct {
 	AppBaseURL   string `env:"APP_BASE_URL" envDefault:"http://localhost:3000"`
 	MailFrom     string `env:"MAIL_FROM" envDefault:"no-reply@localhost"`
 	MailProvider string `env:"MAIL_PROVIDER" envDefault:"log"`
+
+	// SMTP* configure mailer.SMTPMailer (Phase 4.6, issue #63) — read only
+	// when MailProvider is "smtp". Username/Password may both be empty
+	// (Mailpit in development takes no auth); AUTH is skipped entirely in
+	// that case, not attempted with empty credentials.
+	SMTPHost     string        `env:"SMTP_HOST"`
+	SMTPPort     int           `env:"SMTP_PORT" envDefault:"587"`
+	SMTPUsername string        `env:"SMTP_USERNAME"`
+	SMTPPassword string        `env:"SMTP_PASSWORD"`
+	SMTPTLS      string        `env:"SMTP_TLS" envDefault:"starttls"`
+	SMTPTimeout  time.Duration `env:"SMTP_TIMEOUT" envDefault:"10s"`
 
 	// JWTSecret signs and verifies access tokens (HS256, TD phase 1 §4).
 	// Required with no default — an app booting with a generated or empty
@@ -119,6 +132,31 @@ func (c *Config) validate() error {
 	}
 	if !slices.Contains(validMailProviders, c.MailProvider) {
 		return fmt.Errorf("config invalid: MAIL_PROVIDER must be one of %v, got %q", validMailProviders, c.MailProvider)
+	}
+	// A production process that never sends email fails silently — no
+	// error, no crash, just a registration funnel that quietly stops
+	// working (Phase 4.6 decision E2). LogMailer also writes the
+	// verification token itself to the log, a single-use credential
+	// (Rule #26) — reason enough on its own.
+	if c.AppEnv == "production" && c.MailProvider == "log" {
+		return fmt.Errorf(`config invalid: MAIL_PROVIDER must not be "log" when APP_ENV=production`)
+	}
+	if c.MailProvider == "smtp" {
+		if c.SMTPHost == "" {
+			return fmt.Errorf("config invalid: SMTP_HOST must be set when MAIL_PROVIDER=smtp")
+		}
+		if c.SMTPPort <= 0 || c.SMTPPort > 65535 {
+			return fmt.Errorf("config invalid: SMTP_PORT must be between 1 and 65535, got %d", c.SMTPPort)
+		}
+		if !slices.Contains(validSMTPTLSModes, c.SMTPTLS) {
+			return fmt.Errorf("config invalid: SMTP_TLS must be one of %v, got %q", validSMTPTLSModes, c.SMTPTLS)
+		}
+		if c.AppEnv == "production" && c.SMTPTLS == "none" {
+			return fmt.Errorf("config invalid: SMTP_TLS must not be \"none\" when APP_ENV=production")
+		}
+		if c.SMTPTimeout <= 0 {
+			return fmt.Errorf("config invalid: SMTP_TIMEOUT must be positive, got %s", c.SMTPTimeout)
+		}
 	}
 	if len(c.JWTSecret) < minJWTSecretLength {
 		return fmt.Errorf("config invalid: JWT_SECRET must be at least %d bytes, got %d", minJWTSecretLength, len(c.JWTSecret))
