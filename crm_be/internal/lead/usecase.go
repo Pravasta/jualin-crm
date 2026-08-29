@@ -302,6 +302,13 @@ func (u *Usecase) UpdateAssignment(ctx context.Context, t tenant.Context, id uui
 
 	var updated *Lead
 	var conflict bool
+	// pushRecipient is set inside the closure only when a real,
+	// non-self assignment notification was recorded — the same
+	// condition Notify itself is gated on below. Read after InTx
+	// returns to fire the push OUTSIDE the transaction (Phase 5 TD §9.3,
+	// keputusan M5, Rule #32) — a push failure must never roll back an
+	// assignment that already committed.
+	var pushRecipient *uuid.UUID
 	txErr := u.store.InTx(ctx, func(r Repos) error {
 		current, err := r.Lead.FindByID(ctx, t, id)
 		if err != nil {
@@ -330,10 +337,14 @@ func (u *Usecase) UpdateAssignment(ctx context.Context, t tenant.Context, id uui
 		}
 
 		if t.MembershipID != nil && newAssignee == *t.MembershipID {
-			return nil // self-assignment — no notification
+			return nil // self-assignment — no notification, no push
 		}
 		title := fmt.Sprintf("Lead #%d ditugaskan kepada Anda", updated.LeadNumber)
-		return r.Notification.Notify(ctx, t, newAssignee, "lead_assigned", &id, nil, title, &updated.Name)
+		if err := r.Notification.Notify(ctx, t, newAssignee, "lead_assigned", &id, nil, title, &updated.Name); err != nil {
+			return err
+		}
+		pushRecipient = &newAssignee
+		return nil
 	})
 	if conflict {
 		return nil, &VersionConflictError{Current: updated}
@@ -344,7 +355,37 @@ func (u *Usecase) UpdateAssignment(ctx context.Context, t tenant.Context, id uui
 	if txErr != nil {
 		return nil, txErr
 	}
+
+	if pushRecipient != nil {
+		u.pushAssignmentNotification(ctx, t, *pushRecipient, updated)
+	}
 	return updated, nil
+}
+
+// pushAssignmentNotification sends a best-effort push AFTER the
+// notification record and activity above have already committed
+// (Rule #32; freeze A3: the notification row is the source of truth,
+// push is only a delivery attempt). Repos().Push may be nil — most
+// existing tests build a Repos literal with only Lead/Activity/
+// Notification set, and Push is deliberately not required alongside
+// them (Phase 5 TD §9.3: bridged the same way as NotificationRecorder,
+// not threaded through NewUsecase, so it never touches those call
+// sites). A missing bridge here just means no push is attempted, same
+// externally-visible effect as PUSH_PROVIDER=none.
+func (u *Usecase) pushAssignmentNotification(ctx context.Context, t tenant.Context, membershipID uuid.UUID, l *Lead) {
+	push := u.store.Repos().Push
+	if push == nil {
+		return
+	}
+	title := fmt.Sprintf("Lead #%d ditugaskan kepada Anda", l.LeadNumber)
+	data := map[string]string{"type": "lead_assigned", "lead_id": l.ID.String()}
+	// Error discarded deliberately: device.Usecase already logs the
+	// failure structurally (Phase 5 TD §9.5) — logging it again here
+	// would duplicate the entry without adding information, and lead
+	// has no logger field of its own (adding one would mean every
+	// existing NewUsecase(store) call site across ~20 test files needs
+	// updating for a dependency those tests never exercise).
+	_ = push.PushToMembership(ctx, t, membershipID, title, l.Name, data)
 }
 
 func (u *Usecase) Delete(ctx context.Context, t tenant.Context, id uuid.UUID) error {

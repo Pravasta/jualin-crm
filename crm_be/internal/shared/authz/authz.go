@@ -101,6 +101,16 @@ const (
 	ActionAPIKeyCreate Action = "api_key.create"
 	ActionAPIKeyList   Action = "api_key.list"
 	ActionAPIKeyRevoke Action = "api_key.revoke"
+
+	// ActionDeviceTokenRegister/Delete (Phase 5 #68) are granted to
+	// EVERY role, Owner through Employee — unlike api_key.*, which is
+	// deliberately narrow. A device token is registering the CALLER'S
+	// OWN phone for push, not a capability that reaches other people's
+	// data; Owner and Admin use the dashboard today, but nothing stops
+	// either of them from installing the mobile app too, and there's no
+	// security reason to make them the exception.
+	ActionDeviceTokenRegister Action = "device_token.register"
+	ActionDeviceTokenDelete   Action = "device_token.delete"
 )
 
 // permissions mirrors docs/architecture/authorization.md's matrix
@@ -134,6 +144,8 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionAPIKeyCreate:         true,
 		ActionAPIKeyList:           true,
 		ActionAPIKeyRevoke:         true,
+		ActionDeviceTokenRegister:  true,
+		ActionDeviceTokenDelete:    true,
 	},
 	tenant.RoleAdmin: {
 		ActionMembershipList:       true,
@@ -162,6 +174,8 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionAPIKeyCreate:         true,
 		ActionAPIKeyList:           true,
 		ActionAPIKeyRevoke:         true,
+		ActionDeviceTokenRegister:  true,
+		ActionDeviceTokenDelete:    true,
 	},
 	tenant.RoleManager: {
 		ActionMembershipList: true,
@@ -182,7 +196,9 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionCustomerRead:   true,
 		// ActionCustomerUpdate/Delete deliberately absent — Owner/Admin
 		// only, narrower than Manager's lead.update/delete access.
-		ActionMetricsRead: true,
+		ActionMetricsRead:         true,
+		ActionDeviceTokenRegister: true,
+		ActionDeviceTokenDelete:   true,
 	},
 	tenant.RoleEmployee: {
 		// Read/update granted here; the repository further restricts
@@ -197,7 +213,9 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionTaskComplete:   true,
 		// ActionTaskDelete deliberately absent — TD §9's matrix denies
 		// Employee this one, unlike every other activity/task action.
-		ActionCustomerRead: true,
+		ActionCustomerRead:        true,
+		ActionDeviceTokenRegister: true,
+		ActionDeviceTokenDelete:   true,
 		// ActionCustomerUpdate/Delete/ActionLeadConvert deliberately
 		// absent — Employee gets read-only, repo-restricted to
 		// customers converted from leads assigned to them.

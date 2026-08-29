@@ -41,6 +41,8 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleOwner, authz.ActionAPIKeyCreate, true},
 		{tenant.RoleOwner, authz.ActionAPIKeyList, true},
 		{tenant.RoleOwner, authz.ActionAPIKeyRevoke, true},
+		{tenant.RoleOwner, authz.ActionDeviceTokenRegister, true},
+		{tenant.RoleOwner, authz.ActionDeviceTokenDelete, true},
 
 		{tenant.RoleAdmin, authz.ActionMembershipList, true},
 		{tenant.RoleAdmin, authz.ActionMembershipUpdateRole, true},
@@ -68,6 +70,8 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleAdmin, authz.ActionAPIKeyCreate, true},
 		{tenant.RoleAdmin, authz.ActionAPIKeyList, true},
 		{tenant.RoleAdmin, authz.ActionAPIKeyRevoke, true},
+		{tenant.RoleAdmin, authz.ActionDeviceTokenRegister, true},
+		{tenant.RoleAdmin, authz.ActionDeviceTokenDelete, true},
 
 		{tenant.RoleManager, authz.ActionMembershipList, true},
 		{tenant.RoleManager, authz.ActionMembershipUpdateRole, false},
@@ -95,6 +99,8 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleManager, authz.ActionAPIKeyCreate, false}, // Manager gets NO access at all, not read-only
 		{tenant.RoleManager, authz.ActionAPIKeyList, false},
 		{tenant.RoleManager, authz.ActionAPIKeyRevoke, false},
+		{tenant.RoleManager, authz.ActionDeviceTokenRegister, true}, // unlike api_key.*, every role gets this — it's the CALLER's own device
+		{tenant.RoleManager, authz.ActionDeviceTokenDelete, true},
 
 		{tenant.RoleEmployee, authz.ActionMembershipList, false},
 		{tenant.RoleEmployee, authz.ActionMembershipUpdateRole, false},
@@ -122,6 +128,8 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleEmployee, authz.ActionAPIKeyCreate, false},
 		{tenant.RoleEmployee, authz.ActionAPIKeyList, false},
 		{tenant.RoleEmployee, authz.ActionAPIKeyRevoke, false},
+		{tenant.RoleEmployee, authz.ActionDeviceTokenRegister, true}, // every role, including Employee — registering a phone for push isn't a management action
+		{tenant.RoleEmployee, authz.ActionDeviceTokenDelete, true},
 	}
 
 	for _, c := range cases {
@@ -158,6 +166,7 @@ var allActions = []authz.Action{
 	authz.ActionCustomerRead, authz.ActionCustomerUpdate, authz.ActionCustomerDelete,
 	authz.ActionMetricsRead,
 	authz.ActionAPIKeyCreate, authz.ActionAPIKeyList, authz.ActionAPIKeyRevoke,
+	authz.ActionDeviceTokenRegister, authz.ActionDeviceTokenDelete,
 }
 
 // TestRequire_APIKeyPrincipal_OnlyLeadCreateAllowed is issue #47's

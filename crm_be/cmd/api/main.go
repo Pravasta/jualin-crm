@@ -19,6 +19,7 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/apikey"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auth"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/customer"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/device"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/invitation"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/lead"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/membership"
@@ -30,6 +31,7 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/logger"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/mailer"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/push"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/ratelimit"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/task"
 )
@@ -136,7 +138,15 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	apikeyUsecase := apikey.NewUsecase(newAPIKeyStore(pool))
 	publicLeadCreateMW := authn.MiddlewareWithAPIKey(authUsecase, apikeyUsecase)
 
-	leadUsecase := lead.NewUsecase(newLeadStore(pool))
+	// device is wired here, ahead of lead, for the same reason apikey is
+	// above it: lead.PushSender (bridged below) needs deviceUsecase to
+	// already exist. deviceUsecase.PushToMembership structurally
+	// satisfies lead.PushSender (Phase 5 #68, TD §9.3) — internal/lead
+	// never imports this package, same bridging pattern as
+	// NotificationSender/ActivityRecorder.
+	deviceUsecase := device.NewUsecase(newDeviceStore(pool), newPushSender(cfg, log), log)
+
+	leadUsecase := lead.NewUsecase(newLeadStore(pool, deviceUsecase))
 	leadRateLimiter := ratelimit.NewFixedWindow(cfg.PublicAPIRateLimit, time.Minute)
 	lead.NewHandler(leadUsecase, leadRateLimiter).RegisterRoutes(r, authMW, publicLeadCreateMW)
 
@@ -156,6 +166,11 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	// user) — apikeyUsecase itself was built earlier, alongside lead's
 	// wiring, which is the only thing that needed it ahead of this point.
 	apikey.NewHandler(apikeyUsecase).RegisterRoutes(r, authMW)
+
+	// device's own management routes (register/unregister as principal
+	// user) — deviceUsecase itself was built earlier, alongside lead's
+	// wiring, which is the only thing that needed it ahead of this point.
+	device.NewHandler(deviceUsecase).RegisterRoutes(r, authMW)
 
 	// metrics is read-only (no Store/InTx, TD phase 3 §2) — its
 	// Repository is built directly from pool, no _store.go wrapper needed.
@@ -216,6 +231,35 @@ func newMailer(cfg *config.Config, log *slog.Logger) mailer.Mailer {
 		})
 	default:
 		panic(fmt.Sprintf("unreachable: unknown MAIL_PROVIDER %q passed config validation", cfg.MailProvider))
+	}
+}
+
+// newPushSender picks the push implementation for cfg.PushProvider — same
+// shape as newMailer (Phase 5 #68). Unlike newMailer's two branches,
+// push.NewFCMSender can genuinely fail (a missing or malformed
+// credentials file is a real, reachable misconfiguration, not a code
+// invariant) — panicking here rather than threading an error through
+// newRouter's signature still satisfies ADR-010: this runs synchronously
+// during router construction, before ListenAndServe is ever called and
+// before httpx.Recovery's request-scoped middleware exists to catch
+// anything, so the process exits nonzero before it could serve a single
+// request half-configured.
+func newPushSender(cfg *config.Config, log *slog.Logger) push.Sender {
+	switch cfg.PushProvider {
+	case "none":
+		return push.NewNoopSender(log)
+	case "fcm":
+		sender, err := push.NewFCMSender(push.FCMConfig{
+			ProjectID:       cfg.FCMProjectID,
+			CredentialsFile: cfg.FCMCredentialsFile,
+			Timeout:         cfg.PushTimeout,
+		})
+		if err != nil {
+			panic(fmt.Sprintf("push: failed to construct FCM sender from FCM_CREDENTIALS_FILE=%q: %v", cfg.FCMCredentialsFile, err))
+		}
+		return sender
+	default:
+		panic(fmt.Sprintf("unreachable: unknown PUSH_PROVIDER %q passed config validation", cfg.PushProvider))
 	}
 }
 

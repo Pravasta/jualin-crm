@@ -60,6 +60,12 @@ func isolationTestConfig() *config.Config {
 		// config.Load() would itself reject as invalid (config.go's
 		// validate() requires > 0).
 		PublicAPIRateLimit: 100,
+		// Zero value "" (not env.Parse's "none" default — this struct is
+		// built directly, bypassing envDefault entirely) would hit
+		// newPushSender's unreachable default case and panic (Phase 5
+		// #68) — every isolation test in this file goes through
+		// newRouter, so this has to be set explicitly here too.
+		PushProvider: "none",
 	}
 }
 
@@ -408,5 +414,35 @@ func TestTenantIsolation_MultiMembership_OnlySeesActiveOrgInToken(t *testing.T) 
 	}
 	if len(body.Data) != 1 {
 		t.Fatalf("expected exactly 1 member visible (org A's owner only), got %d: %s", len(body.Data), w.Body.String())
+	}
+}
+
+// TestTenantIsolation_DeviceTokenDelete_CrossOrgReturns404 is Phase 5
+// #68's device_tokens case. It doesn't fit the generic by-id table
+// above — DELETE /v1/device-tokens addresses its target by a token
+// VALUE in the request body, not a path segment — so it gets its own
+// test, same reasoning as
+// TestTenantIsolation_MetricsAggregate_ScopedToOrganization above.
+func TestTenantIsolation_DeviceTokenDelete_CrossOrgReturns404(t *testing.T) {
+	r, pool := newIsolationRouter(t)
+
+	orgA, _, ownerAMembershipID := seedOrgOwner(t, pool, "Device Org A", "device-owner-a@example.com")
+	tokenA := mintBearerToken(t, uuid.Must(uuid.NewV7()), orgA, ownerAMembershipID, tenant.RoleOwner)
+
+	orgB, _, membershipB := seedOrgOwner(t, pool, "Device Org B", "device-owner-b@example.com")
+	seedIsolationDeviceToken(t, pool, orgB, membershipB, "isolation-device-token-b")
+
+	w := doIsolationRequest(r, http.MethodDelete, "/v1/device-tokens", tokenA, map[string]string{"token": "isolation-device-token-b"})
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for a cross-org device token delete, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func seedIsolationDeviceToken(t *testing.T, pool *pgxpool.Pool, org, membershipID uuid.UUID, token string) {
+	t.Helper()
+	id := uuid.Must(uuid.NewV7())
+	const q = `INSERT INTO device_tokens (id, organization_id, membership_id, token, platform) VALUES ($1, $2, $3, $4, 'android')`
+	if _, err := pool.Exec(t.Context(), q, id, org, membershipID, token); err != nil {
+		t.Fatalf("seed isolation device token: %v", err)
 	}
 }

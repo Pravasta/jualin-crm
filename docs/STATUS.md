@@ -3,7 +3,7 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 29 Agustus 2026 — **Phase 5 — Employee Mobile dibuka** (#68–#73), Android dulu, iOS ditunda.
+**Last updated:** 30 Agustus 2026 — **Issue #68 selesai** (backend mobile: `device_tokens`, FCM, hook setelah commit).
 **Phase sekarang:** Phase 5 — Employee Mobile. Phase 4.6 selesai; ini phase MVP terakhir sebelum GATE.
 
 ---
@@ -49,6 +49,7 @@
 | **Issue #58 — Eviction map ber-key penyerang, penutup Phase 4.5** | — | 4.5 | Eviction **dua generasi** (`current`/`previous`, ditukar tiap ~1 window) di `ratelimit.FixedWindow` dan `auth.LoginLimiter` — bukan sweep berkala (memindai map besar sambil memegang lock justru mengubah pertahanan jadi bagian serangan, dan freeze melarang worker tanpa kebutuhan async nyata). **Carry-forward lewat lookup, bukan filter saat swap**: bucket/backoff yang masih hidup dipindahkan dari `previous` ke `current` hanya saat diakses lagi, disalin apa adanya (`windowStart`/`count` atau `failures`/`nextAllowedAt`) — sehingga key manapun yang masih aktif berperilaku **identik** dengan sebelum eviction ada, dan seluruh test lama lulus tanpa perubahan asersi. Field `now func() time.Time` unexported ditambahkan ke kedua tipe untuk kontrol waktu deterministik di test, di-set hanya dari file test internal paket yang sama (`limiter_internal_test.go`, `login_limiter_internal_test.go` — deviasi `package ratelimit`/`package auth`, pola sama seperti `internal/apikey/entity_test.go`). **4 test baru membuktikan batas memori lewat pengukuran**: 20 generasi × 50 key unik (1000 total) tetap terlacak ≤100 di kedua tipe. **Terbukti bisa gagal** — empat run adversarial terpisah (roll dimatikan, carry-forward dimatikan, di kedua tipe), semuanya merah persis seperti diprediksi, dikembalikan, tidak pernah ter-commit. Dua map ber-key entity bisnis (`apikey.lastUsedThrottle`, `lead.idempotencyCleanupThrottle`) **sengaja tetap tanpa eviction** (keputusan H3) — komentarnya diperbarui untuk berhenti menyamakan diri dengan `ratelimit.FixedWindow` dan menjelaskan alasan sebenarnya. **Seluruh 10 acceptance criteria PRD Phase 4.5 dicek satu per satu dan terpenuhi. Phase 4.5 — Hardening selesai.** |
 | **Issue #63 — `SMTPMailer`, tutup `MAIL_FROM` yang tidak pernah dipakai** | — | 4.6 | `mailer.Mailer` sudah interface sejak Phase 1 — komentarnya sendiri menyebut implementasi kedua akan datang. `SMTPMailer` mengisinya, **tanpa** abstraksi baru. Percakapan SMTP dibangun **manual** (bukan `smtp.SendMail`, yang tidak punya batas waktu sama sekali) — `Send` dipanggil sinkron di jalur request, jadi server menggantung = request menggantung; satu `conn.SetDeadline` menutup seluruh percakapan sejak dial sampai `QUIT`. **`MAIL_FROM` akhirnya dipakai** — sejak Phase 1 ada di config tapi tidak dibaca siapa pun. `MAIL_PROVIDER=log` di `APP_ENV=production` **menghentikan boot** (keputusan E2) — produksi yang tidak pernah kirim email gagal diam-diam, dan `LogMailer` menulis token verifikasi ke log. `SMTP_TLS=none` juga ditolak di produksi (E3). **Dua perilaku stdlib diverifikasi sebelum ditulis**: `mime.QEncoding.Encode` membiarkan subject ASCII produk hari ini apa adanya; `strings.ContainsAny(s, "\r\n")` menangkap ketiga bentuk injeksi header. **10 test baru** — 6 unit tanpa jaringan (`message_internal_test.go`, deviasi `package mailer` mengikuti preseden `apikey`/`ratelimit`) + **4 integrasi terhadap Mailpit sungguhan lewat testcontainers**, membaca pesan kembali lewat API Mailpit alih-alih memeriksa `Send` mengembalikan `nil`. **Terbukti bisa gagal** — defense injeksi header dan `SetDeadline` masing-masing dirusak sementara, keduanya merah persis seperti diprediksi (yang kedua digantung sampai dipotong paksa `-timeout=15s`, membuktikan tanpa deadline `Send` benar-benar tidak pernah berhenti sendiri), dikembalikan, tidak pernah ter-commit. Test produksi lama (`TestLoad_ProductionMode` dkk.) ditambahi setup `MAIL_PROVIDER=smtp`+`SMTP_HOST` — bukan perubahan asersi. **Belum menutup phase** — Mailpit belum menyala di `make dev`, `docs/testing/flow/` masih menyuruh menggali log. |
 | **Issue #64 — Mailpit di dev environment, penutup Phase 4.6** | — | 4.6 | `docker-compose.yml` bertambah service `mailpit` — **tanpa** `depends_on` di `api` (SMTP hanya disentuh saat email benar-benar dikirim, bukan saat boot; diverifikasi langsung: registrasi 0,3 detik setelah `docker compose up` tetap `201`, Mailpit tanpa healthcheck sudah siap jauh lebih cepat dari Postgres). `.env.example`'s `SMTP_HOST=localhost` sengaja **beda** dari `docker-compose.yml`'s `SMTP_HOST=mailpit` — dua sudut pandang jaringan berbeda (host vs container Docker), bukan inkonsistensi. Enam tempat di lima berkas `docs/testing/flow/` diperbarui — instruksi `docker compose logs | grep` diganti "buka `http://localhost:8025`, klik email terbaru"; §8 lama (cara menyalin tautan dari log tanpa ikut membawa `\n\n` literal) **dihapus seluruhnya**, bukan disunting, karena masalahnya sudah tidak ada. Satu baris troubleshooting baru **awalnya salah**: draf pertama mengklaim race condition boot `api`/`mailpit` sebagai penyebab utama email tidak muncul — **diverifikasi langsung sebelum ditulis final, klaimnya tidak terbukti** (urutan langkah di panduan sendiri sudah memberi Mailpit cukup waktu naik); ditulis ulang lebih berhati-hati, menyebut kemungkinan itu jarang. `authentication.md` mendapat bagian baru *Pengiriman email* (dua provider, kenapa `SMTPMailer` bukan `smtp.SendMail`, kenapa kegagalan kirim tidak membatalkan apa pun yang commit, Mailpit di dev, batas untuk produksi). **Verifikasi manual end-to-end dari nol**: `docker compose down -v` → `up --build` → `migrate-up` → registrasi → email verifikasi muncul di Mailpit (`From: no-reply@jualin.local`, subjek benar) → token diekstrak dari body → `200 verified`; diulang untuk reset password. **Seluruh 12 acceptance criteria PRD Phase 4.6 dicek satu per satu dan terpenuhi. Phase 4.6 — Email Delivery selesai.** |
+| **Issue #68 — Backend mobile: `device_tokens`, pengiriman FCM, hook setelah commit** | — | 5 | Pembuka Phase 5, murni Go, **tanpa UI**. Migration `0006` — `uq_device_tokens_token` unik **lintas** organization (pengecualian ketiga di codebase ini, alasan berbeda dari `api_keys.key_id`/`refresh_tokens.token_hash`: perangkat fisik bisa berpindah pemilik, registrasi ulang **memindahkan** baris lewat `ON CONFLICT ... DO UPDATE`, bukan menduplikasi); sengaja tanpa `deleted_at` (deviasi Aturan #18 — bukan entity bisnis). `internal/shared/push` (interface `Sender` + `NoopSender`/`FCMSender`, HTTP v1 API langsung, **tanpa** Firebase Admin SDK — Aturan #27, meniru pilihan `net/smtp` #63) dan `internal/device` (domain penuh) baru. `lead.PushSender` dijembatani lewat **`lead.Repos.Push`** (nil-safe), bukan parameter `NewUsecase` — menghindari perubahan pada ~20 situs test yang sudah ada, pola sama seperti `NotificationSender`. Push dikirim **setelah** `InTx` kembali (`pushRecipient` ditangkap lewat closure) — kegagalan FCM tidak pernah membatalkan assignment yang sudah commit (Rule #32). **Isolasi tenant punya temuan nyata**: merusak predikat `organization_id` di `FindByToken` sendirian **tidak** membuat harness merah — `Unregister`'s pemeriksaan kepemilikan Go-level menangkapnya independen; baru merah setelah kedua lapis dirusak bersamaan. Dicatat sebagai dua-lapis-redundan, bukan disembunyikan sebagai sukses langsung. **Empat test produksi lama di `config_test.go` sempat merah** pada full-suite run (gate `PUSH_PROVIDER` baru muncul sebelum gate yang sebenarnya diuji) — ditambal persis seperti pola `MAIL_PROVIDER=smtp`+`SMTP_HOST` yang sudah ada untuk test yang sama. Diverifikasi lewat `curl` end-to-end sungguhan: registrasi token memindahkan baris (bukan duplikat) saat token yang sama didaftar ulang, unregister idempoten (`404` kedua kali, bukan `500`), assignment ke diri sendiri diam total (TD §11), assignment ke orang lain memicu `push (not sent — NoopSender)` di log **tanpa** field token/data (Aturan #26). `go test -race ./...` seluruh module bersih. |
 
 ---
 
@@ -60,7 +61,7 @@ _(kosong)_
 
 ## Berikutnya
 
-### Phase 5 — Employee Mobile (#68–#73) — sedang dibuka
+### Phase 5 — Employee Mobile (#68–#73) — sedang berjalan
 
 **Phase MVP terakhir.** Setelah ini GATE freeze terbuka: cari 3–5 pengguna nyata sebelum Phase 6.
 Dokumen: `docs/phases/05-employee-mobile/`.
@@ -69,11 +70,12 @@ Dokumen: `docs/phases/05-employee-mobile/`.
 **tidak** mengorbankan satu pun kriteria selesai phase: freeze menulis *"siklus penuh berjalan di HP
 nyata"* tanpa menyebut platform, dan push Android tidak melibatkan Apple sama sekali.
 
-Riset saat membuka phase menemukan **backend hampir seluruhnya sudah siap** — jalur auth mobile,
-visibilitas Employee, permission, activity `call_logged`/`whatsapp_opened`, `version`, tabel
-`notifications` semuanya ada sejak Phase 1–2. `authz.go` bahkan sudah menuliskan komentarnya:
-*"Employee gets mobile in Phase 5"*. **`device_tokens` + FCM adalah satu-satunya pekerjaan backend**;
-sisanya Flutter, dan `crm_employee/` masih berisi satu berkas `README.md`.
+**#68 selesai — seluruh pekerjaan backend phase ini sudah tertutup.** `device_tokens` + FCM (satu-satunya
+pekerjaan `crm_be` yang teridentifikasi saat phase dibuka) sudah dibangun, diuji, dan diverifikasi
+end-to-end lewat `curl` + token dummy (lihat baris #68 di tabel *Selesai* dan
+`docs/phases/05-employee-mobile/notes.md`). Sisa phase (#69–#73) seluruhnya `crm_employee` (Flutter) —
+**#69 (fondasi Flutter) dan #70 (fondasi desain) berikutnya**, keduanya boleh paralel dengan #68 tapi
+#68 sendiri sudah beres duluan.
 
 **Kontradiksi freeze dilaporkan, bukan diputuskan diam-diam** (Aturan #30): bagian 4 menulis cakupan
 *"cache **baca** offline"* dan kriteria selesai *"daftar lead tetap **terbaca**"*, sementara bagian
@@ -81,8 +83,10 @@ sisanya Flutter, dan `crm_employee/` masih berisi satu berkas `README.md`.
 antrian tulis di luar cakupan — beserta alasannya ada di `prd.md`. Ini mengubah ukuran phase secara
 mendasar, jadi **katakan sebelum implementasi dimulai** bila maksud Anda berbeda.
 
-Yang dibutuhkan dari pemilik produk: **project Firebase** (gratis, hitungan menit) — hanya memblokir
-issue penutup #73, bukan phase-nya. Langkah persisnya di `td.md` §14.
+Firebase project **sudah dibuat** (`jualin-crm`, akun `jualin.official01@gmail.com`, FlutterFire CLI
+sudah tersedia) — checklist di bawah diperbarui. Registrasi aplikasi Android yang sesungguhnya
+(`flutterfire configure`) masih menunggu scaffold Flutter (#69) ada; itu hanya memblokir issue penutup
+#73, bukan phase-nya. Langkah persisnya di `td.md` §14.
 
 **Demo ke calon pengguna** (freeze bagian 4, tujuan Phase 3) — kedua hambatan teknis yang tercatat di
 sini sejak Phase 3 tutup sekarang **sudah ditutup**: panduan langkah-demi-langkah ada
@@ -152,7 +156,7 @@ Tidak ada yang memblokir. Semuanya diputuskan saat fitur terkait dikerjakan.
 | — | Domain final & branding | Phase 1 — ⏳ *lead time, lihat bawah* |
 | — | Hosting & managed PostgreSQL | Phase 0 akhir |
 | — | Retensi data free tier | Phase 8 |
-| — | Push provider detail | Phase 5 — ⏳ *lead time, lihat bawah* |
+| — | Push provider detail | **Ditutup #68** — FCM HTTP v1 API langsung, tanpa Firebase Admin SDK |
 | — | Pricing final & limit free tier | Phase 8 |
 | — | Kontrak integrasi payment service | Sebelum Phase 8 |
 
@@ -175,7 +179,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 |---|---|---|---|
 | **Domain + email sender** (SPF/DKIM/DMARC) | Phase 1 | **Sekarang** | Verifikasi email menggerbangi login (keputusan B3), jadi ia jalur kritis Phase 1. Propagasi DNS dan pemanasan reputasi pengirim butuh waktu — dan email verifikasi yang masuk spam akan membunuh funnel registrasi **tanpa menghasilkan satu pun error**. |
 | **Apple Developer Program** | Phase 5 — **iOS saja** | Saat iOS diaktifkan | Enrollment bisa berhari-hari sampai berminggu (verifikasi identitas / D-U-N-S untuk organisasi). **Tidak lagi memblokir Phase 5** sejak keputusan M1 (Android dulu) — yang terhalang hanya build iOS & push iOS, bukan satu pun kriteria selesai phase. |
-| **Firebase project (FCM)** | Phase 5 | **Sebelum issue #73** | Gratis, hitungan menit. Push **Android** tidak melibatkan Apple sama sekali. Langkah persisnya di `docs/phases/05-employee-mobile/td.md` §14. Hanya memblokir satu issue (#73), bukan phase-nya — `PUSH_PROVIDER=none` membuat sisanya bisa dikerjakan tanpa Firebase. |
+| **Firebase project (FCM)** | Phase 5 | ✅ **Sudah dibuat** (`jualin-crm`) | Gratis, hitungan menit. Push **Android** tidak melibatkan Apple sama sekali. Langkah persisnya di `docs/phases/05-employee-mobile/td.md` §14. Registrasi app (`flutterfire configure`) masih menunggu scaffold #69 — hanya memblokir satu issue (#73), bukan phase-nya. |
 
 **Tidak ada yang memblokir Phase 0.** Dicatat di sini justru supaya tidak tersadar terlambat.
 
@@ -184,7 +188,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 - [ ] Domain final dipilih & dibeli
 - [ ] Email provider dipilih (Resend / Postmark / SES)
 - [ ] SPF, DKIM, DMARC terpasang & terverifikasi
-- [ ] Firebase project dibuat ← **dibutuhkan #73**, langkahnya di TD Phase 5 §14
+- [x] Firebase project dibuat ← `jualin-crm`, akun `jualin.official01@gmail.com`, FlutterFire CLI siap. Registrasi app Android (`flutterfire configure`) masih menunggu scaffold #69
 - [ ] Apple Developer Program terdaftar ← hanya untuk iOS, ditunda (keputusan M1)
 
 > Domain juga menentukan konfigurasi cookie (`Secure`, `SameSite`, scope), CORS, dan alamat pengirim email — semuanya disentuh di Phase 1.
