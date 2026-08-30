@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 30 Agustus 2026 — **Issue #72 selesai** (Detail Lead: timeline, telepon/WhatsApp auto-Activity, ubah status, catatan).
-**Phase sekarang:** Phase 5 — Employee Mobile. Phase 4.6 selesai; ini phase MVP terakhir sebelum GATE.
+**Last updated:** 30 Agustus 2026 — **Issue #73 selesai — Phase 5 tutup, GATE freeze terbuka** (My Tasks, FCM klien, deeplink, penutup phase).
+**Phase sekarang:** Phase 5 selesai — **GATE freeze terbuka**. Menunggu verifikasi HP Android (5 AC tersisa) dan 3–5 pengguna nyata sebelum Phase 6.
 
 ---
 
@@ -54,6 +54,7 @@
 | **Issue #70 — Fondasi desain mobile: tema, token, labels, kerangka navigasi** | — | 5 | Hasil desain dibaca dari project Claude Design "Employee mobile design spec" (dikonfirmasi dibangun langsung dari `design-brief.md`/`prd.md`/`td.md` phase ini via `github.md`-nya sendiri). **Kontras diverifikasi ulang secara independen, bukan dipercaya dari angka yang dicetak alat desain** — skrip Python sekali-pakai (formula luminansi relatif WCAG 2.1) menghitung ulang seluruh 15 pasangan warna: **semua lolos AA, tidak ada yang perlu diperbaiki kali ini** (beda dari Phase 3 #40 yang 5/8 badge gagal) — tapi **tiga angka yang dicetak desain sendiri meleset** dari hasil hitung ulang (`--primary` klaim 4.83:1 vs dihitung 5.05:1; `--warning` klaim 7.6:1 vs 6.65:1; `--success` klaim 7.0:1 vs 7.16:1) — nilai terverifikasi yang dipakai di kode, bukan angka mentah alat desain. `theme.dart` pakai `ThemeExtension` (pola resmi Flutter) untuk token di luar slot `ColorScheme` bawaan; tipografi Roboto **tanpa** dependency font baru (Flutter sudah resolve ke Roboto di Android). `labels.dart` disalin nilai dari `labels.ts`, dikunci `test/shared/labels_test.dart` **langsung terhadap `ck_*` migration `crm_be`** (bukan cuma terhadap `labels.ts`) — 8/6/4/4 cocok; **`SCOPE_LABELS` (skop API key) sengaja tidak ikut disalin** (Aturan #24 — mobile tidak pernah menyentuh format `jln_*`). `nav.dart`'s `navTitle`/`navIcon` pakai `switch` eksponen atas `enum AppDestination`, bukan `Map`/`firstWhere` — destination baru tanpa update kedua fungsi ini gagal kompilasi, jaminan lebih kuat dari `nav.ts` web yang pernah punya bug prefix-match nyata. `AppShell` baru (header + `NavigationBar` 3 tujuan, akun hanya lewat avatar → bottom sheet, tanpa hamburger) menggantikan `HomePage` — Detail Lead sengaja bukan tujuan nav (push dari Lead Saya/Notifikasi, sesuai desain). **Perilaku baru ditemukan perlu, bukan cuma re-skin**: `SessionExpiredFailure` di #69 diam-diam jatuh ke `AuthNeedsPassword` tanpa pesan — design brief §10 minta layar "Sesi Berakhir" sungguhan (bisa terjadi di tengah pemakaian, bukan cuma saat buka app) — state `AuthSessionExpired` baru ditambahkan, satu test lama diperbarui untuk itu. Dua penyimpangan dari desain dicatat sengaja: state "backoff" login tanpa hitung mundur langsung (butuh `Retry-After` yang `ApiClient` belum pernah baca), gerbang biometric tanpa nama/organization (aplikasi tidak cache profil pengguna lokal). 24 test baru (`labels_test.dart` 13, `nav_test.dart` 11), total 41 test lolos. Widget smoke test sekali-pakai (tidak di-commit, TD §12 tidak wajibkan) memompa seluruh layar lewat semua state — tidak ada exception render/overflow. `flutter build apk --debug` sukses. |
 | **Issue #71 — My Leads + cache baca offline** | — | 5 | Layar terpenting phase ini. Employee visibility **diverifikasi langsung** di kode `crm_be` (`isEmployee(t)` memaksa `assigned_to_membership_id` tanpa syarat) sebelum diasumsikan dari teks issue. **`core/cache/`** — mekanisme cache TD §7 (satu tabel key-value SQLite, bukan skema domain lokal) lahir di sini bersama pemakai pertamanya: `ResponseCache`/`SqfliteResponseCache`, dan `cachedGet()` yang **sengaja tidak menangkap** `ApiError`/`SessionExpiredException` — keduanya berarti server benar-benar menjawab, situasi berbeda dari "jaringan tak terjangkau" yang tidak boleh ditutupi data basi. **Celah nyata ditemukan sebelum dipakai**: `ApiClient.send()` (dari #69) membuang `meta`, cukup untuk auth tapi tidak untuk My Leads yang butuh `meta.total` — `sendListEnvelope()` baru ditambahkan. **`runApiCall()` diekstrak** dari tiga tempat `AuthRepositoryImpl` menulisnya tangan (Aturan #28 — implementasi kedua nyata), `AuthRepositoryImpl` ditulis ulang memakainya tanpa mengubah perilaku (test lama tetap lolos). **Celah arsitektur ketahuan**: My Leads fitur pertama yang membuat panggilan API sendiri di luar alur auth — tidak ada mekanisme sebelumnya untuk memberi tahu `AuthBloc` saat sesi berakhir di tengah pemakaian layar lain (design brief §10). Event `AuthSessionInvalidated` baru — fitur mana pun lewat `sl<AuthBloc>()` bisa memberi tahu tanpa `AuthBloc` perlu tahu fitur itu ada; domain/data `LeadRepositoryImpl` tetap tidak pernah tahu `AuthBloc` ada, koordinasi murni presentasi-ke-presentasi. **Dua kontradiksi/gap desain dicatat, bukan didiamkan**: mockup filter status punya dua bentuk berkontradiksi (chip single-select vs bottom sheet multi-select) — dipilih chip; field pencarian diminta cakupan issue tapi tidak ada di mockup manapun — dibangun mengikuti token tema. **Tanpa paginasi UI** (keputusan sadar, MVP) — `meta.total` tersimpan tapi tidak dipakai untuk scroll-tak-berhingga. **Verifikasi manual lapis penuh terhadap `crm_be` sungguhan DAN SQLite asli** (`sqflite_common_ffi`, bukan fake): dua employee dua lead assign berbeda → masing-masing lihat **tepat** leadnya sendiri (AC #3); `ApiClient` diarahkan ke `127.0.0.1:1` (connection refused sungguhan) → hasil identik, `fromCache: true`, `fetchedAt` nyata; `logout()` sungguhan → cache kosong dikonfirmasi; employee kedua login → melihat lead **berbeda**, tidak ada kebocoran data lintas sesi. 30 test baru (`sqflite_response_cache_test.dart` 6 SQLite asli, `cached_get_test.dart` 5, `run_api_call_test.dart` 6, `lead_repository_impl_test.dart` 5, `leads_bloc_test.dart` 8) + 1 test lama ditambah. Total 72 test lolos. `flutter build apk --debug` sukses. |
 | **Issue #72 — Detail Lead: timeline, telepon/WhatsApp auto-Activity, ubah status, catatan** | — | 5 | Layar aksi tulis pertama di mobile. Dua port logika murni ditulis lebih dulu sebagai dependency Bloc/UI: `lead_status.dart` (baris-per-baris dari `lead-status.ts`, sendiri port dari `validateStatusTransition` Go, diverifikasi ulang langsung ke source) dan `activity_text.dart` (port dari `activity-text.ts` dengan satu beda disengaja: Employee tidak punya `ActionMembershipList` — dikonfirmasi langsung di `authz.go` — jadi timeline pakai "Anda"/"Anggota tim lain", bukan resolusi nama lewat `namesById`; dicocokkan ke mockup Claude Design asli yang memang menampilkan "Ditugaskan ke Anda" literal). **Dua celah ditemukan sebelum jadi bug**: `getLeadDetail` semula membuang `fromCache`/`fetchedAt` (`LeadDetailResult` ditambahkan, design brief §10 minta banner cache di Detail Lead juga); `LeadDetailError` semula tidak membawa `leadId`, membuat tombol "Coba lagi" pasca-kegagalan-refresh tidak tahu lead mana yang dimuat ulang. **`LeadDetailBloc`**: satu state `Loaded` dengan sub-state transien (bukan beberapa top-level state) untuk keempat aksi tulis — lead/timeline tetap di layar sepanjang aksi, dialog konflik (§8.2) melayang di atasnya, bukan menggantikannya; setiap aksi tulis sukses diikuti refetch aktivitas **sungguhan** dari server, bukan entry palsu sisipan klien. **`_launchAndLog`** (dipakai telepon & WhatsApp): activity dicatat HANYA setelah OS mengonfirmasi handoff (§8.3) — dibatalkan sebelum itu = tidak ada activity, tidak ada error; log gagal setelah handoff sukses = pesan eksplisit "aksi berhasil, tapi gagal dicatat", tidak pernah berpura-pura aksinya sendiri tidak terjadi. `Lead.phone` (dialer, apa adanya) vs `Lead.phoneE164` (`wa.me`, gerbang tombol WhatsApp) sesuai AC #6. **`noteError` dikoreksi sebelum PR**: draf pertama pakai snackbar generik sama seperti `statusError`, padahal design brief §10 minta kesalahan per-field untuk form catatan — dipindah ke `InputDecoration.errorText` inline. `CacheBanner` diekstrak ke `shared/widgets/` (implementasi kedua nyata, Aturan #28). **Verifikasi manual penuh terhadap `crm_be` sungguhan**: owner+employee+lead nyata, `PATCH .../status` sukses **dan** versi basi → `409 version_conflict` nyata dengan `current` persis Go source; `note_added`/`call_logged`/`whatsapp_opened` dikirim sebagai Employee lalu **dibaca ulang lewat sesi Owner terpisah** (memenuhi AC "diverifikasi dari sisi Owner" secara harfiah); isolasi tenant dicek ulang khusus endpoint detail (Employee tak ter-assign → `404`, bukan `403`); skrip `flutter test` sekali-pakai menjalankan stack produksi sungguhan (`LeadRepositoryImpl`/`ActivityRepositoryImpl`) terhadap backend nyata via `ApiClient` asli — `phone_e164`, `VersionConflictFailure<Lead>`, urutan timeline seluruhnya lolos terhadap JSON asli. 64 test baru (`lead_status_test.dart` 9, `activity_text_test.dart` 25, `activity_repository_impl_test.dart` 4, `external_action_repository_impl_test.dart` 4, `lead_repository_impl_test.dart` +5, `lead_detail_bloc_test.dart` 12). Total 130 test lolos. `flutter build apk --debug` sukses. **Tidak diverifikasi**: dialer/WhatsApp OS sungguhan (keterbatasan sandbox, sama seperti #69–#71) — masih menunggu perangkat Android nyata sebelum #73 menutup phase. |
+| **Issue #73 — My Tasks, FCM klien, deeplink — penutup Phase 5** | — | 5 | **Penutup siklus produk** — setelah ini kalimat inti MVP berjalan ujung-ke-ujung untuk pertama kalinya, GATE freeze terbuka. Backend **tidak berubah** (sudah 100% siap sejak #68), `go test -race ./...` diulang murni sebagai bukti tidak ada regresi. **Firebase dijalankan sungguhan**: `flutterfire configure --project=jualin-crm --platforms=android` benar-benar mendaftarkan app Android di project nyata (akun sudah login sejak sebelum issue ini), menghasilkan `google-services.json`/`firebase_options.dart` asli — project Firebase kedua di akun yang sama (`jualin-fnb`, produk lain) sengaja tidak disentuh. **Celah CI ditemukan sebelum jadi masalah**: `firebase_options.dart` di-gitignore tapi `flutter analyze`/`test` butuh importnya resolve di checkout bersih — tanpa perbaikan, CI merah untuk **setiap** PR `crm_employee/**` berikutnya, bukan cuma PR ini. Diperbaiki: `.example` untuk kedua berkas Firebase + satu step baru `ci-employee.yml` menyalinnya sebelum analyze/test — dibuktikan langsung (disimulasikan checkout bersih, `analyze`/`test` tetap lolos). **`PushBloc`**: `AuthBloc` tetap tidak pernah bergantung fitur lain — registrasi token (login) ditunda lewat listener `app.dart`, tapi unregister (logout) **tidak** aman ditunda (access token harus masih valid) — diselesaikan memindah `DeviceTokenRemoteDataSource`/`PushTokenStore` ke `core/push/`, setingkat `TokenStorage`, dipakai `auth` **dan** `push` tanpa keduanya saling impor `features/`. Dibuktikan sungguhan: `AuthRepositoryImpl.logout()` produksi dijalankan terhadap `crm_be` nyata setelah mendaftarkan token — percobaan unregister kedua atas token yang sama mengembalikan `404`, membuktikan baris memang terhapus server-side. `MultiBlocListener` di `app.dart` satu-satunya tempat deeplink TD §10 dikonsumsi, dicek dari dua arah (`AuthBloc`/`PushBloc`) untuk kasus "push ditekan sebelum login". **`TasksBloc`**: celah nyata ditemukan membaca `buildTaskWhere` langsung — Employee's `isEmployee(t)` hanya membatasi task **milik lead** yang di-assign kepadanya, bukan task **assigned-to** dirinya; "Tugas Saya" wajib mengirim `assigned_to` eksplisit (kebalikan dari `leads` yang sengaja tidak pernah mengirimnya). `/v1/tasks` diurutkan ulang di klien (`due_at` ascending, backend hanya `created_at DESC`). **`NotificationRepositoryImpl`**: sengaja tanpa cache — TD §7 tidak menyebut `/v1/notifications` di antara 4 endpoint cacheable, design brief §10 juga tidak minta pita cache untuk layar ini, kedua sumber konsisten. `openLeadDetail` diekstrak dari `leads_page.dart` (implementasi ketiga/keempat, Aturan #28) dipakai Tugas Saya/Notifikasi/deeplink. `PlaceholderScreen` dihapus, tidak dipakai lagi di mana pun. **Verifikasi manual penuh terhadap `crm_be` sungguhan**: task dibuat+assign+complete via API asli (dikonfirmasi dari sesi Owner terpisah, 409 version_conflict nyata pada percobaan basi); notifikasi `lead_assigned` sungguhan dibaca + ditandai terbaca; device-token register/unregister/unregister-kedua (`404`, idempoten); skrip `flutter test` sekali-pakai menjalankan stack produksi penuh (termasuk `AuthRepositoryImpl.logout()`'s efek unregister) terhadap backend nyata. Widget smoke test (`TasksPage`/`NotificationsPage`/`ForegroundPushBanner`, publik justru supaya testable tanpa `AppShell` penuh) — tidak ada exception render. `flutter build apk --debug` sukses — build Android sungguhan pertama kali. **Seluruh 14 AC PRD Phase 5 dicek satu per satu** — 9 terbukti (#2–#5, #8, #9, #11, #13, #14), **5 masih "kode siap, verifikasi menunggu HP"** (#1, #6, #7, #10, #12 — butuh perangkat Android fisik + `FCM_CREDENTIALS_FILE` yang sengaja ditinggalkan ke pemilik produk, prosedurnya `docs/testing/flow/07-mobile-android.md` baru). 37 test baru (`push_repository_impl_test.dart` 7, `push_bloc_test.dart` 9, `task_repository_impl_test.dart` 5, `tasks_bloc_test.dart` 5, `notification_repository_impl_test.dart` 3, `notifications_bloc_test.dart` 5, `auth_repository_impl_test.dart` +3). Total 167 test lolos. **Phase 5 selesai** — GATE freeze terbuka: cari 3–5 pengguna nyata sebelum Phase 6. |
 
 ---
 
@@ -65,46 +66,44 @@ _(kosong)_
 
 ## Berikutnya
 
-### Phase 5 — Employee Mobile (#68–#73) — sedang berjalan
+### Phase 5 — Employee Mobile — ✅ SELESAI. GATE freeze terbuka.
 
-**Phase MVP terakhir.** Setelah ini GATE freeze terbuka: cari 3–5 pengguna nyata sebelum Phase 6.
-Dokumen: `docs/phases/05-employee-mobile/`.
+**Phase MVP terakhir tertutup total** (#68–#73). `docs/phases/05-employee-mobile/`. Kalimat inti MVP
+sekarang berjalan ujung-ke-ujung untuk pertama kalinya: login → lead → telepon/WA → ubah status →
+catatan, dengan push memberi tahu lead baru — bagian "follow-up dari HP" yang sejak Phase 0 hanya
+disimulasikan lewat dashboard di `docs/testing/flow/`.
 
-**Android dulu, iOS ditunda** (keputusan M1) — Apple Developer Program berbayar dan belum ada. Ini
-**tidak** mengorbankan satu pun kriteria selesai phase: freeze menulis *"siklus penuh berjalan di HP
-nyata"* tanpa menyebut platform, dan push Android tidak melibatkan Apple sama sekali.
+**Yang belum, dan kenapa itu bukan alasan menunda GATE**: **5 dari 14 acceptance criteria PRD Phase 5**
+(#1, #6, #7, #10, #12 — siklus penuh, biometric, kehilangan akses, push+deeplink, uninstall→token
+bersih) butuh **HP Android fisik**, yang tidak tersedia di lingkungan kerja agent manapun sepanjang
+#69–#73. Kodenya lengkap dan diverifikasi habis-habisan lewat cara lain (`crm_be` sungguhan via
+`docker compose`, skrip produksi sekali-pakai, widget smoke test) — yang tersisa murni butuh tangan
+manusia memegang telepon. Prosedurnya lengkap di `docs/testing/flow/07-mobile-android.md` (baru, #73)
+dan `docs/testing/flow/06-checklist-akhir.md` bagian 7. **Ini adalah langkah manusia berikutnya**,
+sebelum atau sejajar dengan mencari 3–5 pengguna nyata di bawah — keduanya butuh perangkat sungguhan
+untuk diyakini, bukan dibaca dari kode.
 
-**#68–#72 selesai.** Backend phase ini sudah tertutup total sejak #68 (`device_tokens` + FCM).
-`crm_employee/` sekarang aplikasi Flutter sungguhan (Bloc + Clean Architecture, ditulis ulang di #69
-atas permintaan langsung pemilik produk) yang bisa login + refresh + logout, menggerbangi biometric
-saat dibuka kembali, bertema (token dari Claude Design, kerangka navigasi 3-tab, layar Sesi Berakhir
-sungguhan — #70), punya My Leads dengan cache baca offline (#71), **dan sekarang punya seluruh aksi
-tulis produk**: Detail Lead (#72) — timeline, telepon/WhatsApp dengan auto-Activity (dicatat hanya
-setelah OS mengonfirmasi handoff), ubah status (transisi terbatas ke yang backend izinkan, konflik
-`409` ditampilkan lewat dialog "muat ulang", tidak pernah menimpa diam-diam), tambah catatan — semuanya
-terverifikasi lapis penuh terhadap `crm_be` sungguhan (termasuk `call_logged`/`whatsapp_opened`
-dikonfirmasi dari sesi Owner terpisah, bukan hanya dari mobile). **Belum diverifikasi di HP Android
-sungguhan** (tidak ada perangkat di lingkungan kerja sesi #69–#72; kriteria yang butuh itu menunggu
-pemilik produk, dicatat di `docs/issues/069-flutter-foundation.md`, `070-design-foundation.md`,
-`071-my-leads.md`, `072-detail-lead.md`). **#73 (penutup phase) berikutnya** — Tugas Saya sungguhan,
-notifikasi, FCM klien, deeplink; issue terakhir sebelum GATE freeze terbuka.
+**GATE freeze (bagian 4)**: cari **3–5 pengguna nyata** sebelum Phase 6. Urutan Phase 6–9 ditentukan
+apa yang mereka minta, bukan tebakan — freeze sendiri tidak memutuskan urutannya di muka. Panduan demo
+langkah-demi-langkah sudah ada (`docs/testing/flow/`), email produksi sungguhan terkirim (Phase 4.6) —
+tidak ada lagi penghalang teknis untuk demo, sisanya jadwal dan keputusan pemilik produk.
 
-**Kontradiksi freeze dilaporkan, bukan diputuskan diam-diam** (Aturan #30): bagian 4 menulis cakupan
-*"cache **baca** offline"* dan kriteria selesai *"daftar lead tetap **terbaca**"*, sementara bagian
-2.3 menyebut *"antrian aksi offline di Phase 5"*. Interpretasi yang diambil — **cache baca saja**,
-antrian tulis di luar cakupan — beserta alasannya ada di `prd.md`. Ini mengubah ukuran phase secara
-mendasar, jadi **katakan sebelum implementasi dimulai** bila maksud Anda berbeda.
+**Android dulu, iOS ditunda** (keputusan M1, tetap berlaku pasca-phase) — Apple Developer Program
+berbayar dan belum ada. Tidak mengorbankan satu pun kriteria selesai phase (freeze tidak menyebut
+platform); mengaktifkan iOS kelak = konfigurasi + build, bukan menulis ulang kode Dart (§1 dipatuhi
+sejak #69).
 
-Firebase project **sudah dibuat** (`jualin-crm`, akun `jualin.official01@gmail.com`, FlutterFire CLI
-sudah tersedia) — checklist di bawah diperbarui. Scaffold Flutter (#69) sekarang ada, jadi registrasi
-aplikasi Android yang sesungguhnya (`flutterfire configure`) **bisa dijalankan kapan saja** — masih
-hanya memblokir issue penutup #73, bukan phase-nya, jadi tidak mendesak. Langkah persisnya di `td.md`
-§14.
+**Firebase**: project `jualin-crm` sungguhan sudah dikonfigurasi penuh — app Android terdaftar,
+`flutterfire configure` sudah pernah dijalankan (#73). Yang **masih** perlu pemilik produk: service
+account untuk backend (`FCM_CREDENTIALS_FILE`, Project settings → Service accounts → Generate new
+private key — sengaja tidak dibuat agent, mencetak kredensial jangka panjang bukan keputusan yang
+layak diambil tanpa diminta eksplisit) + `PUSH_PROVIDER=fcm` di backend sebelum push bisa diuji
+sungguhan di HP. Langkah persisnya `td.md` §14.
 
-**Demo ke calon pengguna** (freeze bagian 4, tujuan Phase 3) — kedua hambatan teknis yang tercatat di
-sini sejak Phase 3 tutup sekarang **sudah ditutup**: panduan langkah-demi-langkah ada
-(`docs/testing/flow/`), dan email sungguhan terkirim (Phase 4.6). Tidak ada lagi penghalang teknis
-yang tercatat di dokumen ini — sisanya jadwal dan keputusan pemilik produk.
+**Kontradiksi freeze yang dilaporkan sepanjang phase ini** (Aturan #30, arsip): bagian 4 menulis
+cakupan *"cache **baca** offline"* dan kriteria selesai *"daftar lead tetap **terbaca**"*, sementara
+bagian 2.3 menyebut *"antrian aksi offline di Phase 5"*. Interpretasi yang diambil — cache baca saja,
+antrian tulis di luar cakupan — ada di `prd.md`, tidak diubah lagi sepanjang phase.
 
 ### Kewajiban yang diwarisi phase-phase berikutnya (TD phase 4 §19)
 
@@ -138,7 +137,7 @@ Riwayat #46–#49 di `docs/phases/04-public-api/issues.md` dan `notes.md`. Riway
 | Angka rate limit (register 5/jam, resend 3/jam+10/jam) belum final | Issue #9 | Cukup untuk membuktikan mekanisme aktif, bukan hasil tuning. **Sebagian ditutup di Phase 4**: batas API publik ditetapkan (D4 — 60/menit per kunci, `PUBLIC_API_RATE_LIMIT`) — tapi angka itu sendiri **juga belum hasil pengukuran** (`docs/issues/047-public-lead-api.md`), baru bisa ditinjau ulang begitu integrator produksi nyata mulai mengirim lead. Angka endpoint email masih default konservatif. |
 | `notifications` tidak punya retensi | Issue #22, TD §2 | Sama seperti `idempotency_key` — tidak ada scheduler di Phase 2 untuk membersihkan notifikasi lama. Tidak mendesak di volume MVP. |
 | Retensi `idempotency_key` belum diuji di volume traffic tinggi | Issue #47, TD §7 | Sweep 1×/organization/jam cukup untuk MVP; organization dengan traffic API sangat tinggi (>1 request/jam terus-menerus) belum pernah diukur. Ditinjau ulang begitu ada data nyata (`docs/issues/047-public-lead-api.md`). |
-| `crm_employee`'s login tidak menangani `409 organization_selection_required` | Issue #69 | Karyawan multi-organization (sah lewat ADR-007 + alur terima undangan) akan melihat pesan error mentah, bukan pemilih organization seperti dashboard. Ditinjau ulang saat #73 (`docs/issues/069-flutter-foundation.md`). |
+| `crm_employee`'s login tidak menangani `409 organization_selection_required` | Issue #69 | **Ditinjau ulang saat #73** (sesuai janji sebelumnya), dikonfirmasi masih belum ditangani — `grep` langsung ke seluruh `crm_employee/lib/` tidak menemukan satu penanganannya. Di luar cakupan #73 sendiri (My Tasks/FCM/deeplink) — butuh UI pemilih organization sendiri, pola sama seperti dashboard. Belum ada issue baru; angkat kalau skenario employee multi-organization sungguhan muncul (bukan cuma akun uji coba). |
 
 > ~~Test otomatis `db.InTx` dan migration round-trip~~ — selesai di issue #3.
 >
@@ -193,7 +192,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 |---|---|---|---|
 | **Domain + email sender** (SPF/DKIM/DMARC) | Phase 1 | **Sekarang** | Verifikasi email menggerbangi login (keputusan B3), jadi ia jalur kritis Phase 1. Propagasi DNS dan pemanasan reputasi pengirim butuh waktu — dan email verifikasi yang masuk spam akan membunuh funnel registrasi **tanpa menghasilkan satu pun error**. |
 | **Apple Developer Program** | Phase 5 — **iOS saja** | Saat iOS diaktifkan | Enrollment bisa berhari-hari sampai berminggu (verifikasi identitas / D-U-N-S untuk organisasi). **Tidak lagi memblokir Phase 5** sejak keputusan M1 (Android dulu) — yang terhalang hanya build iOS & push iOS, bukan satu pun kriteria selesai phase. |
-| **Firebase project (FCM)** | Phase 5 | ✅ **Sudah dibuat** (`jualin-crm`) | Gratis, hitungan menit. Push **Android** tidak melibatkan Apple sama sekali. Langkah persisnya di `docs/phases/05-employee-mobile/td.md` §14. Registrasi app (`flutterfire configure`) masih menunggu scaffold #69 — hanya memblokir satu issue (#73), bukan phase-nya. |
+| **Firebase project (FCM)** | Phase 5 | ✅ **App terdaftar** (`jualin-crm`, `flutterfire configure` sudah dijalankan #73) | Yang tersisa: service account untuk backend (`FCM_CREDENTIALS_FILE`) — sengaja ditinggalkan ke pemilik produk, mencetak kredensial GCP jangka panjang. Langkah persisnya `td.md` §14 langkah 3. |
 
 **Tidak ada yang memblokir Phase 0.** Dicatat di sini justru supaya tidak tersadar terlambat.
 
@@ -202,7 +201,9 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 - [ ] Domain final dipilih & dibeli
 - [ ] Email provider dipilih (Resend / Postmark / SES)
 - [ ] SPF, DKIM, DMARC terpasang & terverifikasi
-- [x] Firebase project dibuat ← `jualin-crm`, akun `jualin.official01@gmail.com`, FlutterFire CLI siap. Registrasi app Android (`flutterfire configure`) masih menunggu scaffold #69
+- [x] Firebase project dibuat ← `jualin-crm`, akun `jualin.official01@gmail.com`
+- [x] App Android terdaftar di Firebase ← `flutterfire configure` dijalankan #73, `google-services.json`/`firebase_options.dart` asli ada (git-ignored, lihat `crm_employee/README.md`)
+- [ ] Service account backend dibuat ← `FCM_CREDENTIALS_FILE`, ditinggalkan ke pemilik produk (`td.md` §14 langkah 3)
 - [ ] Apple Developer Program terdaftar ← hanya untuk iOS, ditunda (keputusan M1)
 
 > Domain juga menentukan konfigurasi cookie (`Secure`, `SameSite`, scope), CORS, dan alamat pengirim email — semuanya disentuh di Phase 1.
@@ -237,6 +238,6 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 4 | Public API | ✅ | ✅ | ✅ #46–#49 | ✅ |
 | 4.5 | Hardening | ✅ | ✅ | ✅ #57–#58 | ✅ |
 | 4.6 | Email Delivery | ✅ | ✅ | ✅ #63–#64 | ✅ |
-| 5 | Employee Mobile | ✅ | ✅ | ✅ #68–#73 | ⬜ |
+| 5 | Employee Mobile | ✅ | ✅ | ✅ #68–#73 | ✅ |
 
 Pekerjaan yang sedang berjalan: `gh issue list --state open`

@@ -860,3 +860,207 @@ Tidak membuat lead baru, tidak mengonversi ke Customer — sesuai cakupan (Emplo
 IDE, tidak berbahaya) masih tertahan di `git stash` sejak #71 — belum diterapkan atau dibuang, masih
 menunggu keputusan.
 
+---
+
+## #73 — My Tasks, FCM klien, deeplink — penutup Phase 5
+
+Issue terakhir Phase 5 **dan penutup siklus produk**: setelah issue ini, kalimat inti MVP (login →
+lead → telepon/WA → ubah status → catatan, dengan push memberi tahu lead baru) berjalan ujung-ke-ujung
+untuk pertama kalinya. Backend sudah 100% siap sejak #68 (`internal/device`, `internal/notification`,
+`internal/task`) — **tidak ada perubahan Go** di issue ini, `go test -race ./...` dijalankan ulang
+murni sebagai bukti tidak ada regresi tak sengaja (lolos, seperti sebelumnya).
+
+### Firebase — dijalankan sungguhan, bukan disimulasikan
+
+`flutterfire configure --project=jualin-crm --platforms=android` benar-benar dijalankan (akun
+`jualin.official01@gmail.com` sudah login lewat `firebase login` di mesin ini sejak sebelum issue ini
+dimulai) — mendaftarkan app Android `com.jualin.crm.employee` di project `jualin-crm` yang sungguhan,
+menghasilkan `google-services.json`/`firebase_options.dart` asli, dan menyambungkan plugin Gradle
+`google-services` otomatis. Project Firebase **kedua** di akun yang sama (`jualin-fnb`, produk Jualin
+lain) sengaja tidak pernah disentuh. Service account untuk backend (`FCM_CREDENTIALS_FILE`) **sengaja
+tidak dibuat** di sesi ini — mencetak kredensial GCP jangka panjang adalah keputusan yang ditinggalkan
+ke pemilik produk sendiri (`td.md` §14 langkah 3), bukan sesuatu yang layak dilakukan agent tanpa
+diminta eksplisit.
+
+### Celah CI ditemukan sebelum jadi masalah: `firebase_options.dart` di-gitignore, tapi `flutter analyze` butuh importnya bisa di-resolve
+
+`ci-employee.yml` menjalankan `flutter analyze`/`flutter test` di checkout **bersih** — tanpa berkas
+yang di-gitignore, `import 'firebase_options.dart'` gagal resolve, CI merah untuk **setiap** PR yang
+menyentuh `crm_employee/**` setelahnya, bukan cuma PR ini. Ditemukan sebelum sempat jadi masalah nyata
+(dicoba langsung: `cp firebase_options.dart.example → firebase_options.dart`, jalankan
+`flutter analyze`/`test` di atasnya, keduanya lolos — dibuktikan, bukan diasumsikan). Diperbaiki:
+`lib/firebase_options.dart.example` (struktur `DefaultFirebaseOptions` valid, nilai jelas-jelas palsu)
++ `android/app/google-services.json.example` dicommit; `ci-employee.yml` dapat satu step baru
+(`cp ... .example lib/firebase_options.dart`) sebelum `analyze`/`test`. Nilai client-side Firebase
+(`apiKey`, `appId`, dst.) **bukan rahasia dalam arti ketat** — sama seperti alasan `td.md` §14 sudah
+berikan untuk `google-services.json`, di-gitignore untuk kebersihan repo (tidak terikat satu project),
+bukan karena bocor berarti masalah keamanan. `firebase.json` (bookkeeping `flutterfire configure`
+sendiri) ikut ditambahkan ke `.gitignore` — bukan bagian daftar asli TD §14, tapi alasannya sama persis
+(menyebut `jualin-crm` eksplisit).
+
+### `PushBloc` — satu bloc, koordinasi presentasi-ke-presentasi murni
+
+`AuthBloc` tidak pernah bergantung pada fitur lain (arah dependency selalu fitur → auth, sejak
+`LeadsBloc.authBloc` #71/#72) — `push` tidak jadi pengecualian. Registrasi token (saat login) ditunda
+lewat listener widget di `app.dart` (aman ditunda: token yang telat terdaftar beberapa milidetik tidak
+kehilangan apa pun). Unregister (saat logout) **tidak** aman ditunda — access token masih perlu valid
+saat `DELETE /v1/device-tokens` dipanggil, sebelum `LogoutUseCase` membersihkannya. Solusinya bukan
+`auth` mengimpor `features/push/`, tapi **`DeviceTokenRemoteDataSource`/`PushTokenStore` dipindah ke
+`core/push/`** — setingkat `TokenStorage`, dipakai `AuthRepositoryImpl.logout()` (best-effort, gagal
+tidak pernah menggagalkan logout) **dan** `PushRepositoryImpl.registerToken()` tanpa satu pun
+mengimpor `features/` milik yang lain. Dibuktikan sungguhan: skrip `flutter test` sekali-pakai
+memanggil `AuthRepositoryImpl.logout()` produksi terhadap `crm_be` nyata setelah mendaftarkan token —
+percobaan unregister **kedua** (token yang sama, klien baru) mengembalikan `404`, membuktikan baris
+memang terhapus di backend, bukan cuma dilupakan lokal.
+
+`MultiBlocListener` di `app.dart` adalah **satu-satunya** tempat deeplink TD §10 benar-benar
+dikonsumsi — dicek dari **dua arah** (`AuthBloc` maupun `PushBloc`) supaya kasus "push ditekan saat
+belum login" (`pendingLeadId` sudah terisi sebelum `AuthAuthenticated` tercapai) dan kasus normal
+(sesi sudah lama authenticated, push baru datang) sama-sama tertangani tanpa duplikasi kode. Foreground
+(`onMessage`) hanya pernah mengisi `foregroundMessage` (banner, dirender `ForegroundPushBanner` di
+`AppShell`) — **tidak pernah** `pendingLeadId`, sesuai desain brief §10 "tidak pindah layar paksa".
+
+### `TasksBloc` — celah nyata ditemukan saat menulis interface: `assigned_to` harus dikirim eksplisit
+
+`internal/task/repository_postgres.go`'s `isEmployee(t)` hanya membatasi ke task **milik lead** yang
+di-assign ke Employee — bukan task yang **assigned-to** Employee itu sendiri (dua hal berbeda: task di
+lead saya, dibuat untuk orang lain, tetap lolos filter itu). "Tugas Saya" secara harfiah minta yang
+kedua — jadi `TaskRepository.getMyTasks` **wajib** mengirim `assigned_to=<membership sendiri>` secara
+eksplisit, kebalikan dari `LeadRepository.getMyLeads` yang justru sengaja **tidak pernah** mengirim
+`assigned_to` (backend Lead sudah membatasinya tanpa syarat, mengirimnya jadi berlebihan). Dua endpoint
+yang terlihat sama-sama "milik saya" ternyata butuh perlakuan klien berlawanan — ditemukan membaca
+`buildTaskWhere` langsung, bukan diasumsikan dari nama endpoint.
+
+Selain itu: `/v1/tasks` disortir backend `created_at DESC` (tidak ada opsi `due_at`) — padahal design
+brief §7.4 eksplisit "dengan jatuh tempo". Diurutkan ulang di klien, ascending berdasarkan `due_at`
+(null terakhir) — aman untuk satu halaman tak berpaginasi (pola #71). Status filter selalu
+`status=open` (tidak ada UI filter — design brief tidak minta satu pun state untuk itu, beda dari Lead
+Saya yang memang punya chip status).
+
+### `_launchAndLog`-nya versi telepon/WhatsApp sudah ada sejak #72 — tidak ditulis ulang di sini
+
+Aksi tulis di Detail Lead (telepon, WhatsApp, ubah status, catatan) semuanya sudah dibangun #72; #73
+tidak menyentuhnya sama sekali kecuali `openLeadDetail` yang diekstrak (lihat di bawah). Yang baru di
+#73 murni: Tugas Saya, Notifikasi, dan seluruh pipa FCM.
+
+### `NotificationRepositoryImpl` — sengaja tanpa cache, gap kecil dicatat
+
+TD §7 menyebut **empat** endpoint cacheable (`GET /v1/leads`, `/v1/tasks`, `/v1/leads/{id}`,
+`/v1/leads/{id}/activities`) — `/v1/notifications` bukan salah satunya. Design brief §10's tabel
+keadaan wajib juga tidak menyebut Notifikasi sama sekali untuk baris "Dari cache, tanpa sinyal" (hanya
+"Lead Saya, Detail Lead"). Kedua sumber konsisten satu sama lain kebetulan, jadi tidak ada kontradiksi
+untuk dilaporkan — cukup diikuti: `NotificationRepositoryImpl` tidak memakai `cachedGet()` sama
+sekali, `NotificationListResult` tidak punya field `fromCache`/`fetchedAt`.
+
+`markRead` optimistik di klien (baris ditandai terbaca lokal segera, tanpa menunggu jaringan) — beda
+dari `TasksBloc`'s "pesan inline + refetch" untuk 409: menandai terbaca adalah aksi berisiko rendah,
+tidak butuh ketelitian yang sama seperti melengkapi task.
+
+### `openLeadDetail` diekstrak — implementasi ketiga/keempat yang nyata
+
+`leads_page.dart`'s `_openLeadDetail` privat (#71/#72) sekarang butuh dipanggil dari Tugas Saya (tap
+baris task), Notifikasi (tap notifikasi), **dan** deeplink push (`app.dart`) — tiga pemakai baru
+sekaligus. Diekstrak ke `features/leads/presentation/open_lead_detail.dart` (Aturan #28), tidak ada
+perubahan perilaku (dibuktikan test lama tetap lolos tanpa perubahan asersi).
+
+### `TaskListItem`'s tap-untuk-buka-lead — bukan literal di design brief, ditambahkan sadar
+
+Design brief §7.4 hanya bilang "daftar task, dengan jatuh tempo. Menandai selesai satu arah" — tidak
+menyebut tap-baris-untuk-buka-lead. Ditambahkan karena kecil, murah (memakai ulang `openLeadDetail`
+yang sudah ada), dan konsisten dengan misi "follow-up dari HP" produk ini — dicatat di sini dan di
+`docs/issues/073-*.md`, bukan diam-diam dianggap bagian dari cakupan asli.
+
+### `PlaceholderScreen` dihapus — tidak dipakai di mana pun lagi
+
+Tugas Saya dan Notifikasi adalah dua pemakai terakhirnya (`app_shell.dart`). Dikonfirmasi dengan grep
+sebelum dihapus, pola sama seperti `placeholder-screen.tsx` dihapus di Phase 3 (#40) begitu tidak
+dipakai lagi.
+
+### Verifikasi manual — end-to-end penuh terhadap `crm_be` sungguhan
+
+Backend dev (`docker compose` Postgres) dipakai untuk membuktikan seluruh potongan baru dengan data
+nyata:
+
+1. **Tasks**: task dibuat & di-assign lewat dashboard (Owner), `GET /v1/tasks?assigned_to=<milik
+   Employee>&status=open` mengembalikan **tepat** task itu (bentuk permintaan mobile persis).
+   `POST .../complete` sukses (`status: done`, version naik) **dan** dikonfirmasi dari sesi Owner
+   terpisah; percobaan ulang dengan version basi → `409 version_conflict` nyata.
+2. **Notifications**: `GET /v1/notifications` mengembalikan bare list (tanpa `meta`, sesuai kode) berisi
+   notifikasi `lead_assigned` yang sungguhan dari assignment sebelumnya; `POST .../read` → `204`,
+   `read_at` terkonfirmasi terisi pada `GET` berikutnya.
+3. **Device tokens**: `POST /v1/device-tokens` (register) → `201`; `DELETE` (unregister) → `204`;
+   `DELETE` **kedua kalinya** (token yang sama) → `404` (idempoten, bukan `500`) — persis pola yang
+   sudah dibuktikan #68.
+4. Skrip `flutter test` sekali-pakai (tidak di-commit) menjalankan stack produksi sungguhan
+   (`TaskRepositoryImpl`, `NotificationRepositoryImpl`, dan — paling penting — `AuthRepositoryImpl.
+   logout()` lengkap dengan unregister device token) terhadap backend nyata via `ApiClient` asli.
+   `logout()`'s efek samping device-token **dibuktikan sungguhan terjadi di server**, bukan cuma di
+   state lokal (lihat bagian `PushBloc` di atas).
+
+Widget smoke test terpisah (juga tidak di-commit) memompa `TasksPage` (loading/error/kosong/terisi
+dengan task overdue+tanpa-jatuh-tempo+selesai)/`NotificationsPage` (loading/error/kosong/terisi dengan
+campuran terbaca-belum)/`ForegroundPushBanner` (dengan & tanpa pesan) — tidak ada exception render.
+`ForegroundPushBanner` sengaja dijadikan publik (bukan `_ForegroundPushBanner`) supaya bisa dipompa
+langsung tanpa membangun `AppShell` penuh (empat bloc lain + DI) hanya untuk menguji satu widget.
+`flutter build apk --debug` sukses — build Android **sungguhan**, kali pertama sejak `google-services
+.json` ada, termasuk mengonfirmasi ulang lewat menyalin `.example` ke tempat berkas asli dan menjalankan
+`flutter analyze`/`test` di atasnya (mensimulasikan checkout CI bersih) sebelum mengembalikan berkas
+asli.
+
+**Tidak diverifikasi** (butuh HP Android sungguhan + `FCM_CREDENTIALS_FILE` yang sengaja ditinggalkan
+ke pemilik produk): push benar-benar sampai ke perangkat, ketiga keadaan deeplink dari sisi OS yang
+sesungguhnya (bukan simulasi lewat mock stream), uninstall→token dibersihkan, nonaktifkan
+employee→kehilangan akses di HP nyata, siklus penuh di perangkat fisik. Prosedurnya ditulis lengkap ke
+`docs/testing/flow/07-mobile-android.md` (berkas baru), tapi belum dijalankan seseorang di HP
+sungguhan.
+
+### `api.md` — tidak diubah, dan alasannya dicatat (bukan dilewatkan diam-diam)
+
+TD §15 menulis "Dua endpoint `device-tokens` di daftar endpoint" untuk `api.md` — tapi berkas itu tidak
+punya satu pun "daftar endpoint" literal (isinya konvensi: format payload, katalog error, paginasi,
+CORS, autentikasi, idempotency, rate limit), dikonfirmasi dengan membaca seluruh berkas, bukan
+diasumsikan. `device_tokens` juga tidak menambah kode error baru ke katalog (`validation_failed`/
+`not_found` yang sudah ada, dikonfirmasi di `internal/device/usecase.go`). Isi yang sebenarnya relevan
+sudah masuk `authentication.md` (jalur klien mobile) dan `multi-tenancy.md` (pengecualian ketiga +
+kasus isolasi #8) — `api.md` dibiarkan tidak berubah, dicatat di sini per Aturan #30 alih-alih memaksa
+tambahan yang tidak cocok dengan bentuk berkasnya.
+
+### Seluruh 14 acceptance criteria PRD Phase 5 — dicek satu per satu
+
+| # | Kriteria | Status | Bukti |
+|---|---|---|---|
+| 1 | Siklus penuh di HP Android sungguhan | ⏳ Kode siap | Belum dijalankan di perangkat fisik — `docs/testing/flow/07-mobile-android.md` §7.4 |
+| 2 | Daftar lead tetap terbaca mode pesawat | ✅ | #71 — koneksi ditolak sungguhan, `fromCache: true` |
+| 3 | Employee hanya lihat lead sendiri | ✅ | #71 (dua employee, dua lead berbeda) + #72 (404 isolasi Detail Lead) |
+| 4 | Login user session, bukan API key | ✅ | #69 — tidak ada satu jalur pun ke format `jln_*` di seluruh `crm_employee/` |
+| 5 | Refresh token secure storage, rotasi bekerja | ✅ | #69 — `flutter_secure_storage`, `api_client_test.dart`'s single-flight + rotasi |
+| 6 | Biometric buka kembali, tolak bila gagal | ⏳ Kode siap | #69/#70 dibangun, belum diverifikasi di HP nyata |
+| 7 | Nonaktifkan employee → kehilangan akses refresh berikutnya | ⏳ Kode siap | `AuthSessionInvalidated`/`SessionExpiredFailure` di setiap fitur (#71–#73); logika backend sudah teruji Phase 1/2, belum diverifikasi ujung-ke-ujung di HP |
+| 8 | Telepon/WhatsApp mencatat activity, muncul di dashboard | ✅ | #72 — `call_logged`/`whatsapp_opened` dikonfirmasi dari sesi Owner terpisah |
+| 9 | Ubah status bentrok → konflik ditampilkan | ✅ | #72 — `409 version_conflict` nyata + dialog "muat ulang" |
+| 10 | Assign → push di HP, tekan → buka lead | ⏳ Kode siap | #73 — logika deeplink teruji lewat mock stream (`push_bloc_test.dart`), belum lewat push sungguhan |
+| 11 | Kegagalan push tidak membatalkan notification/assignment | ✅ | #68 — push dikirim setelah `InTx` kembali, kegagalan hanya dicatat |
+| 12 | Token tak valid (uninstall) dibersihkan | ⏳ Kode siap | #68's `UNREGISTERED` handling teruji unit; belum diverifikasi lewat uninstall sungguhan |
+| 13 | `flutter analyze` bersih + test lolos, Flutter versi dipin | ✅ | 167 test, `.fvmrc` dipin `3.44.0`, CI memakainya langsung |
+| 14 | Tidak ada rahasia ter-commit | ✅ | `git status` dikonfirmasi bersih dari `google-services.json`/`firebase_options.dart`/`*serviceAccount*.json`/`firebase.json`; refresh token tidak pernah ada di kode |
+
+**5 dari 14 kriteria** (#1, #6, #7, #10, #12) butuh HP Android sungguhan yang tidak tersedia di
+lingkungan sandbox ini — sama seperti #69–#72, ini bukan hal baru, hanya sekarang menjadi hitungan
+akhir phase. Semuanya ditulis jujur "kode siap, verifikasi menunggu HP" di atas, **bukan** dicentang
+tanpa bukti.
+
+### Test
+
+37 test baru: `push_repository_impl_test.dart` (7), `push_bloc_test.dart` (9, fokus logika
+pending-deeplink), `task_repository_impl_test.dart` (5), `tasks_bloc_test.dart` (5),
+`notification_repository_impl_test.dart` (3), `notifications_bloc_test.dart` (5), plus 3 test baru di
+`auth_repository_impl_test.dart` untuk unregister-saat-logout. Total suite sekarang **167 test**,
+seluruhnya lolos. `flutter analyze` bersih. `flutter build apk --debug` sukses (build Android
+sungguhan pertama kali).
+
+### Batas issue ini
+
+Tidak rilis ke Play Store — phase selesai di APK debug yang jalan di HP nyata (belum terjadi di sesi
+ini). Tidak mengaktifkan iOS (keputusan M1). Service account FCM untuk backend sengaja tidak dibuat —
+menunggu pemilik produk.
+

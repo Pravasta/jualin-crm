@@ -96,6 +96,18 @@ dibuat: tidak ada `organization_id` untuk dijadikan bagian kunci sebelum baris d
 `RefreshTokenRepository.FindByHashForUpdate` — tidak menerima `tenant.Context` sama sekali, untuk alasan
 yang sama.
 
+### Pengecualian ketiga — `device_tokens.token` unik lintas organization (Phase 5, issue #68)
+
+`uq_device_tokens_token` (migration `0006`) unik **lintas** seluruh organization juga — tapi alasannya
+**berbeda** dari dua pengecualian di atas, bukan diulang begitu saja. `api_keys.key_id`/
+`refresh_tokens.token_hash` unik lintas organization karena lookup-nya terjadi **sebelum** organization
+diketahui. `device_tokens.token` unik lintas organization karena perangkat fisik bisa **berpindah
+pemilik** — seseorang keluar dari satu organization dan bergabung ke organization lain di perangkat
+yang sama, dan token FCM-nya tetap sama. Registrasi ulang di organization baru memakai `ON CONFLICT
+(token) DO UPDATE` untuk **memindahkan** baris (`organization_id`, `membership_id` diperbarui), bukan
+menolak sebagai duplikat atau membiarkan dua baris tenant berbeda memegang token yang sama sekaligus
+(`internal/device/repository_postgres.go`'s `Upsert`).
+
 ---
 
 ## Lapis 3 — Row Level Security (ditunda)
@@ -139,6 +151,7 @@ Untuk setiap endpoint tenant-scoped:
 | 5 | **User dengan dua membership** tidak bisa melihat data org yang tidak sedang aktif di token | ADR-007 | ✅ `TestTenantIsolation_MultiMembership_OnlySeesActiveOrgInToken` |
 | 6 | Katalog: setiap tabel tenant-scoped punya `organization_id` + `UNIQUE (id, organization_id)` | Aturan #1, #2 | ✅ Sejak #8 |
 | 7 | Endpoint agregat (tanpa `:id`) tidak membocorkan bentuk bisnis tenant lain | Lapis 1 | ✅ `GET /v1/metrics/{summary,employees}` — `TestTenantIsolation_MetricsAggregate_ScopedToOrganization` (Phase 3, #30) |
+| 8 | Hapus resource tenant lain yang dialamatkan lewat **token**, bukan `:id` → 404 | Lapis 1 | ✅ `DELETE /v1/device-tokens` — tidak masuk bentuk kasus #1/#2 (keduanya mengasumsikan `:id` di path); diuji terpisah karena target-nya ada di body (Phase 5, #68) |
 
 **Kasus #1 dan #4 sekarang ✅ — ditutup di issue #23**, penutup Phase 2. Harness
 (`cmd/api/tenant_isolation_test.go`) tetap satu slice `[]isolationCase` generik yang sama sejak #11;

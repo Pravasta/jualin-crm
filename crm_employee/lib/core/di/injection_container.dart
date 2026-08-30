@@ -33,9 +33,30 @@ import '../../features/leads/domain/usecases/log_whatsapp_opened_usecase.dart';
 import '../../features/leads/domain/usecases/update_lead_status_usecase.dart';
 import '../../features/leads/presentation/bloc/lead_detail_bloc.dart';
 import '../../features/leads/presentation/bloc/leads_bloc.dart';
+import '../../features/notifications/data/datasources/notification_remote_data_source.dart';
+import '../../features/notifications/data/repositories/notification_repository_impl.dart';
+import '../../features/notifications/domain/repositories/notification_repository.dart';
+import '../../features/notifications/domain/usecases/get_notifications_usecase.dart';
+import '../../features/notifications/domain/usecases/mark_notification_read_usecase.dart';
+import '../../features/notifications/presentation/bloc/notifications_bloc.dart';
+import '../../features/push/data/datasources/firebase_messaging_data_source.dart';
+import '../../features/push/data/repositories/push_repository_impl.dart';
+import '../../features/push/domain/repositories/push_repository.dart';
+import '../../features/push/domain/usecases/observe_push_messages_usecase.dart';
+import '../../features/push/domain/usecases/register_device_token_usecase.dart';
+import '../../features/push/domain/usecases/request_notification_permission_usecase.dart';
+import '../../features/push/presentation/bloc/push_bloc.dart';
+import '../../features/tasks/data/datasources/task_remote_data_source.dart';
+import '../../features/tasks/data/repositories/task_repository_impl.dart';
+import '../../features/tasks/domain/repositories/task_repository.dart';
+import '../../features/tasks/domain/usecases/complete_task_usecase.dart';
+import '../../features/tasks/domain/usecases/get_my_tasks_usecase.dart';
+import '../../features/tasks/presentation/bloc/tasks_bloc.dart';
 import '../api_client.dart';
 import '../cache/response_cache.dart';
 import '../cache/sqflite_response_cache.dart';
+import '../push/device_token_remote_data_source.dart';
+import '../push/push_token_store.dart';
 import '../secure_store.dart';
 
 /// Composition root — every service is constructed exactly once here and
@@ -53,6 +74,13 @@ Future<void> initDependencyInjection() async {
   // feature that caches GET responses shares the same SQLite database
   // and, correspondingly, the same "clear everything on logout".
   sl.registerLazySingleton<ResponseCache>(() => SqfliteResponseCache());
+  // Shared by `auth` (unregister on logout) and `push` (register after
+  // login) without either importing the other's `features/` tree — see
+  // device_token_remote_data_source.dart's doc comment.
+  sl.registerLazySingleton<DeviceTokenRemoteDataSource>(
+    () => DeviceTokenRemoteDataSourceImpl(sl()),
+  );
+  sl.registerLazySingleton<PushTokenStore>(() => const SecurePushTokenStore());
 
   // --- feature: auth — data sources ---
   sl.registerLazySingleton<AuthRemoteDataSource>(
@@ -68,6 +96,8 @@ Future<void> initDependencyInjection() async {
       remoteDataSource: sl(),
       tokenStorage: sl(),
       responseCache: sl(),
+      deviceTokenRemoteDataSource: sl(),
+      pushTokenStore: sl(),
     ),
   );
   sl.registerLazySingleton<BiometricRepository>(
@@ -153,6 +183,63 @@ Future<void> initDependencyInjection() async {
       logWhatsAppOpened: sl(),
       launchDialer: sl(),
       launchWhatsApp: sl(),
+      authBloc: sl(),
+    ),
+  );
+
+  // --- feature: push (#73) ---
+  sl.registerLazySingleton<FirebaseMessagingDataSource>(
+    () => FirebaseMessagingDataSourceImpl(),
+  );
+  sl.registerLazySingleton<PushRepository>(
+    () => PushRepositoryImpl(
+      messagingDataSource: sl(),
+      deviceTokenRemoteDataSource: sl(),
+      pushTokenStore: sl(),
+    ),
+  );
+  sl.registerLazySingleton(() => RequestNotificationPermissionUseCase(sl()));
+  sl.registerLazySingleton(() => RegisterDeviceTokenUseCase(sl()));
+  sl.registerLazySingleton(() => ObservePushMessagesUseCase(sl()));
+  // App-wide, one instance for the whole app lifetime — same reasoning
+  // as AuthBloc: a push arriving/being tapped is a global concern, not
+  // scoped to whatever screen happens to be showing.
+  sl.registerLazySingleton(
+    () => PushBloc(
+      requestPermission: sl(),
+      registerDeviceToken: sl(),
+      observeMessages: sl(),
+    ),
+  );
+
+  // --- feature: tasks (#73) ---
+  sl.registerLazySingleton<TaskRemoteDataSource>(
+    () => TaskRemoteDataSourceImpl(sl()),
+  );
+  sl.registerLazySingleton<TaskRepository>(
+    () => TaskRepositoryImpl(remoteDataSource: sl(), responseCache: sl()),
+  );
+  sl.registerLazySingleton(() => GetMyTasksUseCase(sl()));
+  sl.registerLazySingleton(() => CompleteTaskUseCase(sl()));
+  // registerFactory — same reasoning as LeadsBloc: per-tab state, not
+  // app-wide.
+  sl.registerFactory(
+    () => TasksBloc(getMyTasks: sl(), completeTask: sl(), authBloc: sl()),
+  );
+
+  // --- feature: notifications (#73) ---
+  sl.registerLazySingleton<NotificationRemoteDataSource>(
+    () => NotificationRemoteDataSourceImpl(sl()),
+  );
+  sl.registerLazySingleton<NotificationRepository>(
+    () => NotificationRepositoryImpl(remoteDataSource: sl()),
+  );
+  sl.registerLazySingleton(() => GetNotificationsUseCase(sl()));
+  sl.registerLazySingleton(() => MarkNotificationReadUseCase(sl()));
+  sl.registerFactory(
+    () => NotificationsBloc(
+      getNotifications: sl(),
+      markNotificationRead: sl(),
       authBloc: sl(),
     ),
   );

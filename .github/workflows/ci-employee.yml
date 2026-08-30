@@ -34,6 +34,13 @@ jobs:
           flutter-version-file: crm_employee/.fvmrc
           channel: stable
       - run: flutter pub get
+      # lib/firebase_options.dart is git-ignored (TD phase 5 §14 — the
+      # repository isn't tied to one Firebase project). Its placeholder
+      # twin is committed precisely so this step exists: analyze/test
+      # never call Firebase for real, so fake values are enough to
+      # resolve the import and type-check. A real device build still
+      # needs the genuine file (`flutterfire configure`, see README).
+      - run: cp lib/firebase_options.dart.example lib/firebase_options.dart
       - run: flutter analyze
       - run: flutter test
       # No `flutter build apk` here — a real build needs

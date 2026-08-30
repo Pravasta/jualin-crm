@@ -146,6 +146,18 @@ Ini membuat Aturan #25 struktural: dashboard secara harfiah tidak pernah melihat
 - **CSRF**: header `X-CSRF-Token` dibaca dari cookie `csrf_token` (non-`HttpOnly`, lihat di bawah) dan disertakan di setiap request non-GET.
 - **Refresh single-flight**: satu `refreshPromise` modul-level ditetapkan **sinkron**, sebelum `await` apa pun — request paralel yang sama-sama menerima `401` memakai ulang Promise yang sama alih-alih masing-masing memanggil `/v1/auth/refresh` sendiri. Tanpa ini, N request paralel yang kedaluwarsa bersamaan memicu N rotasi refresh token yang saling balapan — hasilnya salah satu dicabut karena "sudah dirotasi" (§ di atas) walau pengguna tidak melakukan apa pun yang salah. Dibuktikan lewat test konkurensi asli (`src/lib/api-client.test.ts`), bukan diasumsikan dari membaca kode.
 
+### Klien mobile — secure storage, biometric, refresh single-flight (Phase 5)
+
+`crm_employee` (Flutter, #69–#73) memakai `client: "mobile"` — token lewat body, tidak pernah cookie. Baris `mobile` di tabel atas sekarang kenyataan, bukan rencana:
+
+| Aspek | Implementasi |
+|---|---|
+| Penyimpanan token | `flutter_secure_storage` (`core/secure_store.dart`'s `SecureTokenStorage`) — Android Keystore-backed `EncryptedSharedPreferences`. **Tidak pernah** `SharedPreferences` (acceptance criterion #5, Phase 5) — itu plaintext, terbaca di perangkat root |
+| Refresh single-flight | `core/api_client.dart`'s `ApiClient` — satu `Future<bool>? _refreshFuture` module-level, ditetapkan sinkron sebelum `await` apa pun, sama persis pola `refreshPromise` `api-client.ts` di atas. Beberapa `401` paralel memakai ulang Future yang sama, bukan masing-masing memicu rotasi sendiri. Dibuktikan test konkurensi asli (`test/api_client_test.dart`, "6 concurrent 401s trigger exactly 1 call to /v1/auth/refresh") |
+| Buka kembali aplikasi | Biometric OS (`local_auth`), **bukan** password — menolak masuk bila biometric gagal/tidak tersedia, fallback eksplisit ke password (acceptance criterion #6) |
+| Sesi berakhir di tengah pemakaian | `AuthSessionInvalidated` (event internal `AuthBloc`) — fitur mana pun yang membuat panggilan API sendiri (leads, tasks, notifications, push) bisa memicu redirect ke layar "Sesi Berakhir" tanpa `AuthBloc` perlu tahu fitur itu ada. Menutupi TD §4.2's kriteria: membership dinonaktifkan Owner → akses hilang pada refresh berikutnya, bisa di tengah pemakaian layar mana pun (acceptance criterion #7) |
+| Logout | Selain membersihkan token lokal + cache offline (TD §7), juga menghapus device token FCM dari backend (`DELETE /v1/device-tokens`) — lihat `multi-tenancy.md`'s bagian device_tokens |
+
 ---
 
 ## CSRF — double-submit

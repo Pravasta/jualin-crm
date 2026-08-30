@@ -3,6 +3,8 @@ import 'package:dartz/dartz.dart';
 import '../../../../core/cache/response_cache.dart';
 import '../../../../core/error/failures.dart';
 import '../../../../core/network/run_api_call.dart';
+import '../../../../core/push/device_token_remote_data_source.dart';
+import '../../../../core/push/push_token_store.dart';
 import '../../../../core/secure_store.dart';
 import '../../domain/entities/auth_user.dart';
 import '../../domain/repositories/auth_repository.dart';
@@ -22,10 +24,20 @@ class AuthRepositoryImpl implements AuthRepository {
   final TokenStorage tokenStorage;
   final ResponseCache responseCache;
 
+  /// Only for [logout] to unregister this device's push token — #73's
+  /// acceptance criterion "logout menghapus token perangkat dari
+  /// backend". Not `features/push/`'s repository: see
+  /// `device_token_remote_data_source.dart`'s own doc comment for why
+  /// this stays a `core/` dependency instead.
+  final DeviceTokenRemoteDataSource deviceTokenRemoteDataSource;
+  final PushTokenStore pushTokenStore;
+
   const AuthRepositoryImpl({
     required this.remoteDataSource,
     required this.tokenStorage,
     required this.responseCache,
+    required this.deviceTokenRemoteDataSource,
+    required this.pushTokenStore,
   });
 
   @override
@@ -67,6 +79,23 @@ class AuthRepositoryImpl implements AuthRepository {
       // not-found-is-success, and a network failure here must never
       // block the local teardown below.
     }
+
+    // Same best-effort stance, same reason — and this MUST happen before
+    // tokenStorage.clear() below: unregistering needs a still-valid
+    // access token to authenticate the DELETE call.
+    final fcmToken = await pushTokenStore.read();
+    if (fcmToken != null) {
+      try {
+        await deviceTokenRemoteDataSource.unregister(fcmToken);
+      } catch (_) {
+        // A device token left behind is cleaned up lazily the next time
+        // a push to it fails (internal/shared/push's UNREGISTERED
+        // handling, #68) — not ideal, but never a reason to block the
+        // user from logging out.
+      }
+      await pushTokenStore.clear();
+    }
+
     await tokenStorage.clear();
     // TD §7: cache holds one organization's lead/task data — a device
     // that switches users must never show the previous user's leftovers.

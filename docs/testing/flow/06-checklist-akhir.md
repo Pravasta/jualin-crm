@@ -15,8 +15,7 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 - [ ] "Website" (curl) mengirim lead lewat API key
 - [ ] Owner meng-assign lead ke seseorang
 - [ ] Anggota yang ditugaskan menerima notifikasi
-- [ ] ~~Follow-up dari HP~~ — **di luar cakupan**, Phase 5 (mobile) belum dibangun. Follow-up diuji
-      lewat dashboard sebagai gantinya.
+- [ ] Follow-up dari HP — login mobile, telepon/WhatsApp, ubah status, catatan (lihat `07`)
 - [ ] Update lead (status, catatan)
 - [ ] Konversi lead menang ke Customer
 
@@ -92,9 +91,24 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 - [ ] Cabut kunci → daftar tetap menampilkan barisnya (bukan hilang)
 - [ ] Request setelah cabut → `401 invalid_api_key` seketika
 
+## 7 — Mobile Android
+
+- [ ] Login user session (bukan API key), biometric saat buka kembali, tolak masuk bila biometric gagal
+- [ ] Daftar lead tetap terbaca dalam mode pesawat
+- [ ] Telepon/WhatsApp masing-masing mencatat activity — **dikonfirmasi juga dari dashboard**
+- [ ] Activity hanya tercatat setelah aplikasi eksternal benar-benar terbuka (batalkan sekali → tidak ada entri palsu)
+- [ ] Ubah status bentrok → dialog konflik, tidak pernah menimpa diam-diam
+- [ ] Tugas Saya: tandai selesai, tidak bisa dibuka kembali
+- [ ] Push notification muncul dalam hitungan detik saat lead di-assign
+- [ ] Push ditangani benar di ketiga keadaan aplikasi (foreground/background/mati) + kasus ditekan saat belum login
+- [ ] Nonaktifkan employee dari dashboard → aplikasi kehilangan akses pada panggilan API berikutnya
+- [ ] Logout menghapus device token dari backend (push berikutnya tidak sampai)
+- [ ] Uninstall aplikasi → `device_tokens` dibersihkan pada percobaan kirim berikutnya, bukan menumpuk
+
 ## Kalau semua tercentang
 
-Alur inti MVP (Phase 0–4.5) terbukti benar-benar jalan sebagai **satu rangkaian utuh**, bukan cuma
-lolos test per-fitur satu-satu. Simpan hasil pengecekan ini (tanggal + siapa yang menjalankan) di
+Alur inti MVP (Phase 0–5) terbukti benar-benar jalan sebagai **satu rangkaian utuh**, bukan cuma
+lolos test per-fitur satu-satu — untuk pertama kalinya termasuk "follow-up dari HP" sungguhan, bukan
+gantinya lewat dashboard. Simpan hasil pengecekan ini (tanggal + siapa yang menjalankan) di
 `docs/STATUS.md` atau catatan sesi Anda sendiri — dokumen ini sendiri **tidak** menyimpan status,
 sesuai konvensi repo (ADR-008).

@@ -1,0 +1,30 @@
+{
+  "_comment": "Template only — real android/app/google-services.json is git-ignored (TD phase 5 §14). Run `flutterfire configure --project=jualin-crm --platforms=android` from crm_employee/ to generate the real file; it also regenerates lib/firebase_options.dart. Not needed for `flutter analyze`/`flutter test` (they never touch Gradle) — only for a real Android build.",
+  "project_info": {
+    "project_number": "000000000000",
+    "project_id": "jualin-crm",
+    "storage_bucket": "jualin-crm.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "android_client_info": {
+          "package_name": "com.jualin.crm.employee"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "FAKE_API_KEY_RUN_FLUTTERFIRE_CONFIGURE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
