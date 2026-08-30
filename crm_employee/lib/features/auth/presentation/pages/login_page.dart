@@ -1,14 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../shared/theme.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
 
-/// Deliberately plain (issue #69's own boundary: "Tampilan sengaja
-/// seadanya" — visual design is the next issue, #70). Doubles as both the
-/// first-ever login and the "Masuk dengan password" fallback the
-/// biometric gate offers when biometric fails or isn't available.
+/// Design brief §5 (Login) — normal + kredensial salah states. Doubles
+/// as the "Masuk dengan kata sandi" fallback the biometric gate and the
+/// Sesi Berakhir screen both offer.
+///
+/// Not implemented from the design: the "backoff" state's live countdown
+/// ("Coba lagi dalam 04:37") — that needs `Retry-After` propagated all
+/// the way from `crm_be`'s rate limiter through `ApiClient`/`ApiError`,
+/// neither of which carries response headers today. A rate-limited login
+/// still surfaces `crm_be`'s own message via the same themed error banner
+/// below, just without the ticking clock — noted as a deliberate gap in
+/// `docs/issues/070-design-foundation.md`, not silently skipped.
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -44,36 +52,50 @@ class _LoginPageState extends State<LoginPage> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.space24),
             child: Form(
               key: _formKey,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text(
+                  const SizedBox(height: AppSpacing.space24 * 4),
+                  Text(
                     'Jualin CRM',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                    style: AppTextStyles.screenTitle.copyWith(
+                      fontSize: 24,
+                      color: AppColors.accentStrong,
+                    ),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: AppSpacing.space4),
+                  Text(
+                    'Masuk untuk melihat lead Anda',
+                    style: AppTextStyles.body.copyWith(
+                      color: AppColors.mutedForeground,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.space40),
+                  const Text('Email', style: AppTextStyles.metadata),
+                  const SizedBox(height: AppSpacing.space8),
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
                     autocorrect: false,
-                    decoration: const InputDecoration(labelText: 'Email'),
+                    style: AppTextStyles.body,
                     validator: (value) =>
                         (value == null || value.trim().isEmpty)
                         ? 'Email wajib diisi'
                         : null,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpacing.space20),
+                  const Text('Kata sandi', style: AppTextStyles.metadata),
+                  const SizedBox(height: AppSpacing.space8),
                   TextFormField(
                     controller: _passwordController,
                     obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Password'),
+                    style: AppTextStyles.body,
                     validator: (value) => (value == null || value.isEmpty)
-                        ? 'Password wajib diisi'
+                        ? 'Kata sandi wajib diisi'
                         : null,
                     onFieldSubmitted: (_) => _submit(),
                   ),
@@ -84,17 +106,32 @@ class _LoginPageState extends State<LoginPage> {
                           : null;
                       if (error == null) return const SizedBox.shrink();
                       return Padding(
-                        padding: const EdgeInsets.only(top: 16),
-                        child: Text(
-                          error,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
+                        padding: const EdgeInsets.only(top: AppSpacing.space20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.space16,
+                            vertical: AppSpacing.space12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.dangerTint,
+                            border: Border.all(
+                              color: AppColors.danger.withValues(alpha: 0.3),
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            error,
+                            style: const TextStyle(
+                              color: AppColors.danger,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
                           ),
                         ),
                       );
                     },
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: AppSpacing.space24),
                   BlocBuilder<AuthBloc, AuthState>(
                     builder: (context, state) {
                       final submitting =
@@ -107,6 +144,7 @@ class _LoginPageState extends State<LoginPage> {
                                 width: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
+                                  color: Colors.white,
                                 ),
                               )
                             : const Text('Masuk'),

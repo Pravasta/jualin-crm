@@ -192,7 +192,7 @@ void main() {
   );
 
   blocTest<AuthBloc, AuthState>(
-    'a session that expires right after biometric success returns to AuthNeedsPassword silently (TD §4.2)',
+    'a session that expires right after biometric success shows the Sesi Berakhir screen (TD §4.2, design brief §10)',
     setUp: () {
       when(() => checkStoredSession()).thenAnswer((_) async => true);
       when(() => checkBiometricAvailability()).thenAnswer((_) async => true);
@@ -206,8 +206,15 @@ void main() {
     expect: () => [
       const AuthChecking(),
       const AuthNeedsBiometric(),
-      const AuthNeedsPassword(),
+      const AuthSessionExpired(),
     ],
+  );
+
+  blocTest<AuthBloc, AuthState>(
+    'AuthUsePasswordRequested from the Sesi Berakhir screen goes to AuthNeedsPassword',
+    build: buildBloc,
+    act: (bloc) => bloc.add(const AuthUsePasswordRequested()),
+    expect: () => [const AuthNeedsPassword()],
   );
 
   blocTest<AuthBloc, AuthState>(

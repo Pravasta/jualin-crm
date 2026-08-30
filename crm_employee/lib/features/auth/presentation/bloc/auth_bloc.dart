@@ -124,14 +124,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   /// `GET /v1/me` — also what proves a stored/just-refreshed access token
   /// actually works. A `SessionExpiredFailure` here (refresh itself
-  /// failed — TD §4.2) goes back to the login screen silently, the same
-  /// way any other unrecoverable session end does; any other failure
-  /// shows its message so the user isn't left staring at a blank screen.
+  /// failed — TD §4.2) shows the dedicated Sesi Berakhir screen (design
+  /// brief §10 — this can happen mid-use, not just at app open, so it
+  /// gets an explanation rather than silently dropping back to a blank
+  /// login form); any other failure shows its message inline so the user
+  /// isn't left staring at a blank screen either.
   Future<void> _loadCurrentUser(Emitter<AuthState> emit) async {
     final result = await getCurrentUser(const NoParams());
     result.fold((failure) {
       if (failure is SessionExpiredFailure) {
-        emit(const AuthNeedsPassword());
+        emit(const AuthSessionExpired());
       } else {
         emit(AuthNeedsPassword(error: failure.message));
       }

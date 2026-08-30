@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../shared/theme.dart';
+import '../../../../shared/widgets/app_shell.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_state.dart';
 import 'biometric_gate_page.dart';
-import 'home_page.dart';
 import 'login_page.dart';
+import 'session_expired_page.dart';
 
 /// Picks a page purely from `AuthState`'s type — `AuthBloc` (already
 /// dispatched `AuthAppStarted` where this is provided, see
@@ -22,7 +24,8 @@ class AuthGatePage extends StatelessWidget {
           AuthInitial() || AuthChecking() => const _SplashPage(),
           AuthNeedsBiometric() => const BiometricGatePage(),
           AuthNeedsPassword() => const LoginPage(),
-          AuthAuthenticated() => const HomePage(),
+          AuthSessionExpired() => const SessionExpiredPage(),
+          AuthAuthenticated() => const AppShell(),
         };
       },
     );
@@ -34,6 +37,9 @@ class _SplashPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return const Scaffold(
+      backgroundColor: AppColors.surface,
+      body: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+    );
   }
 }
