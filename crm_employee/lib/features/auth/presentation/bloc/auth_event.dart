@@ -39,3 +39,17 @@ class AuthUsePasswordRequested extends AuthEvent {
 class AuthLogoutRequested extends AuthEvent {
   const AuthLogoutRequested();
 }
+
+/// Dispatched by ANY feature — not just the auth flow itself — the
+/// moment its own repository call surfaces a `SessionExpiredFailure`.
+/// Design brief §10: the Sesi Berakhir screen can appear "di layar mana
+/// pun", not only right after biometric/login. `AuthBloc` is a
+/// `registerLazySingleton` (`injection_container.dart`), so any other
+/// bloc reaches it via `sl<AuthBloc>()` and adds this — the same
+/// `Failure` vocabulary (`core/error/failures.dart`) every feature
+/// already shares, just routed to the one bloc that owns navigating back
+/// to login. First added for #71 (`LeadsBloc`), when a feature other
+/// than auth itself first made its own authenticated API calls.
+class AuthSessionInvalidated extends AuthEvent {
+  const AuthSessionInvalidated();
+}

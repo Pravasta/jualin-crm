@@ -4,6 +4,7 @@
 // — and its orchestration of AuthRemoteDataSource + TokenStorage
 // together, which neither one alone can prove.
 import 'package:crm_employee/core/api_error.dart';
+import 'package:crm_employee/core/cache/response_cache.dart';
 import 'package:crm_employee/core/error/failures.dart';
 import 'package:crm_employee/core/secure_store.dart';
 import 'package:crm_employee/features/auth/data/datasources/auth_remote_data_source.dart';
@@ -16,19 +17,25 @@ class MockAuthRemoteDataSource extends Mock implements AuthRemoteDataSource {}
 
 class MockTokenStorage extends Mock implements TokenStorage {}
 
+class MockResponseCache extends Mock implements ResponseCache {}
+
 void main() {
   late MockAuthRemoteDataSource remoteDataSource;
   late MockTokenStorage tokenStorage;
+  late MockResponseCache responseCache;
   late AuthRepositoryImpl repository;
 
   setUp(() {
     remoteDataSource = MockAuthRemoteDataSource();
     tokenStorage = MockTokenStorage();
+    responseCache = MockResponseCache();
     repository = AuthRepositoryImpl(
       remoteDataSource: remoteDataSource,
       tokenStorage: tokenStorage,
+      responseCache: responseCache,
     );
     registerFallbackValue(<String, dynamic>{});
+    when(() => responseCache.clear()).thenAnswer((_) async {});
   });
 
   group('hasStoredSession', () {
@@ -177,6 +184,24 @@ void main() {
 
         expect(result.isRight(), isTrue);
         verify(() => tokenStorage.clear()).called(1);
+      },
+    );
+
+    test(
+      'clears the offline response cache too (TD §7 — a device switching users must not keep the previous user\'s leads)',
+      () async {
+        when(
+          () => tokenStorage.readRefreshToken(),
+        ).thenAnswer((_) async => 'a-refresh-token');
+        when(
+          () =>
+              remoteDataSource.logout(refreshToken: any(named: 'refreshToken')),
+        ).thenAnswer((_) async {});
+        when(() => tokenStorage.clear()).thenAnswer((_) async {});
+
+        await repository.logout();
+
+        verify(() => responseCache.clear()).called(1);
       },
     );
   });

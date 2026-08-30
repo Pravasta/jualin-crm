@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../core/di/injection_container.dart';
 import '../../features/auth/domain/entities/auth_user.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_event.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
+import '../../features/leads/presentation/bloc/leads_bloc.dart';
+import '../../features/leads/presentation/pages/leads_page.dart';
 import '../nav.dart';
 import '../theme.dart';
 import 'placeholder_screen.dart';
@@ -31,22 +34,24 @@ class _AppShellState extends State<AppShell> {
 
   static const _destinations = AppDestination.values;
 
-  // The three tab bodies are all placeholders today — #71 (Lead Saya)
-  // and #73 (Tugas Saya, Notifikasi) replace these outright, per
-  // PlaceholderScreen's own doc comment.
-  static const _tabBodies = <Widget>[
-    PlaceholderScreen(
-      title: 'Lead Saya',
-      description:
-          'Daftar lead yang ditugaskan kepada Anda akan tampil di sini.',
-      issue: 71,
+  // Tugas Saya and Notifikasi are still placeholders — #73 replaces
+  // both outright, per PlaceholderScreen's own doc comment. Lead Saya
+  // is real as of #71. `late final` (not `static const`): LeadsBloc
+  // comes from get_it, a runtime call, so this list can't be built at
+  // compile time — but it's still only ever constructed once per
+  // _AppShellState, the same lifetime `static const` gave the
+  // placeholders.
+  late final List<Widget> _tabBodies = [
+    BlocProvider<LeadsBloc>(
+      create: (_) => sl<LeadsBloc>(),
+      child: const LeadsPage(),
     ),
-    PlaceholderScreen(
+    const PlaceholderScreen(
       title: 'Tugas Saya',
       description: 'Tugas yang dibuat untuk lead Anda akan tampil di sini.',
       issue: 73,
     ),
-    PlaceholderScreen(
+    const PlaceholderScreen(
       title: 'Notifikasi',
       description:
           'Pemberitahuan lead yang ditugaskan kepada Anda akan tampil di sini.',
