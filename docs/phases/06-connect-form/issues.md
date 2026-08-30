@@ -15,8 +15,12 @@
 | [85](https://github.com/Pravasta/jualin-crm/issues/85) | Migration `0007_forms`, domain `form`, CRUD kredensial | `crm_be` | `0007_forms` + `leads.source_form_id`, `internal/form`, format `pk_` (D3), 5 endpoint pengelolaan, audit log | §1, §2, §8, §11 |
 | [86](https://github.com/Pravasta/jualin-crm/issues/86) | Permukaan Connect + pindahkan pengelolaan API key | `crm_dashboard` | `NAV_ITEMS`/`NAV_ICONS`/`nav.test.ts`, `/connect` + tiga kartu, `/connect/api(/docs)` pindahan, redirect rute lama | §10 |
 | [87](https://github.com/Pravasta/jualin-crm/issues/87) | Endpoint submit publik + lima lapis anti-spam | `crm_be` | `POST /v1/forms/{public_key}/submit`, `PrincipalPublicForm` + `FormID`, cabang `authz` ketiga, Origin/honeypot/time-trap/rate limit/Turnstile. **Risiko keamanan tertinggi phase ini** | §3–§6, §9 |
-| [88](https://github.com/Pravasta/jualin-crm/issues/88) | Halaman embed (iframe) + CSP per-form | `crm_be` | `GET /embed/{public_key}`, `html/template` + `embed.FS`, `frame-ancestors` per-form. **Kelas kemampuan baru** | §7 |
-| [89](https://github.com/Pravasta/jualin-crm/issues/89) | Manajemen form + snippet embed | `crm_dashboard` | Layar buat/ubah/nonaktifkan, toggle+label field, allowlist, snippet. **Penutup phase** | §10, §12, §15 |
+| [88](https://github.com/Pravasta/jualin-crm/issues/88) | Halaman embed (iframe) + CSP per-form | `crm_be` | `GET /embed/{public_key}` + `GET /embed.js`, `html/template` + `embed.FS`, `frame-ancestors` per-form, auto-resize `postMessage` (D8). **Kelas kemampuan baru** | §7 |
+| [89](https://github.com/Pravasta/jualin-crm/issues/89) | Manajemen form + snippet embed | `crm_dashboard` | Layar buat/ubah/nonaktifkan, toggle+label field, allowlist, snippet **dua varian** (D8). **Penutup phase** | §10, §12, §15 |
+
+> **[#91](https://github.com/Pravasta/jualin-crm/issues/91)** menambahkan keputusan **D8** (tinggi
+> iframe & script auto-resize) setelah phase dibuka — celah yang ditemukan saat membahas bentuk snippet,
+> sebelum #88/#89 dikerjakan. Dokumen saja; cakupannya sudah terserap ke dua baris di atas.
 
 ---
 

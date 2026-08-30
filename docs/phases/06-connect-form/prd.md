@@ -79,6 +79,7 @@ teknis lengkap di [`td.md`](./td.md); yang di bawah adalah **apa** dan **kenapa*
 | **D5** | Bagaimana lead dibuat? | Memakai ulang `lead.Usecase.Create` apa adanya. `source` dipaksa `'form'` dan `source_form_id` diambil **dari principal**, tidak pernah dari body. | Persis pola jalur API key Phase 4. Menulis jalur pembuatan lead kedua berarti dua tempat yang harus tetap sama selamanya — termasuk penomoran lead, `raw_payload`, dan notifikasi assignment. |
 | **D6** | Siapa yang melihat menu `Connect`? | **Semua role**; gerbangnya di dalam layar, bukan di sidebar. | Mengikuti `/settings` hari ini. Nav sadar-role **belum pernah ada** di dashboard ini — menciptakannya untuk satu menu berarti menambah mekanisme baru demi kerapian yang tidak diminta siapa pun (Aturan #27). |
 | **D7** | Time-trap 2 detik | Token HMAC **stateless** yang ditanam di halaman embed, memuat id form + waktu terbit; divalidasi umurnya (>2 detik, <30 menit). | Tanpa token, waktu render hanya bisa dititipkan ke field tersembunyi — yang bisa dipalsukan bot dengan satu baris. HMAC membuatnya tidak bisa dikarang tanpa menyimpan state apa pun. **Ini time-trap, bukan anti-replay**: token yang sah masih bisa dipakai berulang dalam jendela 30 menit. Perlindungan terhadap pengulangan datang dari rate limit, bukan dari sini. |
+| **D8** | Tinggi iframe | iframe **tetap** wadah form; ditambah **script pendamping opsional** (`embed.js`) yang menyesuaikan tinggi lewat `postMessage`. Tanpa script, iframe tetap bekerja dengan tinggi tetap. | `height` mati punya dua akibat yang pasti: form pendek meninggalkan ruang kosong, form panjang terpotong atau ber-scrollbar sendiri. Lihat catatan *"Kenapa script pendamping tidak membatalkan ADR-005"* di bawah — ini bukan kembali ke *inline script* yang ADR-005 tolak. |
 
 ### Penyimpangan tertulis dari ADR-005 — D1
 
@@ -94,6 +95,34 @@ host statis atau CDN. Phase 6 **tidak** melakukannya, dan alasannya perlu berdir
 **Kewajiban yang ikut lahir dari keputusan ini** — dicatat supaya tidak hilang: saat deployment
 akhirnya dikerjakan, halaman embed **wajib** disajikan dari hostname yang berbeda dari dashboard.
 Menyajikannya dari origin yang sama dengan dashboard membatalkan isolasi yang ADR-005 lindungi.
+
+### Kenapa script pendamping tidak membatalkan ADR-005 — D8
+
+ADR-005 menolak *inline script* dengan satu alasan spesifik: **"script host bisa membaca input"**.
+Yang membuat itu benar adalah **di mana form-nya hidup** — pada inline script, form disuntikkan ke DOM
+halaman pelanggan, sehingga script lain di halaman itu (termasuk plugin pihak ketiga yang tidak
+dikendalikan siapa pun) bisa membaca apa yang diketik pengunjung.
+
+D8 **tidak** memindahkan form ke DOM host:
+
+| | Inline script (ditolak ADR-005) | D8 — iframe + `embed.js` |
+|---|---|---|
+| Form hidup di | DOM halaman host | **Di dalam iframe**, origin terpisah |
+| Halaman host bisa membaca input? | ✅ Ya | ❌ **Tidak** — dihalangi browser, bukan oleh janji kita |
+| Yang dikerjakan script host | Merender & mengelola form | **Hanya menerima satu angka: tinggi** |
+| Tanpa script | Tidak ada form sama sekali | Form tetap jalan, tinggi tetap |
+
+Isolasi lintas-origin adalah properti yang ditegakkan browser. Selama form berada di dalam iframe,
+halaman host tidak punya cara membaca isinya — ada atau tidak ada `embed.js`.
+
+**Syarat yang mengikat** (tanpa ini, D8 justru membuka permukaan serangan baru):
+
+1. `postMessage` **tidak pernah** `targetOrigin: '*'` — selalu origin yang dituju secara eksplisit
+2. Penerima **wajib** memverifikasi `event.origin`; pesan dari origin lain diabaikan
+3. Tinggi dibatasi rentang wajar — pesan jahat tidak boleh bisa membuat iframe raksasa yang menutupi
+   halaman pelanggan (*clickjacking* terbalik)
+4. `embed.js` **hanya** mengenal satu jenis pesan. Ia tidak menerima perintah lain, tidak mengevaluasi
+   apa pun yang dikirim iframe
 
 ---
 
