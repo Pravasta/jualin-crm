@@ -111,6 +111,20 @@ const (
 	// security reason to make them the exception.
 	ActionDeviceTokenRegister Action = "device_token.register" // #nosec G101 -- an RBAC action name, not a credential; gosec's identifier heuristic matches "Token" in the const name
 	ActionDeviceTokenDelete   Action = "device_token.delete"
+
+	// ActionFormCreate/List/Read/Update/Delete (Phase 6 #85) are
+	// Owner/Admin only — same shape and same reasoning as api_key.*
+	// above: a form's public_key is a credential that can inject leads
+	// into the organization (once #87 wires submission), so Manager and
+	// Employee get no access at all, not read-only. The separate
+	// question of what PrincipalPublicForm itself may do is #87's
+	// publicFormAllows map — this map never grants that principal
+	// anything, since it has no Role to look up here at all.
+	ActionFormCreate Action = "form.create"
+	ActionFormList   Action = "form.list"
+	ActionFormRead   Action = "form.read"
+	ActionFormUpdate Action = "form.update"
+	ActionFormDelete Action = "form.delete"
 )
 
 // permissions mirrors docs/architecture/authorization.md's matrix
@@ -146,6 +160,11 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionAPIKeyRevoke:         true,
 		ActionDeviceTokenRegister:  true,
 		ActionDeviceTokenDelete:    true,
+		ActionFormCreate:           true,
+		ActionFormList:             true,
+		ActionFormRead:             true,
+		ActionFormUpdate:           true,
+		ActionFormDelete:           true,
 	},
 	tenant.RoleAdmin: {
 		ActionMembershipList:       true,
@@ -176,6 +195,11 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionAPIKeyRevoke:         true,
 		ActionDeviceTokenRegister:  true,
 		ActionDeviceTokenDelete:    true,
+		ActionFormCreate:           true,
+		ActionFormList:             true,
+		ActionFormRead:             true,
+		ActionFormUpdate:           true,
+		ActionFormDelete:           true,
 	},
 	tenant.RoleManager: {
 		ActionMembershipList: true,
