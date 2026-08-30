@@ -43,6 +43,11 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleOwner, authz.ActionAPIKeyRevoke, true},
 		{tenant.RoleOwner, authz.ActionDeviceTokenRegister, true},
 		{tenant.RoleOwner, authz.ActionDeviceTokenDelete, true},
+		{tenant.RoleOwner, authz.ActionFormCreate, true},
+		{tenant.RoleOwner, authz.ActionFormList, true},
+		{tenant.RoleOwner, authz.ActionFormRead, true},
+		{tenant.RoleOwner, authz.ActionFormUpdate, true},
+		{tenant.RoleOwner, authz.ActionFormDelete, true},
 
 		{tenant.RoleAdmin, authz.ActionMembershipList, true},
 		{tenant.RoleAdmin, authz.ActionMembershipUpdateRole, true},
@@ -72,6 +77,11 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleAdmin, authz.ActionAPIKeyRevoke, true},
 		{tenant.RoleAdmin, authz.ActionDeviceTokenRegister, true},
 		{tenant.RoleAdmin, authz.ActionDeviceTokenDelete, true},
+		{tenant.RoleAdmin, authz.ActionFormCreate, true},
+		{tenant.RoleAdmin, authz.ActionFormList, true},
+		{tenant.RoleAdmin, authz.ActionFormRead, true},
+		{tenant.RoleAdmin, authz.ActionFormUpdate, true},
+		{tenant.RoleAdmin, authz.ActionFormDelete, true},
 
 		{tenant.RoleManager, authz.ActionMembershipList, true},
 		{tenant.RoleManager, authz.ActionMembershipUpdateRole, false},
@@ -101,6 +111,11 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleManager, authz.ActionAPIKeyRevoke, false},
 		{tenant.RoleManager, authz.ActionDeviceTokenRegister, true}, // unlike api_key.*, every role gets this — it's the CALLER's own device
 		{tenant.RoleManager, authz.ActionDeviceTokenDelete, true},
+		{tenant.RoleManager, authz.ActionFormCreate, false}, // Manager gets NO access at all, not read-only — same shape as api_key.*
+		{tenant.RoleManager, authz.ActionFormList, false},
+		{tenant.RoleManager, authz.ActionFormRead, false},
+		{tenant.RoleManager, authz.ActionFormUpdate, false},
+		{tenant.RoleManager, authz.ActionFormDelete, false},
 
 		{tenant.RoleEmployee, authz.ActionMembershipList, false},
 		{tenant.RoleEmployee, authz.ActionMembershipUpdateRole, false},
@@ -130,6 +145,11 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleEmployee, authz.ActionAPIKeyRevoke, false},
 		{tenant.RoleEmployee, authz.ActionDeviceTokenRegister, true}, // every role, including Employee — registering a phone for push isn't a management action
 		{tenant.RoleEmployee, authz.ActionDeviceTokenDelete, true},
+		{tenant.RoleEmployee, authz.ActionFormCreate, false},
+		{tenant.RoleEmployee, authz.ActionFormList, false},
+		{tenant.RoleEmployee, authz.ActionFormRead, false},
+		{tenant.RoleEmployee, authz.ActionFormUpdate, false},
+		{tenant.RoleEmployee, authz.ActionFormDelete, false},
 	}
 
 	for _, c := range cases {
@@ -152,10 +172,15 @@ func TestRequire(t *testing.T) {
 // maintained the same way TestRequire's per-role cases above already
 // are (Go has no reflection-free way to enumerate a package's own
 // constants) — a future phase adding a new Action must add it here too,
-// or TestRequire_APIKeyPrincipal_OnlyLeadCreateAllowed silently stops
-// covering it. That's a real gap, not a hypothetical one: #46 added
-// three ActionAPIKey* constants without adding them to TestRequire's own
-// cases above — found and backfilled while writing this test.
+// or TestRequire_APIKeyPrincipal_OnlyLeadCreateAllowed/
+// TestRequire_PublicFormPrincipal_OnlyLeadCreateAllowed silently stop
+// covering it. That's a real gap, not a hypothetical one — twice over
+// now: #46 added three ActionAPIKey* constants without adding them
+// here (found and backfilled while writing this test), and #85 added
+// five ActionForm* constants with the exact same gap, found while
+// implementing #87 (this list, and TestRequire's per-role cases above,
+// had zero Form entries until now — #85 itself never touched this
+// file).
 var allActions = []authz.Action{
 	authz.ActionMembershipList, authz.ActionMembershipUpdateRole, authz.ActionMembershipDeactivate,
 	authz.ActionInvitationCreate, authz.ActionInvitationList, authz.ActionInvitationRevoke,
@@ -167,6 +192,7 @@ var allActions = []authz.Action{
 	authz.ActionMetricsRead,
 	authz.ActionAPIKeyCreate, authz.ActionAPIKeyList, authz.ActionAPIKeyRevoke,
 	authz.ActionDeviceTokenRegister, authz.ActionDeviceTokenDelete,
+	authz.ActionFormCreate, authz.ActionFormList, authz.ActionFormRead, authz.ActionFormUpdate, authz.ActionFormDelete,
 }
 
 // TestRequire_APIKeyPrincipal_OnlyLeadCreateAllowed is issue #47's
@@ -234,5 +260,49 @@ func TestRequire_APIKeyPrincipal_NeverConsultsRoleMap(t *testing.T) {
 	var derr *httpx.DomainError
 	if !errors.As(err, &derr) || derr.Code != "insufficient_scope" {
 		t.Errorf("expected insufficient_scope even though Role=owner would allow membership.list, got: %v", err)
+	}
+}
+
+// TestRequire_PublicFormPrincipal_OnlyLeadCreateAllowed is issue #87's
+// acceptance criterion, verbatim: "public_key tidak bisa memanggil satu
+// pun endpoint lain — dibuktikan tabel atas seluruh authz.Action, bukan
+// daftar tulisan tangan". Same shape as
+// TestRequire_APIKeyPrincipal_OnlyLeadCreateAllowed above — iterating
+// allActions means a new Action added in a later phase is denied by
+// default the moment it's added to that list, the whole point of TD
+// §4's deny-by-absence design for publicFormAllows.
+func TestRequire_PublicFormPrincipal_OnlyLeadCreateAllowed(t *testing.T) {
+	formCtx := tenant.Context{PrincipalType: tenant.PrincipalPublicForm}
+
+	for _, action := range allActions {
+		t.Run(string(action), func(t *testing.T) {
+			err := authz.Require(formCtx, action)
+			if action == authz.ActionLeadCreate {
+				if err != nil {
+					t.Errorf("expected lead.create to be allowed for a public form principal, got: %v", err)
+				}
+				return
+			}
+			var derr *httpx.DomainError
+			if !errors.As(err, &derr) || derr.Code != "forbidden" {
+				t.Errorf("expected forbidden for %s, got: %v", action, err)
+			}
+		})
+	}
+}
+
+// TestRequire_PublicFormPrincipal_NeverConsultsRoleMap mirrors
+// TestRequire_APIKeyPrincipal_NeverConsultsRoleMap — a public form
+// context with Role left at its zero value (ResolvePublicKey never
+// sets it) must be denied for reasons entirely separate from "this role
+// can't do this", proven by setting Role to Owner (which would allow
+// everything under the role-based map) and confirming Require still
+// routes to publicFormAllows instead.
+func TestRequire_PublicFormPrincipal_NeverConsultsRoleMap(t *testing.T) {
+	ctx := tenant.Context{PrincipalType: tenant.PrincipalPublicForm, Role: tenant.RoleOwner}
+	err := authz.Require(ctx, authz.ActionMembershipList)
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "forbidden" {
+		t.Errorf("expected forbidden even though Role=owner would allow membership.list, got: %v", err)
 	}
 }

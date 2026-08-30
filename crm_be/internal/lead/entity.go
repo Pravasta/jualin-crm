@@ -36,6 +36,12 @@ type Lead struct {
 	// integration record (freeze 8.4: leads.source accepted 'api' since
 	// 0003, this column arrived later in 0005).
 	SourceAPIKeyID *uuid.UUID
+	// SourceFormID is SourceAPIKeyID's Phase 6 (#87) counterpart — set
+	// only for a lead created through POST /v1/forms/{public_key}/submit,
+	// nil for every other source. leads.source accepted 'form' since
+	// 0003; this column arrived later in 0007 (#85), same staggered
+	// pattern SourceAPIKeyID's own doc comment describes.
+	SourceFormID   *uuid.UUID
 	IdempotencyKey *string
 	Version        int
 
@@ -60,6 +66,7 @@ type CreateInput struct {
 	CreatedByMembershipID  *uuid.UUID
 	RawPayload             []byte
 	SourceAPIKeyID         *uuid.UUID
+	SourceFormID           *uuid.UUID
 	IdempotencyKey         *string
 }
 
@@ -149,7 +156,9 @@ type CreateLeadInput struct {
 	// organization_id. A field here would be a value nobody should ever
 	// set except the usecase itself, which is exactly the shape of bug
 	// Rule #5 exists to prevent. Documented as a deliberate TD deviation
-	// in notes.md's "## #47" section.
+	// in notes.md's "## #47" section. The identical reasoning applies to
+	// source_form_id (Phase 6 #87): derived from t.FormID, never a field
+	// here either.
 	RawPayload []byte
 }
 

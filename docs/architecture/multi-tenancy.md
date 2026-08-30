@@ -108,6 +108,18 @@ yang sama, dan token FCM-nya tetap sama. Registrasi ulang di organization baru m
 menolak sebagai duplikat atau membiarkan dua baris tenant berbeda memegang token yang sama sekaligus
 (`internal/device/repository_postgres.go`'s `Upsert`).
 
+### Pengecualian keempat — `forms.public_key` unik lintas organization (Phase 6, issue #85)
+
+`uq_forms_public_key` (migration `0007`) unik **lintas** seluruh organization — alasannya sekelas
+`api_keys.key_id`/`refresh_tokens.token_hash`, bukan sekelas `device_tokens.token`: lookup kredensial
+terjadi **sebelum** organization diketahui, organization justru *hasil* dari lookup itu (Aturan #5).
+`Repository.FindByPublicKey` (`internal/form`) tidak menerima `tenant.Context`, pengecualian tertulis
+yang sama seperti `FindByKeyID`. Berbeda dari `api_keys.key_id`/`refresh_tokens.token_hash` dalam satu
+hal: `public_key` **bukan rahasia sama sekali** (ADR-005) — ia dirancang terbaca siapa pun yang melihat
+sumber halaman yang menyematkan formnya. Yang melindungi resource di baliknya bukan kerahasiaan
+kredensial, melainkan daftar kemampuan tertutup (`authz.publicFormAllows`) plus lapis anti-abuse di
+`docs/architecture/api.md` bagian *Formulir Publik* (issue #87).
+
 ---
 
 ## Lapis 3 — Row Level Security (ditunda)

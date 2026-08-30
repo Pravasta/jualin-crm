@@ -76,6 +76,21 @@ func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateLeadInp
 		u.maybeCleanupExpiredIdempotencyKeys(ctx, t)
 	}
 
+	// Public form jalur (Phase 6 #87, TD §5 keputusan D5) — same shape as
+	// the PrincipalAPIKey branch above: source is forced, never trusted
+	// from the submitter, and assignment can never be requested (a
+	// website visitor has no way to know a membership id, let alone
+	// legitimately choose one). No idempotency cleanup here — TD §5 is
+	// explicit forms never send an Idempotency-Key at all (a browser
+	// visitor's client can't generate one the way an integrator's
+	// backend does), so there's nothing this path could ever need swept.
+	if t.PrincipalType == tenant.PrincipalPublicForm {
+		if in.AssignedToMembershipID != nil {
+			return nil, false, insufficientScopeError()
+		}
+		in.Source = "form"
+	}
+
 	if in.Name == "" {
 		return nil, false, httpx.NewValidationError(httpx.ErrorDetail{Field: "name", Code: "required"})
 	}
@@ -106,6 +121,11 @@ func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateLeadInp
 		// since t.APIKeyID is only ever set on a PrincipalAPIKey
 		// tenant.Context (apikey.Usecase.ResolveAPIKey).
 		SourceAPIKeyID: t.APIKeyID,
+		// SourceFormID is SourceAPIKeyID's Phase 6 counterpart — nil
+		// automatically for every non-form create, since t.FormID is
+		// only ever set on a PrincipalPublicForm tenant.Context
+		// (form.Usecase.ResolvePublicKey, #87).
+		SourceFormID: t.FormID,
 	}
 
 	var created *Lead

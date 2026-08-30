@@ -167,6 +167,17 @@ func (r *postgresRepository) Delete(ctx context.Context, t tenant.Context, id uu
 	return nil
 }
 
+// IncrementSubmitCount does not touch updated_at — it's not a content
+// edit an Owner made (Update's own contract), just a counter TD §1
+// says exists purely for dashboard display.
+func (r *postgresRepository) IncrementSubmitCount(ctx context.Context, t tenant.Context, id uuid.UUID) error {
+	const q = `UPDATE forms SET submit_count = submit_count + 1 WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`
+	if _, err := r.q.Exec(ctx, q, id, t.OrganizationID); err != nil {
+		return fmt.Errorf("form: increment submit count: %w", err)
+	}
+	return nil
+}
+
 // FindByPublicKey is NOT organization-scoped — see the exception
 // documented on the Repository interface in port.go. WHERE public_key
 // = $1 hits uq_forms_public_key's index directly (verified via EXPLAIN

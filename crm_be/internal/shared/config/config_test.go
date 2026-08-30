@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -12,6 +13,30 @@ import (
 // validJWTSecret satisfies the minimum-length requirement so tests that
 // aren't specifically exercising JWT_SECRET validation don't fail on it.
 const validJWTSecret = "test-jwt-secret-at-least-32-bytes-long"
+
+// validFormTokenSecret is validJWTSecret's Phase 6 counterpart — a
+// SEPARATE value on purpose (config.go's own comment: rotating one
+// must never force rotating the other).
+const validFormTokenSecret = "test-form-token-secret-at-least-32-bytes"
+
+// TestMain sets FORM_TOKEN_SECRET (required, no default — same shape as
+// JWT_SECRET) for every test in this file, not just the ones that
+// exercise it directly. Without this, every EXISTING test below that
+// doesn't know FORM_TOKEN_SECRET exists would fail on it before ever
+// reaching whatever it actually means to test — env.Parse fails on the
+// FIRST missing required field in struct declaration order (verified
+// against caarlos0/env's source), and FormTokenSecret sits after
+// JWTSecret, so a test focused on, say, CORS validation would otherwise
+// get a FORM_TOKEN_SECRET error instead of the one it's asserting on.
+// t.Setenv inside an individual test (TestLoad_MissingFormTokenSecret
+// etc.) correctly shadows this for that test's own duration only.
+func TestMain(m *testing.M) {
+	if err := os.Setenv("FORM_TOKEN_SECRET", validFormTokenSecret); err != nil {
+		fmt.Fprintln(os.Stderr, "failed to set FORM_TOKEN_SECRET:", err)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
 
 // unsetEnv removes an env var for the duration of the test and restores its
 // previous value afterward. t.Setenv cannot express "unset" — setting a var
@@ -117,6 +142,9 @@ func TestLoad_ProductionMode(t *testing.T) {
 	t.Setenv("PUSH_PROVIDER", "fcm")
 	t.Setenv("FCM_PROJECT_ID", "test-project")
 	t.Setenv("FCM_CREDENTIALS_FILE", "/tmp/fcm-creds.json")
+	t.Setenv("CAPTCHA_PROVIDER", "turnstile")
+	t.Setenv("TURNSTILE_SITE_KEY", "test-site-key")
+	t.Setenv("TURNSTILE_SECRET_KEY", "test-secret-key")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -153,6 +181,170 @@ func TestLoad_ShortJWTSecret(t *testing.T) {
 	}
 }
 
+// TestLoad_MissingFormTokenSecret is Phase 6 #87's direct counterpart to
+// TestLoad_MissingJWTSecret — FORM_TOKEN_SECRET is required with no
+// default, same reasoning: a process booting with a generated or empty
+// secret would silently invalidate every time-trap token already
+// embedded in a live customer page (TD §6).
+func TestLoad_MissingFormTokenSecret(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	unsetEnv(t, "FORM_TOKEN_SECRET")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when FORM_TOKEN_SECRET is missing, got nil")
+	}
+	if !strings.Contains(err.Error(), "FORM_TOKEN_SECRET") {
+		t.Errorf("expected error to mention FORM_TOKEN_SECRET, got: %v", err)
+	}
+}
+
+func TestLoad_ShortFormTokenSecret(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("FORM_TOKEN_SECRET", "too-short")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for a FORM_TOKEN_SECRET shorter than 32 bytes, got nil")
+	}
+	if !strings.Contains(err.Error(), "FORM_TOKEN_SECRET") {
+		t.Errorf("expected error to mention FORM_TOKEN_SECRET, got: %v", err)
+	}
+}
+
+func TestLoad_InvalidCaptchaProvider(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("CAPTCHA_PROVIDER", "recaptcha")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for an unknown CAPTCHA_PROVIDER, got nil")
+	}
+	if !strings.Contains(err.Error(), "CAPTCHA_PROVIDER") {
+		t.Errorf("expected error to mention CAPTCHA_PROVIDER, got: %v", err)
+	}
+}
+
+// TestLoad_ProductionRejectsNoneCaptchaProvider is issue #87's direct
+// acceptance criterion: a production process with anti-spam turned off
+// fails completely silently — no crash, no error, just every spam
+// submission accepted. Same shape as
+// TestLoad_ProductionRejectsLogMailProvider.
+func TestLoad_ProductionRejectsNoneCaptchaProvider(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
+	t.Setenv("TRUSTED_PROXIES", "none")
+	t.Setenv("MAIL_PROVIDER", "smtp")
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("PUSH_PROVIDER", "fcm")
+	t.Setenv("FCM_PROJECT_ID", "test-project")
+	t.Setenv("FCM_CREDENTIALS_FILE", "/tmp/fcm-creds.json")
+	t.Setenv("CAPTCHA_PROVIDER", "none")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when APP_ENV=production and CAPTCHA_PROVIDER=none, got nil")
+	}
+	if !strings.Contains(err.Error(), "CAPTCHA_PROVIDER") {
+		t.Errorf("expected error to mention CAPTCHA_PROVIDER, got: %v", err)
+	}
+}
+
+func TestLoad_TurnstileRequiresSiteKey(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("CAPTCHA_PROVIDER", "turnstile")
+	t.Setenv("TURNSTILE_SECRET_KEY", "test-secret-key")
+	unsetEnv(t, "TURNSTILE_SITE_KEY")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when CAPTCHA_PROVIDER=turnstile and TURNSTILE_SITE_KEY is unset, got nil")
+	}
+	if !strings.Contains(err.Error(), "TURNSTILE_SITE_KEY") {
+		t.Errorf("expected error to mention TURNSTILE_SITE_KEY, got: %v", err)
+	}
+}
+
+func TestLoad_TurnstileRequiresSecretKey(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("CAPTCHA_PROVIDER", "turnstile")
+	t.Setenv("TURNSTILE_SITE_KEY", "test-site-key")
+	unsetEnv(t, "TURNSTILE_SECRET_KEY")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when CAPTCHA_PROVIDER=turnstile and TURNSTILE_SECRET_KEY is unset, got nil")
+	}
+	if !strings.Contains(err.Error(), "TURNSTILE_SECRET_KEY") {
+		t.Errorf("expected error to mention TURNSTILE_SECRET_KEY, got: %v", err)
+	}
+}
+
+func TestLoad_CaptchaNoneIsValidOutsideProduction(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.CaptchaProvider != "none" {
+		t.Errorf(`expected default CaptchaProvider "none", got %q`, cfg.CaptchaProvider)
+	}
+}
+
+func TestLoad_FormSubmitRateLimitIP_MustBePositive(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("FORM_SUBMIT_RATE_LIMIT_IP", "0")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for FORM_SUBMIT_RATE_LIMIT_IP=0, got nil")
+	}
+	if !strings.Contains(err.Error(), "FORM_SUBMIT_RATE_LIMIT_IP") {
+		t.Errorf("expected error to mention FORM_SUBMIT_RATE_LIMIT_IP, got: %v", err)
+	}
+}
+
+func TestLoad_FormSubmitRateLimitForm_MustBePositive(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("FORM_SUBMIT_RATE_LIMIT_FORM", "-1")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for FORM_SUBMIT_RATE_LIMIT_FORM=-1, got nil")
+	}
+	if !strings.Contains(err.Error(), "FORM_SUBMIT_RATE_LIMIT_FORM") {
+		t.Errorf("expected error to mention FORM_SUBMIT_RATE_LIMIT_FORM, got: %v", err)
+	}
+}
+
+func TestLoad_FormSubmitRateLimitDefaults(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.FormSubmitRateLimitIP != 20 {
+		t.Errorf("expected default FormSubmitRateLimitIP=20, got %d", cfg.FormSubmitRateLimitIP)
+	}
+	if cfg.FormSubmitRateLimitForm != 60 {
+		t.Errorf("expected default FormSubmitRateLimitForm=60, got %d", cfg.FormSubmitRateLimitForm)
+	}
+}
+
 // TestLoad_ProductionRequiresCookieSecure is the direct acceptance
 // criterion from issue #10: COOKIE_SECURE=false in production must fail
 // boot (Rule #36), not merely log a warning — a cookie sent over plain
@@ -169,6 +361,9 @@ func TestLoad_ProductionRequiresCookieSecure(t *testing.T) {
 	t.Setenv("PUSH_PROVIDER", "fcm")
 	t.Setenv("FCM_PROJECT_ID", "test-project")
 	t.Setenv("FCM_CREDENTIALS_FILE", "/tmp/fcm-creds.json")
+	t.Setenv("CAPTCHA_PROVIDER", "turnstile")
+	t.Setenv("TURNSTILE_SITE_KEY", "test-site-key")
+	t.Setenv("TURNSTILE_SECRET_KEY", "test-secret-key")
 
 	_, err := config.Load()
 	if err == nil {
@@ -194,6 +389,9 @@ func TestLoad_ProductionRequiresCORSAllowedOrigins(t *testing.T) {
 	t.Setenv("PUSH_PROVIDER", "fcm")
 	t.Setenv("FCM_PROJECT_ID", "test-project")
 	t.Setenv("FCM_CREDENTIALS_FILE", "/tmp/fcm-creds.json")
+	t.Setenv("CAPTCHA_PROVIDER", "turnstile")
+	t.Setenv("TURNSTILE_SITE_KEY", "test-site-key")
+	t.Setenv("TURNSTILE_SECRET_KEY", "test-secret-key")
 	unsetEnv(t, "CORS_ALLOWED_ORIGINS")
 
 	_, err := config.Load()
@@ -222,6 +420,9 @@ func TestLoad_ProductionRequiresTrustedProxies(t *testing.T) {
 	t.Setenv("PUSH_PROVIDER", "fcm")
 	t.Setenv("FCM_PROJECT_ID", "test-project")
 	t.Setenv("FCM_CREDENTIALS_FILE", "/tmp/fcm-creds.json")
+	t.Setenv("CAPTCHA_PROVIDER", "turnstile")
+	t.Setenv("TURNSTILE_SITE_KEY", "test-site-key")
+	t.Setenv("TURNSTILE_SECRET_KEY", "test-secret-key")
 	unsetEnv(t, "TRUSTED_PROXIES")
 
 	_, err := config.Load()

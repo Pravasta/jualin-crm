@@ -351,6 +351,7 @@ func leadJSON(l *Lead) gin.H {
 		"lost_reason":               l.LostReason,
 		"source":                    l.Source,
 		"source_api_key_id":         l.SourceAPIKeyID,
+		"source_form_id":            l.SourceFormID,
 		"assigned_to_membership_id": l.AssignedToMembershipID,
 		"version":                   l.Version,
 		"created_by_membership_id":  l.CreatedByMembershipID,

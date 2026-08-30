@@ -147,6 +147,22 @@ alasan keamanan menutup pintu bagi Owner/Admin/Manager yang kelak juga memasang 
 
 ---
 
+## Matriks (Phase 6) — issue #85
+
+| Action | Owner | Admin | Manager | Employee |
+|---|---|---|---|---|
+| `form.create` | ✅ | ✅ | — | — |
+| `form.list` | ✅ | ✅ | — | — |
+| `form.read` | ✅ | ✅ | — | — |
+| `form.update` | ✅ | ✅ | — | — |
+| `form.delete` | ✅ | ✅ | — | — |
+
+Bentuk sama persis dengan `api_key.*` (Phase 4) — Manager tidak dapat **sama sekali**, bukan read-only.
+`public_key` adalah kredensial yang bisa memasukkan lead ke organization, sekelas API key dalam hal itu
+(`internal/shared/authz/authz.go`'s doc comment pada `ActionFormCreate`).
+
+---
+
 ## Otorisasi berbasis scope — principal tanpa role (Phase 4, issue #47)
 
 Matriks role di atas menjawab pertanyaan **"role apa boleh action apa"** — tapi principal `api_key`
@@ -194,6 +210,46 @@ tertutup tanpa ada yang perlu mengingatnya.
 **Matriks role di bagian atas dokumen ini karena itu tidak lagi menggambarkan seluruh sistem
 otorisasi** — ia menjawab untuk `PrincipalUser`; bagian ini menjawab untuk `PrincipalAPIKey`. Keduanya
 harus dibaca bersama untuk tahu "siapa boleh apa" secara lengkap.
+
+---
+
+## Otorisasi tanpa role — principal form (Phase 6, issue #87)
+
+`Require` bercabang **ketiga kalinya** — `PrincipalPublicForm`, bentuk yang sama persis dengan
+`PrincipalAPIKey` di atas, bukan digabung ke peta yang sama:
+
+```go
+// internal/shared/authz/authz.go
+var publicFormAllows = map[Action]bool{
+    ActionLeadCreate: true,
+}
+
+func Require(t tenant.Context, action Action) error {
+    if t.PrincipalType == tenant.PrincipalAPIKey { /* ... */ }
+    if t.PrincipalType == tenant.PrincipalPublicForm {
+        if !publicFormAllows[action] {
+            return forbiddenError()   // 403 forbidden — BUKAN insufficient_scope
+        }
+        return nil
+    }
+    if permissions[t.Role][action] { /* ... */ }
+}
+```
+
+**Kenapa peta terpisah dari `apiKeyScopeFor`, bukan digabung.** Keduanya menjawab pertanyaan yang
+berbeda: API key punya *scope yang bisa dipilih pelanggan* (hari ini cuma satu, tapi bentuknya
+extensible); form punya *satu kemampuan tetap* yang tidak pernah bertambah tanpa ADR-005 berubah.
+Menggabungkannya berarti suatu hari seseorang menambah scope ke API key dan tanpa sadar memberikannya
+juga ke setiap form yang terpasang di situs pelanggan.
+
+**Kenapa `forbiddenError()`, bukan `InsufficientScopeError()`.** `public_key` tidak punya konsep scope
+sama sekali — ia tidak seperti API key yang *bisa* diberi scope lebih luas tapi tidak diberi. Kode
+`forbidden` (bukan `insufficient_scope`) mencerminkan itu: bukan "kredensial ini kurang izin", tapi
+"kredensial jenis ini tidak pernah punya jalan menuju aksi ini sama sekali".
+
+Dikunci test yang sama bentuknya dengan `apiKeyScopeFor` — mengulang **seluruh** `Action` yang
+terdaftar di paket ini terhadap principal `public_form`, bukan daftar tulis tangan
+(`TestRequire_PublicFormPrincipal_OnlyLeadCreateAllowed`).
 
 ---
 

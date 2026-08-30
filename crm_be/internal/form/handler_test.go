@@ -1,9 +1,10 @@
 package form_test
 
-// Integration tests (real Postgres via dbtest) for issue #85's form HTTP
-// layer — create/list/get/update/delete as principal user. Nothing here
-// exercises the public POST /v1/forms/{public_key}/submit path; that's
-// #87's.
+// Integration tests (real Postgres via dbtest) for the form HTTP
+// layer — create/list/get/update/delete as principal user (#85), plus
+// the public POST /v1/forms/{public_key}/submit path (#87, below the
+// "--- submit ---" marker). GET /embed/{public_key} and embed.js are
+// #88's, not tested here.
 
 import (
 	"bytes"
@@ -11,6 +12,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,8 +26,11 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/form"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/accesstoken"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authn"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/captcha"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db/dbtest"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/formtoken"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/ratelimit"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
 )
 
@@ -50,15 +56,34 @@ func (s *testStore) Repos() form.Repos {
 	return form.Repos{Form: form.New(s.pool), Audit: auditlog.New(s.pool)}
 }
 
+// generousSubmitLimit is a rate limit high enough that no CRUD test in
+// this file (they never call the submit route at all) or submit test
+// that isn't SPECIFICALLY exercising rate limiting could ever hit it
+// incidentally.
+const generousSubmitLimit = 1000
+
 func newTestRouter(t *testing.T) (*gin.Engine, *pgxpool.Pool) {
+	t.Helper()
+	r, pool, _ := newTestRouterWithLeadCreator(t, &fakeLeadCreator{})
+	return r, pool
+}
+
+// newTestRouterWithLeadCreator is newTestRouter's Submit-test-facing
+// variant — exposes the *form.Usecase's dependencies a submit test
+// needs to swap (which lead creator; captcha/rate-limit swaps use their
+// own dedicated constructors below, same reasoning) without every CRUD
+// test above having to know Submit-specific plumbing exists.
+func newTestRouterWithLeadCreator(t *testing.T, leadCreator form.LeadCreator) (*gin.Engine, *pgxpool.Pool, *form.Usecase) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	pool := dbtest.NewPool(t)
-	u := form.NewUsecase(newTestStore(pool))
+	u := form.NewUsecase(newTestStore(pool), captcha.NoopVerifier{}, testFormTokenSecret, leadCreator)
 
 	r := gin.New()
-	form.NewHandler(u).RegisterRoutes(r, authn.Middleware(testClaimsParser{}))
-	return r, pool
+	ipLimit := ratelimit.NewFixedWindow(generousSubmitLimit, time.Minute)
+	keyLimit := ratelimit.NewFixedWindow(generousSubmitLimit, time.Minute)
+	form.NewHandler(u, ipLimit, keyLimit).RegisterRoutes(r, authn.Middleware(testClaimsParser{}))
+	return r, pool, u
 }
 
 func bearerToken(t *testing.T, userID, orgID, membershipID uuid.UUID, role tenant.Role) string {
@@ -345,5 +370,290 @@ func TestHandler_CreateAndDelete_RecordAuditLog(t *testing.T) {
 	}
 	if len(actions) != 2 || actions[0] != "form.created" || actions[1] != "form.deleted" {
 		t.Fatalf("expected [form.created form.deleted], got %v", actions)
+	}
+}
+
+// --- submit (Phase 6 #87) ---
+
+// newTestRouterWithLimits is the submit-rate-limit tests' variant —
+// small, deliberately-exhaustible limits, unlike generousSubmitLimit.
+func newTestRouterWithLimits(t *testing.T, ipLimit, keyLimit int) (*gin.Engine, *pgxpool.Pool) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	pool := dbtest.NewPool(t)
+	u := form.NewUsecase(newTestStore(pool), captcha.NoopVerifier{}, testFormTokenSecret, &fakeLeadCreator{})
+
+	r := gin.New()
+	form.NewHandler(u, ratelimit.NewFixedWindow(ipLimit, time.Minute), ratelimit.NewFixedWindow(keyLimit, time.Minute)).
+		RegisterRoutes(r, authn.Middleware(testClaimsParser{}))
+	return r, pool
+}
+
+// seedRealForm inserts a form directly through the real repository
+// (bypassing Usecase.Create, which requires an authenticated principal
+// user) — submit tests need precise control over AllowedOrigins/Fields
+// that going through the full Create flow would only complicate.
+func seedRealForm(t *testing.T, ctx context.Context, pool *pgxpool.Pool, org uuid.UUID, publicKey string, allowedOrigins []string, fields form.Fields) *form.Form {
+	t.Helper()
+	repo := form.New(pool)
+	f := &form.Form{
+		ID: uuid.Must(uuid.NewV7()), OrganizationID: org, PublicKey: publicKey,
+		Name: "Test Form", Fields: fields, AllowedOrigins: allowedOrigins,
+	}
+	if err := repo.Create(ctx, tenant.Context{OrganizationID: org}, f); err != nil {
+		t.Fatalf("seed form: %v", err)
+	}
+	return f
+}
+
+// validFormToken mints a token past formtoken's 2-second minimum age —
+// same real-sleep tradeoff usecase_unit_test.go's own validTokenFor
+// documents (formtoken's public API has no injectable clock, by
+// design: TD §6 defines Issue/Verify with no time parameter).
+func validFormToken(formID uuid.UUID) string {
+	token := formtoken.Issue(testFormTokenSecret, formID)
+	time.Sleep(2100 * time.Millisecond)
+	return token
+}
+
+func doFormPost(r *gin.Engine, path, origin string, values url.Values) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(values.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// TestHandler_Submit_Success_Returns201 is #87's own acceptance
+// criterion at the HTTP layer: a genuine
+// application/x-www-form-urlencoded POST (no JSON, no JavaScript
+// required) creates a lead. Proves the whole wire contract end to end —
+// body parsing, origin allowlist, time-trap, field validation, lead
+// creation — through one real HTTP round trip.
+func TestHandler_Submit_Success_Returns201(t *testing.T) {
+	r, pool := newTestRouter(t)
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_submit_success", []string{"https://example.com"}, form.DefaultFields())
+
+	values := url.Values{
+		"name":       {"Budi Santoso"},
+		"phone":      {"0812xxxx"},
+		"form_token": {validFormToken(f.ID)},
+	}
+	w := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://example.com", values)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Data.ID == "" {
+		t.Error("expected a non-empty lead id in the response")
+	}
+}
+
+// TestHandler_Submit_UnknownFieldsExcludeProtocolFields proves
+// buildRawPayload's exclusion list — form_token must never end up
+// stored in raw_payload (it's a credential-adjacent value, not
+// submission content), while an arbitrary unknown field the customer's
+// HTML happens to send DOES get stored (kriteria: "field tak dikenal
+// tersimpan di raw_payload"). Inspects what reached leadCreator directly
+// (a fake this test owns) rather than querying the real leads table —
+// buildRawPayload is form's own handler logic; whether lead.Usecase.Create
+// then persists it correctly is cmd/api/public_form_api_test.go's job,
+// with a REAL lead.Usecase wired end to end.
+func TestHandler_Submit_UnknownFieldsExcludeProtocolFields(t *testing.T) {
+	creator := &fakeLeadCreator{}
+	r, pool, _ := newTestRouterWithLeadCreator(t, creator)
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_raw_payload", []string{"https://example.com"}, form.DefaultFields())
+	token := validFormToken(f.ID)
+
+	values := url.Values{
+		"name":       {"Budi Santoso"},
+		"phone":      {"0812xxxx"},
+		"utm_source": {"facebook"}, // unknown field — must survive into raw_payload
+		"form_token": {token},      // protocol field — must NOT survive
+	}
+	w := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://example.com", values)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(creator.calls) != 1 {
+		t.Fatalf("expected exactly 1 leadCreator call, got %d", len(creator.calls))
+	}
+
+	var parsed map[string]string
+	if err := json.Unmarshal(creator.calls[0].rawPayload, &parsed); err != nil {
+		t.Fatalf("unmarshal raw_payload: %v", err)
+	}
+	if parsed["utm_source"] != "facebook" {
+		t.Errorf("expected utm_source preserved in raw_payload, got %+v", parsed)
+	}
+	if _, present := parsed["form_token"]; present {
+		t.Errorf("expected form_token excluded from raw_payload, got %+v", parsed)
+	}
+}
+
+func TestHandler_Submit_UnknownPublicKey_Returns404(t *testing.T) {
+	r, _ := newTestRouter(t)
+	values := url.Values{"name": {"Budi"}}
+	w := doFormPost(r, "/v1/forms/pk_does-not-exist/submit", "https://example.com", values)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandler_Submit_OriginNotAllowed_Returns403(t *testing.T) {
+	r, pool := newTestRouter(t)
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_origin_test", []string{"https://allowed.example.com"}, form.DefaultFields())
+
+	values := url.Values{"name": {"Budi"}, "phone": {"0812"}}
+	w := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://attacker.example.com", values)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Error.Code != "origin_not_allowed" {
+		t.Errorf("expected origin_not_allowed, got %q", body.Error.Code)
+	}
+}
+
+// TestHandler_Submit_PayloadTooLarge_Returns413 proves the 32KB cap is
+// enforced at the HTTP layer (http.MaxBytesReader), not just documented.
+func TestHandler_Submit_PayloadTooLarge_Returns413(t *testing.T) {
+	r, pool := newTestRouter(t)
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_too_large", []string{"https://example.com"}, form.DefaultFields())
+
+	values := url.Values{
+		"name":    {"Budi"},
+		"message": {strings.Repeat("x", 40*1024)}, // 40KB > the 32KB cap
+	}
+	w := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://example.com", values)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandler_Submit_HoneypotFilled_IndistinguishableStatusAndShape is
+// #87's own acceptance criterion at the HTTP layer: status code and
+// response body SHAPE match a genuine success exactly (timing is
+// separately documented as NOT fully solved — see Usecase.Submit's own
+// doc comment — this test only proves what it can: status/shape).
+func TestHandler_Submit_HoneypotFilled_IndistinguishableStatusAndShape(t *testing.T) {
+	r, pool := newTestRouter(t)
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_honeypot", []string{"https://example.com"}, form.DefaultFields())
+
+	values := url.Values{
+		"name":    {"Bot"},
+		"phone":   {"0812"},
+		"website": {"http://spam.example.com"}, // honeypot field, filled
+	}
+	w := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://example.com", values)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 (fake success), got %d: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Data.ID == "" {
+		t.Error("expected a non-empty (fake) id, matching a genuine success response's shape")
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM leads WHERE organization_id = $1`, org).Scan(&count); err != nil {
+		t.Fatalf("count leads: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected NO lead created for a honeypot-filled submission, found %d", count)
+	}
+}
+
+func TestHandler_Submit_RateLimitPerIP_Returns429WithHeaders(t *testing.T) {
+	r, pool := newTestRouterWithLimits(t, 1, generousSubmitLimit)
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_ip_limit", []string{"https://example.com"}, form.DefaultFields())
+	values := url.Values{"name": {"Budi"}, "phone": {"0812"}}
+
+	first := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://example.com", values)
+	if first.Header().Get("X-RateLimit-Limit") == "" {
+		t.Error("expected X-RateLimit-Limit header on the first (successful) response")
+	}
+
+	second := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://example.com", values)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 on the 2nd request within a 1-request IP limit, got %d: %s", second.Code, second.Body.String())
+	}
+	if second.Header().Get("Retry-After") == "" {
+		t.Error("expected Retry-After header on a 429 response")
+	}
+}
+
+func TestHandler_Submit_RateLimitPerForm_Returns429(t *testing.T) {
+	r, pool := newTestRouterWithLimits(t, generousSubmitLimit, 1)
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_form_limit", []string{"https://example.com"}, form.DefaultFields())
+	values := url.Values{"name": {"Budi"}, "phone": {"0812"}, "form_token": {validFormToken(f.ID)}}
+
+	if w := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://example.com", values); w.Code != http.StatusCreated {
+		t.Fatalf("expected first submission to succeed, got %d: %s", w.Code, w.Body.String())
+	}
+	second := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://example.com", values)
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 on the 2nd request within a 1-request per-form limit, got %d: %s", second.Code, second.Body.String())
+	}
+}
+
+// TestHandler_Submit_RateLimitRunsBeforeBodyIsRead is TD §5's ordering
+// requirement, proven rather than assumed: a request that is BOTH
+// over the IP rate limit AND carries an oversized body must fail as
+// 429, never 413 — if body reading happened first, an attacker's flood
+// would cost a full body read every time regardless of the limit.
+func TestHandler_Submit_RateLimitRunsBeforeBodyIsRead(t *testing.T) {
+	r, pool := newTestRouterWithLimits(t, 1, generousSubmitLimit)
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_order_test", []string{"https://example.com"}, form.DefaultFields())
+
+	small := url.Values{"name": {"Budi"}}
+	if w := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://example.com", small); w.Code == http.StatusTooManyRequests {
+		t.Fatalf("expected the first request to consume the budget without itself being rate-limited, got %d", w.Code)
+	}
+
+	oversized := url.Values{"name": {"Budi"}, "message": {strings.Repeat("x", 40*1024)}}
+	w := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://example.com", oversized)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 (rate limit wins over body size), got %d: %s", w.Code, w.Body.String())
 	}
 }

@@ -52,6 +52,12 @@ type Context struct {
 	// against authz's permissions map; a scope-based principal has no
 	// role at all and is gated by this slice against authz's separate
 	// apiKeyScopeFor map instead. The two gates never mix.
-	Scopes    []string
+	Scopes []string
+	// FormID is only ever populated when PrincipalType ==
+	// PrincipalPublicForm (Phase 6 #87) — same shape as APIKeyID before
+	// it. It is the id of the credential (a forms.public_key row) that
+	// resolved this request; lead.Usecase.Create reads it to stamp
+	// leads.source_form_id — never from the request body (Rule #5).
+	FormID    *uuid.UUID
 	RequestID string
 }

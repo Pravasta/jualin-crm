@@ -16,6 +16,16 @@ type Repository interface {
 	Update(ctx context.Context, t tenant.Context, id uuid.UUID, in UpdateInput) (*Form, error)
 	Delete(ctx context.Context, t tenant.Context, id uuid.UUID) error
 
+	// IncrementSubmitCount bumps forms.submit_count by one — TD §1's
+	// "angka untuk ditampilkan di dashboard ('form ini pernah dipakai
+	// atau tidak')", NOT a Phase 8 usage-quota mechanism (usage_counters
+	// is a separate, unrelated table). #87 is the only place a
+	// submission event can ever originate, so it's the only caller.
+	// Best-effort from Usecase.Submit's side (see its own call site) —
+	// a failure here never fails the HTTP response, since the lead this
+	// counts has already been created by the time this runs.
+	IncrementSubmitCount(ctx context.Context, t tenant.Context, id uuid.UUID) error
+
 	// FindByPublicKey deliberately does NOT take tenant.Context — same
 	// documented exception as apikey.Repository.FindByKeyID (Phase 4
 	// #46), itself following invitation.Repository.FindValidByHash and
@@ -45,4 +55,31 @@ type Repos struct {
 type Store interface {
 	InTx(ctx context.Context, fn func(Repos) error) error
 	Repos() Repos
+}
+
+// LeadCreator lets Usecase.Submit (#87) create a lead without
+// internal/form importing internal/lead directly. ADR-011's rule that
+// cross-domain interfaces are declared by the consumer using only
+// primitives — never the producer's own domain types — extends here in
+// the opposite direction from lead.ActivityRecorder/NotificationSender/
+// PushSender: those let lead call INTO other domains without importing
+// them; this lets form call OUT to lead without importing it. Verified
+// against the actual codebase before choosing this shape: no domain
+// package other than cmd/api imports internal/lead anywhere in this
+// repository (only cmd/api's own *_store.go/main.go do) — importing
+// lead.CreateLeadInput/*lead.Lead here directly would be the one
+// exception with no precedent.
+//
+// *lead.Usecase does NOT satisfy this directly (its own Create keeps
+// lead.CreateLeadInput/*lead.Lead, per D5: "memakai ulang
+// lead.Usecase.Create apa adanya" — TD never asks lead's own signature
+// to change shape). A thin adapter wired at the composition root
+// (cmd/api/form_store.go) translates between the two; internally it
+// still calls the exact same lead.Usecase.Create every other creation
+// path uses, including the SAME authz.Require(ActionLeadCreate) call
+// that routes a PrincipalPublicForm tenant.Context through authz's
+// publicFormAllows map (TD §4) — Usecase.Submit below never calls
+// authz.Require itself, it relies entirely on this.
+type LeadCreator interface {
+	CreateFromForm(ctx context.Context, t tenant.Context, name string, email, phone, company, notes *string, rawPayload []byte) (leadID uuid.UUID, err error)
 }
