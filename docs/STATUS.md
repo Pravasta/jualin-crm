@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 30 Agustus 2026 — **Issue #73 selesai — Phase 5 tutup, GATE freeze terbuka** (My Tasks, FCM klien, deeplink, penutup phase).
-**Phase sekarang:** Phase 5 selesai — **GATE freeze terbuka**. Menunggu verifikasi HP Android (5 AC tersisa) dan 3–5 pengguna nyata sebelum Phase 6.
+**Last updated:** 30 Agustus 2026 — **Phase 6 dibuka** (Connect & Embedded Form, #85–#89).
+**Phase sekarang:** Phase 6 — Connect & Embedded Form. Phase 5 selesai; GATE freeze **dilewati secara sadar** oleh pemilik produk (lihat *Berikutnya*).
 
 ---
 
@@ -60,13 +60,41 @@
 
 ## Sedang Dikerjakan
 
-_(kosong)_
+**Phase 6 — Connect & Embedded Form** ([#85–#89](https://github.com/Pravasta/jualin-crm/milestone/9)).
+Dokumen: `docs/phases/06-connect-form/`. Belum ada satu baris kode; yang sudah ada baru PRD, TD, dan
+lima issue.
+
+**Sebelum #87 dikerjakan**: urus akun Cloudflare Turnstile (lihat *Punya Lead Time* di bawah). Empat
+issue lain jalan penuh tanpanya lewat `CAPTCHA_PROVIDER=none`.
 
 ---
 
 ## Berikutnya
 
-### Phase 5 — Employee Mobile — ✅ SELESAI. GATE freeze terbuka.
+### Phase 6 — Connect & Embedded Form — sedang berjalan (#85–#89)
+
+**Capture layer bisa dipakai tanpa developer.** Phase 4 membuktikan lead bisa masuk sendiri dari luar,
+tapi hanya bila pelanggan punya orang yang bisa menulis `POST /v1/leads`. Phase 6 menutup jarak itu:
+salin satu potong HTML, tempel, selesai. Sekaligus memberi capture layer rumah di produk —
+[ADR-012](./decisions/ADR-012-connect-surface-and-subscription-gating.md) menaikkan `Connect` jadi menu
+utama. Dokumen: `docs/phases/06-connect-form/`.
+
+**GATE freeze dilewati secara sadar.** Freeze bagian 4 meminta 3–5 pengguna nyata sebelum Phase 6, dan
+pemilik produk memutuskan melanjutkan lebih dulu — membangun busur SaaS penuh (Connect → Form →
+Webhook → Subscription) supaya produknya utuh sebelum dijual. **Dicatat sebagai keputusan, bukan
+kelalaian.** Konsekuensinya tetap berlaku: urutan Phase 7–9 yang direncanakan sekarang adalah tebakan
+kita, bukan permintaan pengguna, dan masih bisa berubah begitu ada masukan nyata.
+
+**Tim QA akan menguji lebih dulu** sebelum bug diperbaiki. Bug yang mereka temukan masuk lewat alur
+issue biasa (`docs/workflow.md`), bukan diperbaiki diam-diam di tengah Phase 6.
+
+> **Staging belum ada.** Belum ada satu pun deployment: `crm_be/Dockerfile` sendirian, CI berhenti di
+> `analyze`+`test`, dashboard `npm run dev`, APK harus di-build sendiri dengan berkas Firebase yang
+> di-gitignore. Tim QA praktis harus jadi developer dulu untuk bisa menguji — dan tiap tester punya
+> database sendiri, jadi bug mereka tidak saling bisa direproduksi. **Ini di luar phase manapun dan
+> belum punya issue**; ia juga tetap jadi prasyarat sebelum 3–5 pengguna nyata bisa didatangkan.
+
+### Phase 5 — Employee Mobile — ✅ SELESAI
 
 **Phase MVP terakhir tertutup total** (#68–#73). `docs/phases/05-employee-mobile/`. Kalimat inti MVP
 sekarang berjalan ujung-ke-ujung untuk pertama kalinya: login → lead → telepon/WA → ubah status →
@@ -83,10 +111,9 @@ dan `docs/testing/flow/06-checklist-akhir.md` bagian 7. **Ini adalah langkah man
 sebelum atau sejajar dengan mencari 3–5 pengguna nyata di bawah — keduanya butuh perangkat sungguhan
 untuk diyakini, bukan dibaca dari kode.
 
-**GATE freeze (bagian 4)**: cari **3–5 pengguna nyata** sebelum Phase 6. Urutan Phase 6–9 ditentukan
-apa yang mereka minta, bukan tebakan — freeze sendiri tidak memutuskan urutannya di muka. Panduan demo
-langkah-demi-langkah sudah ada (`docs/testing/flow/`), email produksi sungguhan terkirim (Phase 4.6) —
-tidak ada lagi penghalang teknis untuk demo, sisanya jadwal dan keputusan pemilik produk.
+**Mencari 3–5 pengguna nyata tetap belum dilakukan** — GATE-nya dilewati (lihat Phase 6 di atas), tapi
+kebutuhannya tidak hilang. Panduan demo langkah-demi-langkah sudah ada (`docs/testing/flow/`), email
+produksi sungguhan terkirim (Phase 4.6); yang menghalangi sekarang tinggal staging dan jadwal.
 
 **Android dulu, iOS ditunda** (keputusan M1, tetap berlaku pasca-phase) — Apple Developer Program
 berbayar dan belum ada. Tidak mengorbankan satu pun kriteria selesai phase (freeze tidak menyebut
@@ -193,6 +220,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | **Domain + email sender** (SPF/DKIM/DMARC) | Phase 1 | **Sekarang** | Verifikasi email menggerbangi login (keputusan B3), jadi ia jalur kritis Phase 1. Propagasi DNS dan pemanasan reputasi pengirim butuh waktu — dan email verifikasi yang masuk spam akan membunuh funnel registrasi **tanpa menghasilkan satu pun error**. |
 | **Apple Developer Program** | Phase 5 — **iOS saja** | Saat iOS diaktifkan | Enrollment bisa berhari-hari sampai berminggu (verifikasi identitas / D-U-N-S untuk organisasi). **Tidak lagi memblokir Phase 5** sejak keputusan M1 (Android dulu) — yang terhalang hanya build iOS & push iOS, bukan satu pun kriteria selesai phase. |
 | **Firebase project (FCM)** | Phase 5 | ✅ **App terdaftar** (`jualin-crm`, `flutterfire configure` sudah dijalankan #73) | Yang tersisa: service account untuk backend (`FCM_CREDENTIALS_FILE`) — sengaja ditinggalkan ke pemilik produk, mencetak kredensial GCP jangka panjang. Langkah persisnya `td.md` §14 langkah 3. |
+| **Cloudflare Turnstile** | Phase 6 — **issue #87 saja** | ⬜ Belum diurus | Gratis, hitungan menit, tapi butuh akun + site key + secret key. **Memblokir satu issue, bukan phase-nya**: `CAPTCHA_PROVIDER=none` membuat #85/#86/#88/#89 jalan penuh. Yang terhalang hanya verifikasi anti-spam sungguhan. Langkah persisnya `docs/phases/06-connect-form/td.md` §14. |
 
 **Tidak ada yang memblokir Phase 0.** Dicatat di sini justru supaya tidak tersadar terlambat.
 
@@ -205,6 +233,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 - [x] App Android terdaftar di Firebase ← `flutterfire configure` dijalankan #73, `google-services.json`/`firebase_options.dart` asli ada (git-ignored, lihat `crm_employee/README.md`)
 - [ ] Service account backend dibuat ← `FCM_CREDENTIALS_FILE`, ditinggalkan ke pemilik produk (`td.md` §14 langkah 3)
 - [ ] Apple Developer Program terdaftar ← hanya untuk iOS, ditunda (keputusan M1)
+- [ ] Cloudflare Turnstile disiapkan ← site key + secret key, memblokir issue #87 saja (`06-connect-form/td.md` §14)
 
 > Domain juga menentukan konfigurasi cookie (`Secure`, `SameSite`, scope), CORS, dan alamat pengirim email — semuanya disentuh di Phase 1.
 
@@ -239,5 +268,6 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 4.5 | Hardening | ✅ | ✅ | ✅ #57–#58 | ✅ |
 | 4.6 | Email Delivery | ✅ | ✅ | ✅ #63–#64 | ✅ |
 | 5 | Employee Mobile | ✅ | ✅ | ✅ #68–#73 | ✅ |
+| 6 | Connect & Embedded Form | ✅ | ✅ | ✅ #85–#89 | ⬜ |
 
 Pekerjaan yang sedang berjalan: `gh issue list --state open`
