@@ -294,12 +294,58 @@ pelanggan.
 Bila `allowed_origins` kosong: `frame-ancestors 'none'`. Form yang belum dikonfigurasi **tidak bisa**
 di-iframe di mana pun — gagal tertutup, bukan terbuka.
 
+### Auto-resize (keputusan D8)
+
+`height` mati membuat form pendek menyisakan ruang kosong dan form panjang terpotong. Solusinya
+**dua bagian**, dan bagian keduanya opsional.
+
+**Di halaman embed** — `ResizeObserver` pada `<body>`, mengirim tinggi setiap kali berubah:
+
+```js
+parent.postMessage(
+  { type: "jualin:resize", height: document.body.scrollHeight },
+  targetOrigin            // origin host, dari allowlist form — TIDAK PERNAH "*"
+);
+```
+
+`targetOrigin` diambil dari `document.referrer` **yang sudah dicocokkan dengan
+`forms.allowed_origins`**. Bila referrer tidak ada atau di luar allowlist, pesan **tidak dikirim sama
+sekali** — bukan dikirim ke `'*'`.
+
+**Di halaman pelanggan** — `GET /embed.js`, script kecil yang disajikan dari origin embed yang sama:
+
+```js
+window.addEventListener("message", (e) => {
+  if (e.origin !== EMBED_ORIGIN) return;                    // wajib
+  const d = e.data;
+  if (!d || d.type !== "jualin:resize") return;             // satu jenis pesan saja
+  const h = Number(d.height);
+  if (!Number.isFinite(h) || h < 100 || h > 4000) return;   // batas mengikat
+  frame.style.height = h + "px";
+});
+```
+
+| Syarat | Kenapa mengikat |
+|---|---|
+| `targetOrigin` eksplisit, tidak pernah `'*'` | `'*'` berarti pesan terbaca halaman mana pun yang kebetulan menyematkan iframe ini |
+| `e.origin` diverifikasi penerima | Tanpa ini, **halaman mana pun** bisa mengirim pesan palsu ke `embed.js` |
+| Tinggi dibatasi 100–4000px | Pesan jahat yang menyetel tinggi raksasa bisa menutupi seluruh halaman pelanggan — *clickjacking* terbalik |
+| Hanya satu jenis pesan dikenali | `embed.js` tidak boleh jadi jalur perintah umum dari iframe ke halaman host |
+
+**Progressive enhancement, bukan syarat.** Tanpa `embed.js`, iframe tetap tampil dan tetap bisa
+dikirim — hanya tingginya tetap. Kegagalan memuat script tidak boleh membuat form hilang.
+
+`embed.js` disajikan dengan `Cache-Control: public, max-age=3600` — berbeda dari halaman embed yang
+`no-store`, karena ia tidak memuat token dan isinya sama untuk semua form.
+
 ### Kemampuan baru yang perlu disadari
 
 Backend hari ini **tidak pernah** menyajikan HTML: nol `html/template`, nol `http.FileServer`, nol
 `.html` di repo. Seluruh response melewati `httpx.OK`/`httpx.WriteError` menjadi JSON. Menambahkan
 halaman ini berarti kelas kemampuan baru dengan urusan barunya sendiri (CSP, caching, escaping) —
 karena itu ia **issue tersendiri**, bukan tempelan pada issue submit.
+
+`embed.js` ikut lewat `//go:embed`, aset statis kedua setelah `form.gohtml`.
 
 ---
 
@@ -314,6 +360,7 @@ karena itu ia **issue tersendiri**, bukan tempelan pada issue submit.
 | `DELETE` | `/v1/forms/:id` | user | `form.delete` — Owner/Admin (soft delete) |
 | `POST` | `/v1/forms/{public_key}/submit` | **public_form** | `lead.create` lewat `publicFormAllows` |
 | `GET` | `/embed/{public_key}` | — | tanpa autentikasi |
+| `GET` | `/embed.js` | — | tanpa autentikasi; aset statis, sama untuk semua form (D8) |
 
 **Tabrakan wildcard gin.** `/v1/forms/:id` (user) dan `/v1/forms/{public_key}/submit` (publik) berbagi
 prefix. Gin menuntut **nama wildcard yang sama** pada segmen yang sama — preseden persis ada di
@@ -384,6 +431,33 @@ dihapus (kriteria #11).
 Layar `/connect/form`: daftar form, tombol buat, dan editor per form (nama, toggle+label 6 field,
 allowlist domain, snippet embed dengan tombol salin, tombol nonaktifkan).
 
+#### Snippet — dua varian (D8)
+
+**Dianjurkan** — tinggi menyesuaikan isi:
+
+```html
+<iframe src="{EMBED_BASE_URL}/embed/pk_…" data-jualin-form
+        width="100%" height="620" style="border:0" title="…"></iframe>
+<script src="{EMBED_BASE_URL}/embed.js" async></script>
+```
+
+**Tanpa script** — bagi pelanggan yang situsnya melarang script pihak ketiga:
+
+```html
+<iframe src="{EMBED_BASE_URL}/embed/pk_…"
+        width="100%" height="620" style="border:0" title="…"></iframe>
+```
+
+Keduanya **sama-sama bekerja**; yang kedua hanya bertinggi tetap. Layar menjelaskan bedanya dalam satu
+kalimat, bukan menyodorkan dua kotak tanpa keterangan.
+
+`height="620"` tetap ada di varian pertama sebagai **nilai awal sebelum script sempat jalan** — tanpa
+itu, iframe akan berkedip dari tinggi default browser ke tinggi sebenarnya.
+
+> Snippet-nya HTML biasa, jadi ia jalan di Next.js, WordPress, maupun HTML statis tanpa integrasi
+> khusus. Di JSX, `style="border:0"` perlu ditulis `style={{ border: 0 }}` — layar sebaiknya
+> menyediakan varian JSX juga, atau menyebutkan penyesuaian itu.
+
 Gerbang role: `canManageForms(role)` di `src/lib/form-permissions.ts`, di sebelah `canManageAPIKeys`
 yang sudah ada di `src/lib/api-key-rows.ts`. Owner/Admin — sama dengan API key, karena keduanya
 kredensial yang memasukkan lead ke organization.
@@ -430,6 +504,7 @@ crm_be/cmd/api/form_store.go   newFormStore(pool) form.Store
 | `internal/shared/formtoken/formtoken_test.go` | Tanda tangan valid/invalid, batas <2s dan >30m, token form lain ditolak |
 | `internal/shared/captcha/turnstile_test.go` | Bentuk request `siteverify`, penanganan gagal/timeout |
 | `internal/shared/authz/authz_test.go` | **Tabel atas seluruh `Action`**: `PrincipalPublicForm` hanya lolos `ActionLeadCreate` (kriteria #2) |
+| `internal/form/handler_test.go` (D8) | `targetOrigin` diambil dari referrer yang **cocok allowlist**; referrer di luar allowlist → pesan tidak dikirim sama sekali (bukan `'*'`); `embed.js` disajikan dengan `Cache-Control` yang benar |
 | `cmd/api/public_form_api_test.go` | Ujung ke ujung dengan form yang di-seed lewat store sungguhan — meniru `public_lead_api_test.go` |
 | `cmd/api/tenant_isolation_test.go` | **Kasus baru**: submit ke `public_key` milik org lain, dan `GET/PATCH/DELETE /v1/forms/:id` lintas org → 404. **Tetap harus terbukti bisa gagal** |
 | `crm_dashboard/src/lib/nav.test.ts` | Diperbarui untuk "Connect" |
@@ -505,6 +580,8 @@ phase beserta kewajiban deploy-nya — bukan diselipkan seolah ADR memang mengiz
 | `public_key` plaintext terlihat seperti kelalaian saat review | Alasannya ditulis di §2 **dan** di komentar migration, bukan hanya di ADR yang mungkin tidak dibuka reviewer |
 | Memindahkan `/settings/api-keys` memutus tautan pelanggan Phase 4 | Redirect permanen, kriteria #11, dan tiga titik yang patah disebut eksplisit di §10 |
 | Rate limit per IP salah di belakang proxy | `SetTrustedProxies` sudah ditegakkan sejak Phase 4.5 (#57); `c.ClientIP()` sudah benar selama `TRUSTED_PROXIES` diisi tepat |
+| **`postMessage` jadi permukaan serangan baru** (D8) | Empat syarat mengikat di §7: `targetOrigin` eksplisit, `e.origin` diverifikasi penerima, tinggi dibatasi 100–4000px, satu jenis pesan saja. Tanpa keempatnya, D8 justru menambah risiko alih-alih memperbaiki UX — karena itu ditulis sebagai syarat, bukan saran |
+| Auto-resize dikira menghidupkan kembali *inline script* yang ADR-005 tolak | Dijawab tuntas di `prd.md` §*"Kenapa script pendamping tidak membatalkan ADR-005"*: form tetap di dalam iframe lintas-origin, `embed.js` hanya menerima satu angka. Ditulis di PRD, bukan hanya di sini, karena inilah pertanyaan pertama yang akan diajukan reviewer |
 
 ---
 
