@@ -5,6 +5,15 @@
 *.pem
 *.key
 !**/testdata/**/*.key
+# FCM service account (Phase 5 td.md §14) — kept named, not a wildcard
+# like *.json, so this stays a deliberate single exception instead of
+# quietly swallowing some future unrelated JSON file that belongs in
+# the repo.
+/jualin-crm-fcm.json
+# Local FCM push setup (docker compose auto-merges this if present) —
+# personal machine paths + turns on a real provider, never fresh-clone
+# friendly, never committed.
+docker-compose.override.yml
 
 # === Go ===
 /bin/
