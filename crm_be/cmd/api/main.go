@@ -20,6 +20,7 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auth"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/customer"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/device"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/form"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/invitation"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/lead"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/membership"
@@ -176,6 +177,15 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	// Repository is built directly from pool, no _store.go wrapper needed.
 	metricsUsecase := metrics.NewUsecase(metrics.New(pool))
 	metrics.NewHandler(metricsUsecase).RegisterRoutes(r, authMW)
+
+	// form (Phase 6 #85) is management-only in this issue — no public
+	// route needs formUsecase ahead of time the way lead needed apikey/
+	// device, so it's wired here alongside every other domain's own
+	// handler rather than earlier. The public POST /v1/forms/{public_key}/
+	// submit route and GET /embed/{public_key} page are #87/#88's, not
+	// mounted from this package yet.
+	formUsecase := form.NewUsecase(newFormStore(pool))
+	form.NewHandler(formUsecase).RegisterRoutes(r, authMW)
 
 	r.NoRoute(func(c *gin.Context) {
 		httpx.RespondError(c, http.StatusNotFound, "not_found", "Route tidak ditemukan.")

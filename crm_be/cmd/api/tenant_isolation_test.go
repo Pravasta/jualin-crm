@@ -177,6 +177,11 @@ func TestTenantIsolation_CrossOrgMutatingByID_Returns404(t *testing.T) {
 	// expected 404 here is proof of tenant scoping, not authz denial.
 	apiKeyB := seedIsolationAPIKey(t, pool, orgB)
 
+	// Phase 6 (#85) — forms. Owner A holds ActionFormRead/Update/Delete,
+	// so the expected 404 here is proof of tenant scoping, not authz
+	// denial — same reasoning as apiKeyB above.
+	formB := seedIsolationForm(t, pool, orgB)
+
 	cases := []isolationCase{
 		{
 			name:   "PATCH /v1/memberships/{id} on another org's membership",
@@ -247,6 +252,22 @@ func TestTenantIsolation_CrossOrgMutatingByID_Returns404(t *testing.T) {
 			method: http.MethodDelete,
 			path:   func(id uuid.UUID) string { return "/v1/api-keys/" + id.String() },
 		},
+		{
+			name:   "GET /v1/forms/{id} on another org's form",
+			method: http.MethodGet,
+			path:   func(id uuid.UUID) string { return "/v1/forms/" + id.String() },
+		},
+		{
+			name:   "PATCH /v1/forms/{id} on another org's form",
+			method: http.MethodPatch,
+			path:   func(id uuid.UUID) string { return "/v1/forms/" + id.String() },
+			body:   map[string]any{"name": "Hijacked"},
+		},
+		{
+			name:   "DELETE /v1/forms/{id} on another org's form",
+			method: http.MethodDelete,
+			path:   func(id uuid.UUID) string { return "/v1/forms/" + id.String() },
+		},
 	}
 
 	targetIDs := map[string]uuid.UUID{
@@ -263,6 +284,9 @@ func TestTenantIsolation_CrossOrgMutatingByID_Returns404(t *testing.T) {
 		"PATCH /v1/customers/{id} on another org's customer":      customerB,
 		"DELETE /v1/customers/{id} on another org's customer":     customerB,
 		"DELETE /v1/api-keys/{id} on another org's api key":       apiKeyB,
+		"GET /v1/forms/{id} on another org's form":                formB,
+		"PATCH /v1/forms/{id} on another org's form":              formB,
+		"DELETE /v1/forms/{id} on another org's form":             formB,
 	}
 
 	for _, tc := range cases {
@@ -373,6 +397,25 @@ func seedIsolationAPIKey(t *testing.T, pool *pgxpool.Pool, org uuid.UUID) uuid.U
 	keyID := "isol-" + id.String()[:20]
 	if _, err := pool.Exec(ctx, q, id, org, keyID); err != nil {
 		t.Fatalf("seed isolation api key: %v", err)
+	}
+	return id
+}
+
+// seedIsolationForm inserts a minimal forms row directly via SQL —
+// public_key only needs to be unique (uq_forms_public_key is global,
+// not per-organization, same exception as api_keys.key_id above), so
+// it's derived from the row's own id rather than going through
+// form.generate.
+func seedIsolationForm(t *testing.T, pool *pgxpool.Pool, org uuid.UUID) uuid.UUID {
+	t.Helper()
+	ctx := t.Context()
+	id := uuid.Must(uuid.NewV7())
+	const q = `
+		INSERT INTO forms (id, organization_id, public_key, name, fields)
+		VALUES ($1, $2, $3, 'Isolation Test Form', '{}'::jsonb)`
+	publicKey := "pk_isol_" + id.String()[:20]
+	if _, err := pool.Exec(ctx, q, id, org, publicKey); err != nil {
+		t.Fatalf("seed isolation form: %v", err)
 	}
 	return id
 }
