@@ -5,6 +5,7 @@ import 'core/di/injection_container.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_event.dart';
 import 'features/auth/presentation/pages/auth_gate_page.dart';
+import 'shared/theme.dart';
 
 class App extends StatelessWidget {
   const App({super.key});
@@ -19,9 +20,7 @@ class App extends StatelessWidget {
       child: MaterialApp(
         title: 'Jualin CRM',
         debugShowCheckedModeBanner: false,
-        // Token/theme comes from Claude Design's output — issue #70.
-        // Deliberately unstyled here (issue #69's own boundary).
-        theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.blue),
+        theme: AppTheme.light,
         home: const AuthGatePage(),
       ),
     );

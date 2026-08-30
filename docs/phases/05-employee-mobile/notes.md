@@ -471,3 +471,122 @@ menyediakan tombol Keluar — dibutuhkan supaya login+biometric+refresh punya se
 dibuktikan, digantikan total oleh #71). Tema, navigasi antarlayar, daftar lead — seluruhnya #70/#71.
 Push notification, deeplink — #73.
 
+---
+
+## #70 — Fondasi desain mobile: tema, token, labels, kerangka navigasi
+
+Hasil desain dibaca dari project Claude Design "Employee mobile design spec"
+(`https://claude.ai/design/p/11071bff-85b7-4d26-aeed-c5fd8f60c668`) lewat `DesignSync` — dikonfirmasi
+lewat `github.md`-nya sendiri di project itu: dibangun dari `design-brief.md`/`prd.md`/`td.md` phase ini
+langsung, sinkron terakhir 29 Agustus 2026. Enam layar, seluruh keadaan wajib TD §10, kerangka navigasi,
+token — persis cakupan design brief §12.
+
+### Kontras diverifikasi ulang secara independen — semua lolos, tiga angka desain sendiri meleset
+
+Design brief menuntut "dihitung, bukan dikira". Project desain sudah mencantumkan rasio kontras di
+setiap pasangan warna (mis. `--primary ... 4.83:1`) — tapi angka itu **klaim si alat desain**, bukan
+bukti. Setiap pasangan dihitung ulang dari nol (formula luminansi relatif WCAG 2.1, skrip Python
+sekali-pakai, tidak di-commit) sebelum satu pun nilai diterima ke `theme.dart`.
+
+**Hasil: seluruh 15 pasangan lolos AA (≥4.5:1) — tidak ada yang perlu diperbaiki kali ini**, beda dari
+Phase 3 #40 (5 dari 8 badge status gagal saat itu). Tapi tiga angka yang dicetak desain sendiri
+**meleset** dari hasil hitung ulang (tetap lolos AA, bukan masalah fungsional, tapi tetap dicatat karena
+AC-nya minta dihitung bukan ditebak):
+
+| Pasangan | Diklaim desain | Dihitung ulang | Status |
+|---|---|---|---|
+| `--primary` (teks putih di atasnya) | 4.83:1 | **5.05:1** | Lolos, angka desain terlalu rendah |
+| `--warning` di atas `--warning-tint` | 7.6:1 | **6.65:1** | Lolos, angka desain terlalu tinggi |
+| `--success` di atas `--success-tint` | 7.0:1 | **7.16:1** | Lolos, selisih kecil |
+
+Nilai yang **dipakai** di `theme.dart`'s dokumentasi komentar adalah hasil hitung ulang session ini,
+bukan angka yang dicetak project desain — dikunci sebagai fakta terverifikasi, bukan disalin mentah.
+`--muted-foreground` (4.74:1, desain menyebut 4.73:1 — selisih presisi pembulatan saja) tetap ditandai
+"pas ambang" mengikuti peringatan desain sendiri: dibatasi metadata ≥13px, tidak pernah info kritikal —
+dipatuhi di kode (`AppTextStyles.metadata` satu-satunya pemakai `mutedForeground` untuk teks berjalan).
+
+### `theme.dart` — `ThemeExtension`, bukan `ColorScheme` dipaksa memuat semuanya
+
+`ColorScheme` bawaan Flutter tidak punya slot untuk `accentStrong`/`mutedForeground`/`warning`/`success`
+dkk. — dipaksakan ke situ berarti menyalahgunakan slot yang artinya beda (mis. memakai `secondary` untuk
+`accentStrong` akan membingungkan pembaca kode berikutnya). `AppColorsExtension` (pola resmi Flutter
+untuk token kustom) menampung token tambahan, dibaca lewat
+`Theme.of(context).extension<AppColorsExtension>()`. Tipografi (Roboto) **tidak** menambah dependency
+font — Flutter's Material widgets sudah resolve ke Roboto di target Android tanpa `fontFamily` custom,
+persis alasan design brief sendiri sebut Roboto (font sistem, tidak menambah bobot unduhan).
+
+### `labels.dart` — menyalin `labels.ts`, sengaja tidak menyalin `SCOPE_LABELS`
+
+Peta status/alasan-kalah/sumber/role disalin nilai (bukan kode) dari `crm_dashboard/src/lib/labels.ts`,
+dikunci `test/shared/labels_test.dart` terhadap `ck_leads_status`/`ck_leads_lost_reason`/
+`ck_leads_source`/`ck_memberships_role` di migration `crm_be` langsung (bukan dipercaya dari `labels.ts`
+begitu saja) — 8/6/4/4, cocok. **`SCOPE_LABELS` (skop API key) sengaja TIDAK ikut disalin** —
+`crm_dashboard` punya peta itu karena dashboard mengelola API key; `crm_employee` tidak pernah menyentuh
+format `jln_*` sama sekali (Aturan #24), jadi menyalinnya berarti satu-satunya kosakata terkait API key
+yang ada di aplikasi ini justru diimpor tanpa alasan.
+
+### `nav.dart` — `switch` eksponen menggantikan pola `Array.find` web
+
+`crm_dashboard/src/lib/nav.ts`'s `isActive`/`pageTitle` (dasar acuan AC issue ini) pernah punya jebakan
+nyata: prefix-match naif bikin `/` cocok dengan setiap rute. Flutter tidak punya konsep URL, jadi
+jebakan yang sama secara harfiah tidak ada — tapi `navTitle`/`navIcon` tetap ditulis sebagai `switch`
+eksponen atas `enum AppDestination`, bukan `Map`/`firstWhere`: menambah destination baru tanpa
+memperbarui kedua fungsi ini adalah **error kompilasi**, jaminan yang lebih kuat dari sekadar test.
+`initialsOf` disalin baris-demi-baris dari `nav.ts` (aturan yang sama, kasus tepi yang sama), diuji
+`test/shared/nav_test.dart` termasuk nama kosong dan whitespace ganda.
+
+### Kerangka aplikasi — `AppShell`, satu-satunya jalan masuk akun lewat avatar
+
+Sesuai design brief §4: header 56dp (judul statis, tanpa tombol) + `NavigationBar` 3 tujuan (Lead Saya,
+Tugas Saya, Notifikasi — ikon+label selalu tampil). **Detail Lead sengaja bukan tujuan nav** — design
+brief eksplisit: diakses via push dari Lead Saya/Notifikasi, jadi tidak pernah masuk `IndexedStack`
+`AppShell`. Menu akun **hanya** avatar inisial di header kanan → bottom sheet (nama, organization,
+tombol Keluar) — tidak ada hamburger menu, sesuai desain. Ketiga tab isinya `PlaceholderScreen`
+(pola `crm_dashboard`'s `placeholder-screen.tsx` dari #40, dikonfirmasi dari git history sebelum ditulis
+ulang di Dart) — Lead Saya menyebut #71, Tugas Saya & Notifikasi menyebut #73 (issues.md: My Tasks +
+FCM + deeplink satu issue, notifikasi ikut di situ).
+
+### Perilaku baru: layar Sesi Berakhir sungguhan, bukan lagi jatuh diam ke login
+
+Draf #69 menangani `SessionExpiredFailure` dengan diam-diam emit `AuthNeedsPassword()` — pesannya hilang
+sama sekali. Design brief §10 secara eksplisit minta layar sendiri ("Sesi Anda berakhir... Data yang
+sudah tersimpan tidak hilang", tombol "Masuk kembali") karena **kejadiannya bisa di tengah pemakaian**,
+bukan cuma saat app dibuka. State baru `AuthSessionExpired` ditambahkan ke `AuthState`, `_loadCurrentUser`
+diubah untuk emit itu, `SessionExpiredPage` baru dibangun, `AuthGatePage`'s `switch` menambah satu cabang.
+**Test lama yang mengasumsikan perilaku diam (`AuthNeedsPassword` langsung) diperbarui**, bukan dihapus —
+`auth_bloc_test.dart`'s kasus "session expires right after biometric success" sekarang menegaskan
+`AuthSessionExpired`, plus satu test baru untuk tombol "Masuk kembali"-nya.
+
+### Yang sengaja tidak diikuti dari desain — dicatat, bukan didiamkan
+
+- **State "backoff" (percobaan login berlebih) tidak dapat hitung mundur langsung** ("Coba lagi dalam
+  04:37") seperti digambar desain. Itu butuh header `Retry-After` mengalir dari rate limiter `crm_be`
+  sampai ke `ApiClient`/`ApiError` — keduanya belum pernah membaca header respons sama sekali hari ini.
+  Kegagalan rate-limit tetap tampil (pesan asli `crm_be`, dalam banner bertema), hanya tanpa jam
+  berjalan. Dicatat di `docs/issues/070-design-foundation.md` untuk ditinjau ulang, bukan dibangun
+  setengah jalan dengan `Retry-After` ditebak dari `DateTime.now()` lokal (bisa salah kalau jam
+  perangkat tidak akurat).
+- **Gerbang biometric tidak menampilkan nama/organization** ("Budi Santoso" / "Toko Sinar Jaya" di
+  desain) — aplikasi ini tidak menyimpan profil pengguna secara lokal sama sekali; satu-satunya cache
+  yang TD §7 gambarkan adalah data lead/task (#71), bukan identitas, dan memanggil `/v1/me` sebelum
+  biometric berhasil akan mengalahkan tujuan gerbangnya sendiri. Salinan generik dipakai sebagai
+  gantinya.
+
+### Test
+
+`test/shared/labels_test.dart` (13 test — jumlah **dan** nilai keempat enum dikunci langsung terhadap
+`ck_*` migration `crm_be`, bukan hanya terhadap `labels.ts`) dan `test/shared/nav_test.dart` (11 test —
+`navTitle`/`navIcon` tiap destination, `initialsOf` termasuk kasus tepi) baru. Satu test `auth_bloc_test.dart`
+lama diperbarui (state `AuthSessionExpired`), satu ditambah (tombol "Masuk kembali"). Total 41 test,
+seluruhnya lolos.
+
+Widget smoke test tambahan (skrip sekali-pakai, **tidak di-commit** — TD §12 tidak mewajibkan widget
+test phase ini) memompa `LoginPage`/`BiometricGatePage`/`SessionExpiredPage`/`AppShell`/`AuthGatePage`
+lewat seluruh kombinasi state, termasuk tap tab dan tap avatar → bottom sheet — tidak ada exception
+render, tidak ada overflow. `flutter build apk --debug` diulang setelah seluruh perubahan, sukses.
+
+### Batas issue ini
+
+Tidak membangun Lead Saya, Detail Lead, atau Tugas Saya sungguhan — ketiganya tetap `PlaceholderScreen`.
+Notifikasi sungguhan, push, deeplink — #73.
+

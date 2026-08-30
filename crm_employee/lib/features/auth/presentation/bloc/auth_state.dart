@@ -54,3 +54,16 @@ class AuthAuthenticated extends AuthState {
   @override
   List<Object?> get props => [user];
 }
+
+/// Refresh was rejected — TD §4.2's acceptance criterion, reachable
+/// after a successful biometric match OR right after login if the
+/// session dies mid-bootstrap (design brief §10 — "bisa terjadi di
+/// tengah pemakaian", so this is a global screen, not folded silently
+/// into `AuthNeedsPassword`). Its own screen (design brief §10,
+/// "Sesi Berakhir") explains what happened instead of just dropping the
+/// user back at a blank login form. The "Masuk kembali" button there
+/// dispatches the same `AuthUsePasswordRequested` the biometric gate's
+/// fallback uses — both mean "show the real login form now".
+class AuthSessionExpired extends AuthState {
+  const AuthSessionExpired();
+}
