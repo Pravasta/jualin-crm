@@ -10,6 +10,14 @@ class Lead extends Equatable {
   final String name;
   final String? email;
   final String? phone;
+
+  /// Normalized international form of [phone], or `null` when `phone`
+  /// didn't parse (`crm_be`'s `phone.ToE164` — TD phase 2 §6). Never
+  /// used for dialing (that always uses [phone] as entered — a dialer
+  /// accepts almost anything); this is what WhatsApp's `wa.me` link
+  /// needs, since that specifically requires a real international
+  /// number to work at all (acceptance criterion #6, #72).
+  final String? phoneE164;
   final String? company;
   final String? notes;
   final String status;
@@ -26,6 +34,7 @@ class Lead extends Equatable {
     required this.name,
     this.email,
     this.phone,
+    this.phoneE164,
     this.company,
     this.notes,
     required this.status,
@@ -44,6 +53,7 @@ class Lead extends Equatable {
     name,
     email,
     phone,
+    phoneE164,
     company,
     notes,
     status,
@@ -74,4 +84,24 @@ class LeadListResult extends Equatable {
 
   @override
   List<Object?> get props => [leads, total, fromCache, fetchedAt];
+}
+
+/// `GET /v1/leads/{id}` — plus whether it came from the offline cache
+/// and, if so, when it was fetched. Design brief §10 requires the same
+/// "dari cache, tanpa sinyal" banner on Detail Lead as on Lead Saya, so
+/// this carries the same two fields [LeadListResult] does rather than
+/// discarding [cachedGet]'s result down to a bare [Lead].
+class LeadDetailResult extends Equatable {
+  final Lead lead;
+  final bool fromCache;
+  final DateTime? fetchedAt;
+
+  const LeadDetailResult({
+    required this.lead,
+    required this.fromCache,
+    this.fetchedAt,
+  });
+
+  @override
+  List<Object?> get props => [lead, fromCache, fetchedAt];
 }

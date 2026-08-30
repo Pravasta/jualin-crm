@@ -42,6 +42,7 @@ dependencies:
   equatable: ^2.1.0
   dartz: ^0.10.1
   sqflite: ^2.4.3
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
