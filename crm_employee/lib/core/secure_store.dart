@@ -29,7 +29,18 @@ abstract class TokenStorage {
 class SecureTokenStorage implements TokenStorage {
   final FlutterSecureStorage _storage;
 
-  const SecureTokenStorage({this._storage = const FlutterSecureStorage()});
+  // NOT `{this._storage = ...}` — a named parameter can't start with an
+  // underscore (Dart's `private_optional_parameter` diagnostic). The
+  // project's FVM-pinned SDK happens not to flag this, but a plain
+  // `dart`/`flutter` on PATH does — proof this was never portable, not
+  // a version quirk to shrug off. Field stays private (encapsulation);
+  // the public parameter just has a different name and is assigned via
+  // the initializer list instead of the `this.` shorthand — which is
+  // exactly what `prefer_initializing_formals` below wants reverted,
+  // so it's suppressed here specifically, not disabled project-wide.
+  const SecureTokenStorage({FlutterSecureStorage storage = const FlutterSecureStorage()})
+    // ignore: prefer_initializing_formals
+    : _storage = storage;
 
   static const _accessTokenKey = 'access_token';
   static const _refreshTokenKey = 'refresh_token';
