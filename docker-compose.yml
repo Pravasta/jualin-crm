@@ -58,6 +58,12 @@ services:
       SMTP_HOST: mailpit
       SMTP_PORT: 1025
       SMTP_TLS: none
+      # "none" (no-op, logged only) — same "works on a fresh clone with
+      # zero setup" reasoning as the rest of this block. A real service
+      # account JSON has nowhere safe to live in this file (issue #68/
+      # #73, td.md §14); switching to `fcm` is a local .env override,
+      # never a docker-compose.yml default.
+      PUSH_PROVIDER: none
     ports:
       - "8080:8080"
     depends_on:

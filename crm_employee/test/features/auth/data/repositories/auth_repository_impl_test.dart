@@ -6,6 +6,8 @@
 import 'package:crm_employee/core/api_error.dart';
 import 'package:crm_employee/core/cache/response_cache.dart';
 import 'package:crm_employee/core/error/failures.dart';
+import 'package:crm_employee/core/push/device_token_remote_data_source.dart';
+import 'package:crm_employee/core/push/push_token_store.dart';
 import 'package:crm_employee/core/secure_store.dart';
 import 'package:crm_employee/features/auth/data/datasources/auth_remote_data_source.dart';
 import 'package:crm_employee/features/auth/data/models/auth_user_model.dart';
@@ -19,23 +21,37 @@ class MockTokenStorage extends Mock implements TokenStorage {}
 
 class MockResponseCache extends Mock implements ResponseCache {}
 
+class MockDeviceTokenRemoteDataSource extends Mock
+    implements DeviceTokenRemoteDataSource {}
+
+class MockPushTokenStore extends Mock implements PushTokenStore {}
+
 void main() {
   late MockAuthRemoteDataSource remoteDataSource;
   late MockTokenStorage tokenStorage;
   late MockResponseCache responseCache;
+  late MockDeviceTokenRemoteDataSource deviceTokenRemoteDataSource;
+  late MockPushTokenStore pushTokenStore;
   late AuthRepositoryImpl repository;
 
   setUp(() {
     remoteDataSource = MockAuthRemoteDataSource();
     tokenStorage = MockTokenStorage();
     responseCache = MockResponseCache();
+    deviceTokenRemoteDataSource = MockDeviceTokenRemoteDataSource();
+    pushTokenStore = MockPushTokenStore();
     repository = AuthRepositoryImpl(
       remoteDataSource: remoteDataSource,
       tokenStorage: tokenStorage,
       responseCache: responseCache,
+      deviceTokenRemoteDataSource: deviceTokenRemoteDataSource,
+      pushTokenStore: pushTokenStore,
     );
     registerFallbackValue(<String, dynamic>{});
     when(() => responseCache.clear()).thenAnswer((_) async {});
+    // Default: no FCM token registered — most tests don't care about the
+    // device-token unregister path at all.
+    when(() => pushTokenStore.read()).thenAnswer((_) async => null);
   });
 
   group('hasStoredSession', () {
@@ -202,6 +218,77 @@ void main() {
         await repository.logout();
 
         verify(() => responseCache.clear()).called(1);
+      },
+    );
+
+    test(
+      'unregisters the stored device token and clears it, before clearing session tokens (#73)',
+      () async {
+        when(
+          () => tokenStorage.readRefreshToken(),
+        ).thenAnswer((_) async => 'a-refresh-token');
+        when(
+          () =>
+              remoteDataSource.logout(refreshToken: any(named: 'refreshToken')),
+        ).thenAnswer((_) async {});
+        when(() => tokenStorage.clear()).thenAnswer((_) async {});
+        when(() => pushTokenStore.read()).thenAnswer((_) async => 'fcm-token-1');
+        when(
+          () => deviceTokenRemoteDataSource.unregister('fcm-token-1'),
+        ).thenAnswer((_) async {});
+        when(() => pushTokenStore.clear()).thenAnswer((_) async {});
+
+        final result = await repository.logout();
+
+        expect(result.isRight(), isTrue);
+        verify(
+          () => deviceTokenRemoteDataSource.unregister('fcm-token-1'),
+        ).called(1);
+        verify(() => pushTokenStore.clear()).called(1);
+      },
+    );
+
+    test(
+      'never unregisters when no device token was ever stored',
+      () async {
+        when(
+          () => tokenStorage.readRefreshToken(),
+        ).thenAnswer((_) async => 'a-refresh-token');
+        when(
+          () =>
+              remoteDataSource.logout(refreshToken: any(named: 'refreshToken')),
+        ).thenAnswer((_) async {});
+        when(() => tokenStorage.clear()).thenAnswer((_) async {});
+        when(() => pushTokenStore.read()).thenAnswer((_) async => null);
+
+        await repository.logout();
+
+        verifyNever(() => deviceTokenRemoteDataSource.unregister(any()));
+        verifyNever(() => pushTokenStore.clear());
+      },
+    );
+
+    test(
+      'a failed device-token unregister still lets logout succeed — never blocks the user out of logging out',
+      () async {
+        when(
+          () => tokenStorage.readRefreshToken(),
+        ).thenAnswer((_) async => 'a-refresh-token');
+        when(
+          () =>
+              remoteDataSource.logout(refreshToken: any(named: 'refreshToken')),
+        ).thenAnswer((_) async {});
+        when(() => tokenStorage.clear()).thenAnswer((_) async {});
+        when(() => pushTokenStore.read()).thenAnswer((_) async => 'fcm-token-1');
+        when(
+          () => deviceTokenRemoteDataSource.unregister('fcm-token-1'),
+        ).thenThrow(Exception('network down'));
+        when(() => pushTokenStore.clear()).thenAnswer((_) async {});
+
+        final result = await repository.logout();
+
+        expect(result.isRight(), isTrue);
+        verify(() => tokenStorage.clear()).called(1);
       },
     );
   });

@@ -7,10 +7,17 @@ import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_event.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
 import '../../features/leads/presentation/bloc/leads_bloc.dart';
+import '../../features/leads/presentation/open_lead_detail.dart';
 import '../../features/leads/presentation/pages/leads_page.dart';
+import '../../features/notifications/presentation/bloc/notifications_bloc.dart';
+import '../../features/notifications/presentation/pages/notifications_page.dart';
+import '../../features/push/presentation/bloc/push_bloc.dart';
+import '../../features/push/presentation/bloc/push_event.dart';
+import '../../features/push/presentation/bloc/push_state.dart';
+import '../../features/tasks/presentation/bloc/tasks_bloc.dart';
+import '../../features/tasks/presentation/pages/tasks_page.dart';
 import '../nav.dart';
 import '../theme.dart';
-import 'placeholder_screen.dart';
 
 /// The frame every content screen sits inside (design brief §4, "Kerangka
 /// aplikasi") — used for everything past login. Header (56dp): screen
@@ -34,28 +41,21 @@ class _AppShellState extends State<AppShell> {
 
   static const _destinations = AppDestination.values;
 
-  // Tugas Saya and Notifikasi are still placeholders — #73 replaces
-  // both outright, per PlaceholderScreen's own doc comment. Lead Saya
-  // is real as of #71. `late final` (not `static const`): LeadsBloc
-  // comes from get_it, a runtime call, so this list can't be built at
-  // compile time — but it's still only ever constructed once per
-  // _AppShellState, the same lifetime `static const` gave the
-  // placeholders.
+  // `late final`: each bloc comes from get_it, a runtime call, so this
+  // list can't be built at compile time — but it's still only ever
+  // constructed once per _AppShellState.
   late final List<Widget> _tabBodies = [
     BlocProvider<LeadsBloc>(
       create: (_) => sl<LeadsBloc>(),
       child: const LeadsPage(),
     ),
-    const PlaceholderScreen(
-      title: 'Tugas Saya',
-      description: 'Tugas yang dibuat untuk lead Anda akan tampil di sini.',
-      issue: 73,
+    BlocProvider<TasksBloc>(
+      create: (_) => sl<TasksBloc>(),
+      child: const TasksPage(),
     ),
-    const PlaceholderScreen(
-      title: 'Notifikasi',
-      description:
-          'Pemberitahuan lead yang ditugaskan kepada Anda akan tampil di sini.',
-      issue: 73,
+    BlocProvider<NotificationsBloc>(
+      create: (_) => sl<NotificationsBloc>(),
+      child: const NotificationsPage(),
     ),
   ];
 
@@ -159,7 +159,14 @@ class _AppShellState extends State<AppShell> {
                 ),
             ],
           ),
-          body: IndexedStack(index: _selectedIndex, children: _tabBodies),
+          body: Column(
+            children: [
+              const ForegroundPushBanner(),
+              Expanded(
+                child: IndexedStack(index: _selectedIndex, children: _tabBodies),
+              ),
+            ],
+          ),
           bottomNavigationBar: NavigationBar(
             selectedIndex: _selectedIndex,
             onDestinationSelected: (index) =>
@@ -178,6 +185,81 @@ class _AppShellState extends State<AppShell> {
                   label: navTitle(d),
                 ),
             ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Design brief §10 / TD §10 — a push that arrives while the app is
+/// already open shows a banner here, INSIDE whatever tab the user is
+/// already on; it never navigates by itself (that's what makes it
+/// different from a background/cold-start tap, which does). Tapping the
+/// banner itself is the one exception — an explicit gesture, same as
+/// tapping the system tray notification would be.
+///
+/// Public (not `_ForegroundPushBanner`) specifically so a widget test
+/// can pump it directly against a mocked `PushBloc`, instead of the
+/// alternative — building the whole `AppShell` (its own DI-resolved
+/// `AuthBloc`/`LeadsBloc`/`TasksBloc`/`NotificationsBloc` for one
+/// widget's render coverage) — just to prove this one renders.
+class ForegroundPushBanner extends StatelessWidget {
+  const ForegroundPushBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<PushBloc, PushState>(
+      builder: (context, state) {
+        final message = state.foregroundMessage;
+        if (message == null) return const SizedBox.shrink();
+
+        return Material(
+          color: AppColors.surface,
+          child: InkWell(
+            onTap: () {
+              context.read<PushBloc>().add(
+                const PushForegroundBannerDismissed(),
+              );
+              if (message.leadId != null) {
+                openLeadDetail(context, message.leadId!);
+              }
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.space16),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.border)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.notifications_active,
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: AppSpacing.space12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (message.title != null)
+                          Text(message.title!, style: AppTextStyles.cardTitle),
+                        if (message.body != null)
+                          Text(message.body!, style: AppTextStyles.body),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    color: AppColors.mutedForeground,
+                    onPressed: () => context.read<PushBloc>().add(
+                      const PushForegroundBannerDismissed(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         );
       },

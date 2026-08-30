@@ -55,3 +55,8 @@ app.*.map.json
 android/app/google-services.json
 lib/firebase_options.dart
 **/*serviceAccount*.json
+# `flutterfire configure`'s own bookkeeping (project id + Firebase app id,
+# so a future re-run doesn't re-prompt) — not in TD §14's original list,
+# but the same reasoning applies: it names `jualin-crm` explicitly, which
+# is exactly the one-project coupling this section exists to avoid.
+firebase.json

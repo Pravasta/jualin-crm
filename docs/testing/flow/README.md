@@ -14,9 +14,9 @@ Mengikuti kalimat inti MVP (`architecture/freeze.md` bagian 3, `product/decision
 > owner membuat API key → website mengirim lead → owner meng-assign →
 > employee menerima notifikasi → follow-up dari HP → update → konversi ke Customer
 
-Bagian yang **bisa** diuji manual sekarang: semuanya kecuali "follow-up dari HP" — **Phase 5 (mobile)
-belum dibangun**, jadi employee follow-up di panduan ini dilakukan lewat dashboard, bukan HP.
-Phase 0–4.6 sudah selesai (`docs/STATUS.md`); panduan ini menguji hasilnya.
+**Sejak Phase 5 (#73) selesai, seluruh kalimat inti bisa diuji apa adanya** — termasuk "follow-up
+dari HP" di [`07-mobile-android.md`](./07-mobile-android.md), yang sebelumnya dilakukan lewat
+dashboard sebagai gantinya. Phase 0–5 sudah selesai (`docs/STATUS.md`); panduan ini menguji hasilnya.
 
 ## Urutan berkas
 
@@ -29,9 +29,11 @@ Phase 0–4.6 sudah selesai (`docs/STATUS.md`); panduan ini menguji hasilnya.
 | 4 | [`04-customer.md`](./04-customer.md) | Konversi lead menang jadi Customer, edit Customer |
 | 5 | [`05-api-publik.md`](./05-api-publik.md) | Buat API key, kirim lead lewat `curl`, cabut kunci |
 | 6 | [`06-checklist-akhir.md`](./06-checklist-akhir.md) | Rekap satu halaman — centang semua sebelum bilang "beres" |
+| 7 | [`07-mobile-android.md`](./07-mobile-android.md) | Login+biometric, mode pesawat, telepon/WhatsApp dengan auto-Activity, ubah status, catatan, Tugas Saya, push+deeplink (3 keadaan), kehilangan akses, uninstall — **butuh HP Android fisik** |
 
 Kerjakan berurutan — setiap berkas mengasumsikan data dari berkas sebelumnya masih ada (org yang sama,
-lead yang sama, dst).
+lead yang sama, dst). `07` dikerjakan setelah `03` (butuh lead untuk ditugaskan) dan `02` (butuh
+employee aktif) — sebelum `06` (rekap akhir).
 
 ## Yang perlu disiapkan dulu
 
@@ -39,6 +41,8 @@ lead yang sama, dst).
 - Node.js 20+ dan `npm`
 - Terminal yang bisa dibuka beberapa tab/jendela sekaligus (untuk mengawasi log sambil mengklik di browser)
 - Browser apa saja
+- Untuk `07-mobile-android.md`: HP Android fisik, FVM Flutter (`crm_employee/.fvmrc`), Firebase
+  project sudah dikonfigurasi (`flutterfire configure`) — detail lengkap di berkas itu sendiri
 
 ## Soal email — Mailpit
 

@@ -1,0 +1,49 @@
+// Template for `lib/firebase_options.dart` — that file is git-ignored
+// (TD phase 5 §14: not tying the repository to one Firebase project),
+// so a fresh checkout has neither. This one exists for two reasons:
+//
+// 1. CI (`ci-employee.yml`) copies this over `firebase_options.dart`
+//    before `flutter analyze`/`flutter test` — those never actually
+//    call Firebase, so these placeholder values only need to be
+//    syntactically valid, not real.
+// 2. A local developer who hasn't run `flutterfire configure` yet still
+//    gets a project that resolves (`flutter analyze` clean) instead of
+//    a broken import on first checkout.
+//
+// A real device build/run STILL needs the genuine file — run:
+//   flutterfire configure --project=jualin-crm --platforms=android
+// (see `docs/phases/05-employee-mobile/td.md` §14). That overwrites
+// this placeholder with real values and also drops the matching
+// `android/app/google-services.json`.
+import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
+
+class DefaultFirebaseOptions {
+  static FirebaseOptions get currentPlatform {
+    if (kIsWeb) {
+      throw UnsupportedError(
+        'DefaultFirebaseOptions have not been configured for web.',
+      );
+    }
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return android;
+      default:
+        throw UnsupportedError(
+          'This app only targets Android (Phase 5 decision M1) — see '
+          'td.md §1.',
+        );
+    }
+  }
+
+  // FAKE — never real Firebase project values. Run `flutterfire
+  // configure` (see doc comment above) to replace this file entirely.
+  static const FirebaseOptions android = FirebaseOptions(
+    apiKey: 'FAKE_API_KEY_RUN_FLUTTERFIRE_CONFIGURE',
+    appId: '1:000000000000:android:0000000000000000000000',
+    messagingSenderId: '000000000000',
+    projectId: 'jualin-crm',
+    storageBucket: 'jualin-crm.firebasestorage.app',
+  );
+}

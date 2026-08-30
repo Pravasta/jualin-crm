@@ -1,6 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Required by local_auth for the biometric gate (TD §4.1). -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+    <!-- Required on Android 13+ (API 33) to actually show a notification
+         from a backgrounded/terminated push — without this the FCM
+         message still arrives, but the OS silently drops the tray
+         notification. `firebase_messaging`'s `requestPermission()` (#73)
+         triggers the runtime prompt this permission gates. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="crm_employee"
         android:name="${applicationName}"

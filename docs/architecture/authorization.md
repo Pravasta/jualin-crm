@@ -132,6 +132,21 @@ informasi level-baca biasa (TD phase 4 §9).
 
 ---
 
+## Matriks (Phase 5) — issue #68/#73
+
+| Action | Owner | Admin | Manager | Employee |
+|---|---|---|---|---|
+| `device_token.register` | ✅ | ✅ | ✅ | ✅ |
+| `device_token.delete` | ✅ | ✅ | ✅ | ✅ |
+
+Berbeda dari `api_key.*` di atas — sengaja terbuka untuk **semua** role, bukan Owner/Admin saja.
+Mendaftarkan device token berarti mendaftarkan **HP pemanggil sendiri** untuk push, bukan kapabilitas
+yang menjangkau data orang lain; Employee sudah pasti memakainya (mobile, Phase 5), tapi tidak ada
+alasan keamanan menutup pintu bagi Owner/Admin/Manager yang kelak juga memasang aplikasinya
+(`internal/shared/authz/authz.go`'s doc comment pada `ActionDeviceTokenRegister`).
+
+---
+
 ## Otorisasi berbasis scope — principal tanpa role (Phase 4, issue #47)
 
 Matriks role di atas menjawab pertanyaan **"role apa boleh action apa"** — tapi principal `api_key`
