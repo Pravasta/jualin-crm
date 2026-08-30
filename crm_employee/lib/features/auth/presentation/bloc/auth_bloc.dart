@@ -49,6 +49,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthBiometricRetryRequested>(_onBiometricRetryRequested);
     on<AuthUsePasswordRequested>(_onUsePasswordRequested);
     on<AuthLogoutRequested>(_onLogoutRequested);
+    on<AuthSessionInvalidated>(_onSessionInvalidated);
   }
 
   Future<void> _onAppStarted(
@@ -120,6 +121,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     await logout(const NoParams());
     emit(const AuthNeedsPassword());
+  }
+
+  /// A `SessionExpiredFailure` some OTHER feature's repository surfaced
+  /// on its own (#71's `LeadsBloc` is the first) — jumps straight to the
+  /// Sesi Berakhir screen exactly like `_loadCurrentUser`'s own
+  /// `SessionExpiredFailure` branch does, wherever in the app the user
+  /// currently is (design brief §10).
+  void _onSessionInvalidated(
+    AuthSessionInvalidated event,
+    Emitter<AuthState> emit,
+  ) {
+    emit(const AuthSessionExpired());
   }
 
   /// `GET /v1/me` — also what proves a stored/just-refreshed access token

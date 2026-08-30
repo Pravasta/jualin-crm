@@ -590,3 +590,126 @@ render, tidak ada overflow. `flutter build apk --debug` diulang setelah seluruh 
 Tidak membangun Lead Saya, Detail Lead, atau Tugas Saya sungguhan — ketiganya tetap `PlaceholderScreen`.
 Notifikasi sungguhan, push, deeplink — #73.
 
+---
+
+## #71 — My Leads + cache baca offline
+
+Layar terpenting phase ini (kriteria selesai phase menempel langsung: "daftar lead tetap terbaca saat
+mode pesawat"). Backend Employee visibility **diverifikasi langsung** di `crm_be/internal/lead/
+repository_postgres.go` sebelum diasumsikan dari teks issue — `isEmployee(t)` memaksa
+`assigned_to_membership_id = <membership pemanggil>` **tanpa syarat**, terlepas dari `assigned_to` apa
+pun yang dikirim klien. Klien karena itu tidak pernah mengirim `assigned_to` sama sekali.
+
+### `core/cache/` — mekanisme cache lahir di sini, pemakai pertamanya sekaligus
+
+TD §7: satu tabel key-value SQLite (`sqflite`), **bukan** skema domain lokal — yang dibutuhkan kriteria
+#2 adalah menampilkan kembali persis yang terakhir terlihat, bukan query/join/filter offline. Tiga
+lapis:
+
+- **`ResponseCache`** (interface) + **`SqfliteResponseCache`** — `get`/`put`/`clear` mentah,
+  `key`→`{body, fetched_at}`.
+- **`cachedGet()`** — coba jaringan dulu; sukses → simpan & kembalikan (`fromCache: false`); jaringan
+  **tidak terjangkau** → baca cache (`fromCache: true` + `fetchedAt` asli). **Sengaja TIDAK menangkap
+  `ApiError`/`SessionExpiredException`** — keduanya berarti server benar-benar menjawab (error nyata
+  atau sesi habis), situasi yang sama sekali berbeda dari "jaringan tidak terjangkau" dan tidak boleh
+  diam-diam ditutupi data basi. Dibuktikan test khusus (`cached_get_test.dart`).
+- **`runApiCall()`** (`core/network/`) — pemetaan `ApiError`/`SessionExpiredException` → `Failure` yang
+  dulu ditulis tangan tiga kali di `AuthRepositoryImpl`, diekstrak sekarang karena `LeadRepositoryImpl`
+  butuh bentuk **persis sama** (Aturan #28: ini implementasi kedua yang nyata, bukan abstraksi
+  spekulatif). `AuthRepositoryImpl` ditulis ulang memakainya — perilaku tidak berubah, dibuktikan
+  seluruh test lama `auth_repository_impl_test.dart` tetap lolos tanpa perubahan asersi.
+
+### `ApiClient.sendListEnvelope` — celah nyata ditemukan sebelum dipakai
+
+`ApiClient.send()` (dari #69) menyempitkan hasil ke field `data` saja, membuang `meta` — cukup untuk
+endpoint auth yang tidak pernah butuh paginasi. **My Leads butuh `meta.total`**, dan `cachedGet` perlu
+menyimpan `{data, meta}` **utuh** supaya pembacaan dari cache nanti tetap punya `total`-nya. Ditemukan
+saat menulis `LeadRemoteDataSource`, sebelum sempat jadi bug diam-diam (`meta.total` selalu 0/salah
+setelah baca dari cache). `sendListEnvelope()` baru, `_decode`/`_decodeChecked` dipecah supaya logika
+"periksa status → lempar `ApiError`" tidak diduplikasi antara dua method.
+
+### `AuthBloc` menerima event dari fitur LAIN — celah arsitektur pertama yang genap ketahuan
+
+#69/#70 membangun `AuthSessionExpired` hanya untuk jalur bootstrap/login `AuthBloc` sendiri. My Leads
+adalah **fitur pertama** yang membuat panggilan API terautentikasi sendiri, di luar alur auth — dan
+langsung memunculkan celah: kalau `LeadsBloc`'s panggilan sendiri mendapat `SessionExpiredFailure`,
+tidak ada mekanisme sebelumnya untuk memberi tahu `AuthBloc`. Design brief §10 eksplisit: layar Sesi
+Berakhir bisa muncul "di layar mana pun", bukan cuma di titik masuk. **`AuthSessionInvalidated`** event
+baru ditambahkan ke `AuthBloc` — fitur mana pun (lewat `sl<AuthBloc>()`, yang memang singleton) bisa
+memberi tahu "sesi baru saja berakhir" tanpa `AuthBloc` perlu tahu fitur itu ada. `LeadRepositoryImpl`/
+`GetMyLeadsUseCase` sendiri **tidak pernah** tahu `AuthBloc` ada — koordinasi terjadi murni di
+`LeadsBloc` (presentasi-ke-presentasi), domain/data tetap bersih.
+
+### Status filter — chip horizontal, bukan bottom sheet multi-select
+
+Mockup desain menunjukkan **dua bentuk berbeda** untuk filter status: baris chip horizontal (state
+"Normal", terlihat single-select) dan bottom sheet dengan checkbox (state "Filter status (bottom
+sheet)", terlihat multi-select) — **tidak jelas triggernya apa**, dan dua bentuk itu sendiri
+berkontradiksi (single vs multi-select untuk field yang sama). Diselesaikan dengan memilih **satu**
+bentuk yang konsisten dengan backend (`status` query param menerima CSV, tapi UI single-select tetap
+valid subset-nya) dan dengan state "Normal" yang jadi rujukan utama: chip horizontal, scroll ke samping
+untuk kedelapan status. Bottom sheet multi-select **tidak dibangun** — dicatat di
+`docs/issues/071-my-leads.md`, bukan diam-diam diabaikan.
+
+### Field pencarian — tidak ada di mockup, tapi eksplisit di cakupan issue
+
+Tidak satu pun state mockup Lead Saya menampilkan kotak pencarian — hanya chip status. Teks cakupan
+issue #71 sendiri eksplisit menyebut "Filter status + pencarian". Dibangun mengikuti bahasa visual tema
+(`shared/theme.dart`'s token) karena tidak ada rujukan mockup langsung — placeholder "Cari nama lead...",
+debounce 300ms (pola persis `crm_dashboard` #32's search box).
+
+### Tanpa paginasi UI — keputusan sadar, bukan kelupaan
+
+`meta.total` dibaca dan disimpan di `LeadListResult`, tapi tidak ada scroll-tak-berhingga atau navigasi
+halaman di `LeadsPage` — hanya memuat halaman pertama (`per_page` bawaan backend). Untuk MVP dengan
+jumlah lead per-Employee yang wajar, kompleksitas paginasi belum sepadan (Aturan #27). Kalau jumlah
+lead per Employee pernah melebihi satu halaman, lead lama akan hilang dari daftar — dicatat sebagai
+keterbatasan diketahui di `docs/issues/071-my-leads.md`.
+
+### "Aksi tulis saat offline gagal dengan pesan jelas" — vakum terpenuhi, bukan diverifikasi aktif
+
+Kriteria acceptance ini ada di daftar #71 meski **cakupan issue murni baca** ("Hanya daftar. Menekan
+satu lead belum membuka detail"). Tidak ada satu pun aksi tulis di layar ini untuk diuji. Dipenuhi
+secara vakum oleh dua fakta: (1) tidak ada mekanisme antrian tulis offline di mana pun di codebase ini
+(keputusan M3) untuk secara diam-diam mengaktifkannya, dan (2) `runApiCall`/pola repository yang sudah
+ada untuk `AuthRepositoryImpl.login` sejak #69 sudah membuktikan kegagalan jaringan pada aksi tulis
+menghasilkan `Failure` yang jelas, bukan diam. Diverifikasi sungguhan begitu #72 membangun aksi tulis
+pertama (ubah status, catatan).
+
+### Verifikasi manual — lapis penuh terhadap `crm_be` sungguhan, termasuk SQLite asli
+
+Skrip `flutter test` sekali-pakai (tidak di-commit) menjalankan seluruh stack produksi
+(`LeadRemoteDataSourceImpl` → `cachedGet` → `LeadRepositoryImpl` → `GetMyLeadsUseCase`) terhadap
+`crm_be` sungguhan (Postgres asli via `docker compose`) **dan** `SqfliteResponseCache` sungguhan (lewat
+`sqflite_common_ffi`, database SQLite betulan — bukan cuma fake yang mengimplementasikan interface):
+
+1. Dua employee, dua lead — masing-masing di-assign ke satu employee berbeda. Employee pertama login →
+   `GetMyLeadsUseCase` → **tepat 1 lead**, namanya cocok yang di-assign ke dia, bukan lead yang lain.
+2. `ApiClient` diarahkan ke `http://127.0.0.1:1` (connection refused sungguhan, bukan simulasi) — hasil
+   kedua **identik** dengan hasil pertama, `fromCache: true`, `fetchedAt` terisi nyata.
+3. `AuthRepositoryImpl.logout()` sungguhan dipanggil → cache dikonfirmasi kosong (panggilan offline
+   berikutnya gagal, bukan lagi mengembalikan data basi).
+4. Login sebagai employee kedua → melihat lead **yang berbeda** (namanya cocok assignment-nya sendiri),
+   membuktikan AC #3 dan cache-per-user tidak bocor lintas sesi pada perangkat yang sama.
+
+Widget smoke test terpisah (juga tidak di-commit) memompa `LeadsPage` lewat keadaan loading/isi/
+kosong/error/banner-cache, termasuk interaksi tap chip dan input pencarian — tidak ada exception
+render. **Satu bug harness ditemukan dan diperbaiki di skrip verifikasi itu sendiri** (bukan di kode
+produksi): pemompaan awal tidak membungkus `LeadsPage` dengan `Scaffold`, memicu "No Material widget
+found" pada `TextField` — `LeadsPage` memang tidak punya `Scaffold` sendiri (selalu hidup di dalam
+`Scaffold` milik `AppShell`), jadi ini murni kesalahan harness test, bukan kode aplikasi.
+`flutter build apk --debug` diulang, sukses.
+
+### Test
+
+30 test baru: `sqflite_response_cache_test.dart` (6, SQLite asli lewat `sqflite_common_ffi`),
+`cached_get_test.dart` (5), `run_api_call_test.dart` (6), `lead_repository_impl_test.dart` (5),
+`leads_bloc_test.dart` (8, termasuk pembuktian nyata bahwa `SessionExpiredFailure` benar-benar
+mengubah state `AuthBloc`, bukan cuma memanggil `add()` lalu berasumsi). Satu test lama
+(`auth_repository_impl_test.dart`) ditambah satu kasus untuk `logout` membersihkan cache. Total 72
+test, seluruhnya lolos.
+
+### Batas issue ini
+
+Menekan satu lead **belum** membuka detail — itu #72. Notifikasi, push, Tugas Saya sungguhan — #73.
+

@@ -13,7 +13,14 @@ import '../../features/auth/domain/usecases/get_current_user_usecase.dart';
 import '../../features/auth/domain/usecases/login_usecase.dart';
 import '../../features/auth/domain/usecases/logout_usecase.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
+import '../../features/leads/data/datasources/lead_remote_data_source.dart';
+import '../../features/leads/data/repositories/lead_repository_impl.dart';
+import '../../features/leads/domain/repositories/lead_repository.dart';
+import '../../features/leads/domain/usecases/get_my_leads_usecase.dart';
+import '../../features/leads/presentation/bloc/leads_bloc.dart';
 import '../api_client.dart';
+import '../cache/response_cache.dart';
+import '../cache/sqflite_response_cache.dart';
 import '../secure_store.dart';
 
 /// Composition root — every service is constructed exactly once here and
@@ -27,6 +34,10 @@ Future<void> initDependencyInjection() async {
   // --- core ---
   sl.registerLazySingleton<TokenStorage>(() => const SecureTokenStorage());
   sl.registerLazySingleton<ApiClient>(() => ApiClient(tokens: sl()));
+  // A single cache instance/connection for the whole app (TD §7) — every
+  // feature that caches GET responses shares the same SQLite database
+  // and, correspondingly, the same "clear everything on logout".
+  sl.registerLazySingleton<ResponseCache>(() => SqfliteResponseCache());
 
   // --- feature: auth — data sources ---
   sl.registerLazySingleton<AuthRemoteDataSource>(
@@ -38,7 +49,11 @@ Future<void> initDependencyInjection() async {
 
   // --- feature: auth — repositories ---
   sl.registerLazySingleton<AuthRepository>(
-    () => AuthRepositoryImpl(remoteDataSource: sl(), tokenStorage: sl()),
+    () => AuthRepositoryImpl(
+      remoteDataSource: sl(),
+      tokenStorage: sl(),
+      responseCache: sl(),
+    ),
   );
   sl.registerLazySingleton<BiometricRepository>(
     () => BiometricRepositoryImpl(sl()),
@@ -66,4 +81,21 @@ Future<void> initDependencyInjection() async {
       getCurrentUser: sl(),
     ),
   );
+
+  // --- feature: leads — data sources, repository, use case ---
+  sl.registerLazySingleton<LeadRemoteDataSource>(
+    () => LeadRemoteDataSourceImpl(sl()),
+  );
+  sl.registerLazySingleton<LeadRepository>(
+    () => LeadRepositoryImpl(remoteDataSource: sl(), responseCache: sl()),
+  );
+  sl.registerLazySingleton(() => GetMyLeadsUseCase(sl()));
+
+  // --- feature: leads — bloc ---
+  // registerFactory, unlike AuthBloc — this is per-screen state (the tab
+  // being alive), not app-wide session state. AppShell's IndexedStack
+  // still only ever asks for one instance in practice (its tab list is
+  // built once via `late final`), but factory is the architecturally
+  // honest choice for what this bloc actually represents.
+  sl.registerFactory(() => LeadsBloc(getMyLeads: sl(), authBloc: sl()));
 }

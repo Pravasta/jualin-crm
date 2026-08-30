@@ -1,0 +1,48 @@
+import '../../../../core/api_client.dart';
+
+/// Talks to `GET /v1/leads` — nothing else. Employee visibility is
+/// enforced by `crm_be` itself at the repository level (Phase 1 #11,
+/// confirmed directly in `crm_be/internal/lead/repository_postgres.go`:
+/// `isEmployee(t)` forces `assigned_to_membership_id = <caller's own
+/// membership>` regardless of any `assigned_to` query param sent) — this
+/// data source never sends `assigned_to` and must never be made to,
+/// relying on client-side filtering as a security boundary would be
+/// exactly backwards.
+abstract class LeadRemoteDataSource {
+  /// Returns the full `{data, meta}` envelope (not narrowed to `data`) —
+  /// `LeadRepositoryImpl` needs `meta.total`, and this is also what gets
+  /// cached whole (TD §7) so a cache read back later still has it.
+  Future<Map<String, dynamic>> listMyLeads({String? status, String? query});
+}
+
+class LeadRemoteDataSourceImpl implements LeadRemoteDataSource {
+  final ApiClient client;
+
+  const LeadRemoteDataSourceImpl(this.client);
+
+  @override
+  Future<Map<String, dynamic>> listMyLeads({
+    String? status,
+    String? query,
+  }) {
+    return client.sendListEnvelope(leadsListPath(status: status, query: query));
+  }
+}
+
+/// Pure — also what `LeadRepositoryImpl` uses as the cache key (TD §7's
+/// own example key shape: `"GET /v1/leads?status=new&page=1"`), so the
+/// same request always resolves to the same cache row.
+String leadsListPath({String? status, String? query}) {
+  final params = <String, String>{};
+  // `null`/empty means "no filter" — the presentation layer's "Semua"
+  // chip is responsible for sending null, not a magic string that would
+  // need handling at every layer between here and there.
+  if (status != null && status.isNotEmpty) {
+    params['status'] = status;
+  }
+  if (query != null && query.trim().isNotEmpty) {
+    params['q'] = query.trim();
+  }
+  if (params.isEmpty) return '/v1/leads';
+  return '/v1/leads?${Uri(queryParameters: params).query}';
+}

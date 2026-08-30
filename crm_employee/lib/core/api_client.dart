@@ -171,6 +171,15 @@ class ApiClient {
   }
 
   dynamic _decode(http.Response res) {
+    final json = _decodeChecked(res);
+    if (json is! JsonMap) return null;
+    return json['data'];
+  }
+
+  /// Parses the response body and throws [ApiError] on a non-2xx status
+  /// — shared by [_decode] (narrows to `data`) and [sendListEnvelope]
+  /// (keeps the full envelope).
+  dynamic _decodeChecked(http.Response res) {
     final text = res.body;
     final json = text.isNotEmpty ? jsonDecode(text) : null;
 
@@ -180,7 +189,24 @@ class ApiClient {
           {'code': 'internal_error', 'message': 'Terjadi kesalahan internal.'};
       throw ApiError.fromBody(res.statusCode, errorBody);
     }
-    if (json is! JsonMap) return null;
-    return json['data'];
+    return json;
+  }
+
+  /// Like [send], but returns the FULL `{data, meta}` envelope instead of
+  /// narrowing to `data` — list endpoints need `meta.total`, and this is
+  /// also the exact shape [cachedGet]/`ResponseCache` (TD §7) round-trip
+  /// through the offline cache, so caching only `data` would silently
+  /// lose `meta.total` for anything read back from cache. GET only —
+  /// every cacheable endpoint TD §7 names is a GET.
+  Future<JsonMap> sendListEnvelope(String path, {bool authorize = true}) async {
+    final res = await _fetchWithAuth(path, method: 'GET', authorize: authorize);
+    final json = _decodeChecked(res);
+    if (json is! JsonMap) {
+      return {
+        'data': <dynamic>[],
+        'meta': {'total': 0},
+      };
+    }
+    return json;
   }
 }
