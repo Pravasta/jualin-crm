@@ -17,7 +17,7 @@
       spesifiknya (biasanya satu pekerjaan, satu organization) — tapi harus ditinjau ulang saat #73:
       apakah kasus ini pernah benar-benar terjadi di penggunaan nyata, dan kalau ya, apakah pesan error
       mentah itu cukup atau perlu picker sungguhan.
-- [ ] **"Masuk dengan password" (fallback biometric gagal) memakai ulang `LoginScreen` penuh**
+- [ ] **"Masuk dengan password" (fallback biometric gagal) memakai ulang `LoginPage` penuh**
       (email+password), bukan layar "konfirmasi password" yang lebih ringan untuk sesi yang tokennya
       sebenarnya masih hidup. Sengaja disederhanakan (TD tidak merinci UI-nya) — tinjau ulang bila
       terasa janggal secara UX setelah dipakai sungguhan di HP.

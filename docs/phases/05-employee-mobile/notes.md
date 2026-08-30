@@ -411,10 +411,63 @@ jaringan sungguhan, tidak menambah cakupan test yang perlu dipertahankan).
 
 Temuan yang perlu ditinjau ulang saat #73 dicatat di `docs/issues/069-flutter-foundation.md`.
 
+### Addendum — ditulis ulang jadi Bloc + Clean Architecture, sebelum PR digabung
+
+PR #76 (isi di atas) awalnya dibangun dengan `provider`/`ChangeNotifier` mengikuti TD §6 aslinya. Sebelum
+PR digabung, pemilik produk secara eksplisit meminta **Bloc + Clean Architecture** menggantikannya —
+permintaan langsung, bukan bug yang ditemukan. TD §3 dan §6 (`docs/phases/05-employee-mobile/td.md`)
+direvisi untuk mencatat pergantian ini beserta alasan pemilihan tiap dependency baru; ringkasannya:
+
+- `core/session.dart` (`ChangeNotifier` tunggal) **dihapus total**, digantikan `AuthBloc`
+  (`features/auth/presentation/bloc/`) — satu instance untuk umur aplikasi, diregistrasi lewat `get_it`.
+- `AuthApi`/`Session`/`BiometricAuthenticator`/`AuthGate`/`LoginScreen`/`PlaceholderHomeScreen` (kode
+  provider lama) **dihapus**, digantikan struktur tiga lapis per fitur (`domain/data/presentation`,
+  TD §3): `AuthUser` (entity) · `AuthRepository`/`BiometricRepository` (interface domain) ·
+  `LoginUseCase`/`LogoutUseCase`/`GetCurrentUserUseCase`/`CheckStoredSessionUseCase`/
+  `CheckBiometricAvailabilityUseCase`/`AuthenticateWithBiometricsUseCase` (use case, satu operasi
+  repository per kelas — pola Clean Architecture standar, sengaja melewati Aturan #28 "abstraksi hanya
+  setelah implementasi kedua nyata" karena ini pola yang diminta eksplisit, dicatat sebagai pengecualian
+  sadar bukan pelanggaran diam-diam) · `AuthRemoteDataSource`/`BiometricLocalDataSource` +
+  `AuthRepositoryImpl`/`BiometricRepositoryImpl` (data layer — mengoordinasikan API/`local_auth` dengan
+  `TokenStorage`, dan **satu-satunya tempat** `ApiError`/`SessionExpiredException` [vocabulary jaringan,
+  `core/api_error.dart`] diterjemahkan jadi `Failure` [vocabulary domain, `core/error/failures.dart` baru,
+  `dartz`'s `Either<Failure, T>`]) · `AuthGatePage`/`LoginPage`/`BiometricGatePage`/`HomePage` (presentasi
+  — `BlocBuilder`, tidak ada logika di widget).
+- **`core/api_client.dart`/`core/secure_store.dart` TIDAK berubah sama sekali** — keduanya sudah
+  infrastruktur murni sejak awal (tidak tahu apa pun tentang Bloc atau `provider`), jadi
+  `test/api_client_test.dart` (5 test dari draf pertama) tetap lolos tanpa satu baris pun diubah,
+  membuktikan batas lapis yang digambar sejak awal ternyata benar.
+- **`hasStoredSession`/`canAuthenticate`/`authenticate` sengaja TIDAK dibungkus `Either<Failure, T>`** —
+  ketiganya pembacaan boolean lokal yang kegagalannya sudah collapse jadi `false` di lapis data;
+  membungkusnya di `Either` yang tidak pernah benar-benar `Left(...)` hanya kosmetik seragam, bukan
+  kejujuran tipe. Dicatat sebagai keputusan desain eksplisit, bukan inkonsistensi pola.
+- **`HomePage` tidak lagi memanggil `GET /v1/me` sendiri** — `AuthBloc` sudah memuat `AuthUser` lewat
+  `GetCurrentUserUseCase` sebagai bagian alur bootstrap/login, dan `HomePage` membacanya langsung dari
+  `AuthState.AuthAuthenticated` lewat `BlocBuilder`. Ini menghilangkan satu panggilan jaringan berlebih
+  yang ada di draf `PlaceholderHomeScreen` lama.
+
+**Test ditambah, bukan dikurangi**: `test/features/auth/presentation/bloc/auth_bloc_test.dart` (9 test,
+`bloc_test`+`mocktail`, seluruh transisi §4.1 termasuk kasus sesi kedaluwarsa persis setelah biometric
+sukses) dan `test/features/auth/data/repositories/auth_repository_impl_test.dart` (9 test, membuktikan
+pemetaan `ApiError`→`Failure` secara langsung — kelas bug paling mudah salah diam-diam di seluruh
+rewrite ini). Total naik dari 5 jadi 22 test, seluruhnya lolos.
+
+**Verifikasi ulang terhadap `crm_be` sungguhan**, kali ini lewat lapis Clean Architecture penuh
+(`AuthRemoteDataSourceImpl` → `AuthRepositoryImpl` → `LoginUseCase`/`GetCurrentUserUseCase`/
+`LogoutUseCase`), bukan cuma `ApiClient` langsung: login → `/v1/me` → logout → `/v1/me` setelah logout
+gagal — seluruh 4 langkah sukses persis seperti verifikasi pertama, membuktikan rewrite tidak diam-diam
+mengubah perilaku, hanya strukturnya. `flutter build apk --debug` diulang sekali lagi, sukses.
+
+Kesimpulan: **tidak ada perilaku yang berubah dari perspektif pengguna** — login, biometric, refresh,
+logout bekerja identik. Yang berubah murni struktural: 6 berkas provider lama → ~25 berkas across
+domain/data/presentation, 3 dependency baru (`flutter_bloc`, `get_it`, `dartz`, `equatable` — 4
+sebenarnya) + 2 dev dependency (`bloc_test`, `mocktail`), `provider` (dependency langsung) dihapus
+(tetap ada transitif lewat `flutter_bloc`).
+
 ### Batas issue ini
 
-Tidak ada layar selain login + satu layar placeholder (`PlaceholderHomeScreen`, memanggil `GET /v1/me`
-dan menyediakan tombol Keluar — dibutuhkan supaya login+biometric+refresh punya sesuatu nyata untuk
+Tidak ada layar selain login + satu `HomePage` (memanggil `GetCurrentUserUseCase` lewat `AuthBloc`,
+menyediakan tombol Keluar — dibutuhkan supaya login+biometric+refresh punya sesuatu nyata untuk
 dibuktikan, digantikan total oleh #71). Tema, navigasi antarlayar, daftar lead — seluruhnya #70/#71.
 Push notification, deeplink — #73.
 

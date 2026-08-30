@@ -1,30 +1,25 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../core/api_error.dart';
-import '../../core/session.dart';
-import 'auth_api.dart';
+import '../bloc/auth_bloc.dart';
+import '../bloc/auth_event.dart';
+import '../bloc/auth_state.dart';
 
 /// Deliberately plain (issue #69's own boundary: "Tampilan sengaja
 /// seadanya" — visual design is the next issue, #70). Doubles as both the
-/// first-ever login and the "Masuk dengan password" fallback `AuthGate`
-/// offers when biometric fails or isn't available on the device.
-class LoginScreen extends StatefulWidget {
-  final VoidCallback onSuccess;
-
-  const LoginScreen({super.key, required this.onSuccess});
+/// first-ever login and the "Masuk dengan password" fallback the
+/// biometric gate offers when biometric fails or isn't available.
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-
-  bool _submitting = false;
-  String? _error;
 
   @override
   void dispose() {
@@ -33,36 +28,14 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _submit() async {
+  void _submit() {
     if (!_formKey.currentState!.validate()) return;
-
-    setState(() {
-      _submitting = true;
-      _error = null;
-    });
-
-    final authApi = context.read<AuthApi>();
-    final session = context.read<Session>();
-
-    try {
-      await authApi.login(
+    context.read<AuthBloc>().add(
+      AuthLoginSubmitted(
         email: _emailController.text.trim(),
         password: _passwordController.text,
-      );
-      session.markAuthenticated();
-      if (!mounted) return;
-      widget.onSuccess();
-    } on ApiError catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.message);
-    } catch (_) {
-      if (!mounted) return;
-      setState(
-        () => _error = 'Tidak dapat terhubung ke server. Periksa koneksi Anda.',
-      );
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
+      ),
+    );
   }
 
   @override
@@ -89,7 +62,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     keyboardType: TextInputType.emailAddress,
                     autocorrect: false,
                     decoration: const InputDecoration(labelText: 'Email'),
-                    validator: (value) => (value == null || value.trim().isEmpty)
+                    validator: (value) =>
+                        (value == null || value.trim().isEmpty)
                         ? 'Email wajib diisi'
                         : null,
                   ),
@@ -103,23 +77,41 @@ class _LoginScreenState extends State<LoginScreen> {
                         : null,
                     onFieldSubmitted: (_) => _submit(),
                   ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 16),
-                    Text(
-                      _error!,
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
-                    ),
-                  ],
+                  BlocBuilder<AuthBloc, AuthState>(
+                    builder: (context, state) {
+                      final error = state is AuthNeedsPassword
+                          ? state.error
+                          : null;
+                      if (error == null) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 16),
+                        child: Text(
+                          error,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                   const SizedBox(height: 24),
-                  FilledButton(
-                    onPressed: _submitting ? null : _submit,
-                    child: _submitting
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Masuk'),
+                  BlocBuilder<AuthBloc, AuthState>(
+                    builder: (context, state) {
+                      final submitting =
+                          state is AuthNeedsPassword && state.isSubmitting;
+                      return FilledButton(
+                        onPressed: submitting ? null : _submit,
+                        child: submitting
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text('Masuk'),
+                      );
+                    },
                   ),
                 ],
               ),

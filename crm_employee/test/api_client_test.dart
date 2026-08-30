@@ -261,11 +261,7 @@ void main() {
           body: const {'email': 'a@b.com', 'password': 'wrong'},
         ),
         throwsA(
-          isA<ApiError>().having(
-            (e) => e.code,
-            'code',
-            'invalid_credentials',
-          ),
+          isA<ApiError>().having((e) => e.code, 'code', 'invalid_credentials'),
         ),
       );
       expect(refreshCallCount, 0);
