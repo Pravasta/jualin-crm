@@ -134,3 +134,89 @@ Tidak ada: `POST /v1/forms/{public_key}/submit` (publik, #87), `GET /embed/{publ
 `tenant.Context.FormID`, cabang `authz` ketiga untuk `PrincipalPublicForm`, `Usecase.ResolvePublicKey`,
 UI dashboard apa pun (`/connect`, manajemen form, #86/#89). `Repository.FindByPublicKey` dibangun dan
 diuji penuh, tapi nol pemanggil di luar test — persis situasi `apikey.FindByKeyID` antara #46 dan #47.
+
+---
+
+## #86 — Dashboard: permukaan Connect + pindahkan pengelolaan API key
+
+Paralel dengan #85 (tidak bergantung padanya) — murni `crm_dashboard`. Menaikkan `Connect` jadi menu
+utama (ADR-012) dan memindahkan pengelolaan API key keluar dari `Pengaturan`, yang selama ini hanya
+ditemukan oleh yang sudah tahu ia ada.
+
+### Pemindahan folder — `git mv` utuh, bukan copy manual
+
+`settings/api-keys/` (termasuk subfolder `docs/`) dipindah **satu perintah** ke `connect/api/` dengan
+`git mv`, mempertahankan struktur nesting internal apa adanya. Ini penting karena satu-satunya impor
+relatif di seluruh folder — `docs/api-docs-screen.tsx`'s `import { CreateAPIKeyDialog } from
+"../create-api-key-dialog"` — hanya tetap valid bila jarak relatifnya (satu folder di bawah induk)
+tidak berubah. TD §10 menyebut impor ini eksplisit sebagai hal yang "patah saat folder dipindah" —
+benar untuk pemindahan naif (copy file satu-satu tanpa menjaga nesting), tapi `git mv` yang
+mempertahankan struktur membuatnya tetap resolve tanpa perlu diubah. Diverifikasi lewat `typecheck`,
+bukan diasumsikan.
+
+### Tiga `router.push`, bukan lima — TD/issue's hitungan diperbaiki di sini, bukan didiamkan
+
+TD §10 dan isu #86 sama-sama menulis "lima `router.push("/settings/api-keys…")`". Pencarian langsung
+(`grep -rn "settings/api-keys" src/`) sebelum menyunting apa pun hanya menemukan **tiga**:
+`api-keys-screen.tsx` (ke `/docs`), `docs/api-docs-screen.tsx` (kembali ke induk), dan
+`settings-screen.tsx` (kartu "Integrasi API"). Dicatat di sini sebagai perbedaan dokumentasi-vs-kode
+(CLAUDE.md §Source of truth: "laporkan, jangan diam-diam mengubah") — bukan kesalahan implementasi,
+TD kemungkinan ditulis dari ingatan sebelum kode benar-benar dihitung ulang. Ketiganya diperbaiki ke
+`/connect/api` atau `/connect/api/docs` sesuai tujuannya masing-masing.
+
+### Kartu "Integrasi API" di `settings-screen.tsx` — dihapus, bukan cuma dialihkan
+
+Cakupan tertulis issue hanya minta memperbaiki `router.push` yang patah, tapi mengubah tujuannya ke
+`/connect/api` sambil MEMPERTAHANKAN kartu itu di Pengaturan akan menyisakan dua pintu masuk ke fitur
+yang sama — bertentangan langsung dengan alasan tertulis ADR-012 sendiri ("Kenapa bukan tetap di
+dalam Pengaturan": *Pengaturan* jarang disentuh setelah setup awal, *Connect* adalah tempat tesis
+produk dibuktikan). Kartunya dihapus utuh berikut `canManageAPIKeys`/`useRouter` yang jadi tidak
+terpakai — dicatat lewat komentar di `settings-screen.tsx` supaya pembaca berikutnya tahu ini
+kesengajaan, bukan penghapusan yang lupa dikembalikan.
+
+### `/connect` — tiga kartu, tanpa gerbang role di level kartu
+
+`ConnectScreen` menampilkan ketiga kartu (API, Formulir, Webhook) ke **semua role tanpa terkecuali** —
+konsisten dengan D6 diperluas dari nav item ke halaman arahnya sendiri: gerbang tetap di layar tujuan
+(`/connect/api` sudah menampilkan "tidak tersedia untuk role Anda" untuk Manager/Employee, persis
+seperti sebelum dipindah). Kartu Formulir mengarah ke `/connect/form` yang belum berisi apa pun
+(#89's scope) — sesuai batas tertulis issue, bukan lupa dibangun. Kartu Webhook memakai `opacity-60`
++ badge "Belum tersedia", **bukan** "terkunci oleh paket" — TD §10 eksplisit soal ini: keadaan
+terkunci-oleh-paket baru lahir Phase 8.
+
+### Redirect permanen lewat `next.config.ts`, bukan halaman `page.tsx` yang memanggil `permanentRedirect()`
+
+Dua opsi Next 16 dipertimbangkan (lihat `node_modules/next/dist/docs/01-app/02-guides/redirecting.md`,
+dibaca dulu sebelum menulis kode — AGENTS.md wajib untuk versi Next non-standar ini): `redirects()` di
+`next.config.ts` (redirect terjadi di layer routing, sebelum render apa pun) vs `permanentRedirect()`
+dari `next/navigation` dipanggil di dalam halaman lama. Dipilih yang pertama — persis kasus yang
+dokumennya sebut sebagai use case intended ("known ahead of time", jumlahnya cuma dua, tidak perlu
+skala Proxy/bloom-filter). **Diverifikasi sungguhan**, bukan dipercaya dari baca kode: `npm run build`
+lalu `npm run start` di port terpisah, `curl` langsung ke kedua URL lama —
+`308 -> http://localhost:3100/connect/api` dan `308 -> .../connect/api/docs`, keduanya **308 Permanent
+Redirect asli**, persis kriteria acceptance ("diverifikasi dengan membuka URL lamanya, bukan dengan
+membaca kodenya").
+
+### `nav.ts`/`nav.test.ts`/`app-shell.tsx`
+
+`NAV_ITEMS` bertambah `{ href: "/connect", label: "Connect" }` antara Tim dan Pengaturan; `NAV_ICONS`
+di `app-shell.tsx` bertambah `Plug` (lucide-react, diverifikasi ada di package sebelum dipakai).
+`nav.test.ts`'s `toEqual([...])` diperbarui — **memang merah sebelum diperbaiki**, itu yang diinginkan
+TD §10. Dua kasus baru ditambahkan mengikuti pola penjaga yang sudah ada: `isActive("/connecting-
+something", "/connect")` harus `false` (tabrakan prefix, disebut eksplisit oleh TD §10), dan
+`isActive("/connect/api", "/connect")` harus `true` (Connect tetap aktif di sub-halamannya). `pageTitle`
+untuk `/connect/api` juga diuji — memastikan sort href-terpanjang-dulu tidak salah pilih.
+
+### Verifikasi
+
+- `npm run typecheck && lint && test && build` — bersih. (`.next/` sempat berisi tipe rute basi yang
+  merujuk path lama sebelum dihapus manual sekali; ini artefak cache, bukan kode.)
+- 85 test lolos (termasuk `nav.test.ts` yang diperbarui).
+- `grep -rn "settings/api-keys" src/` setelah seluruh perubahan — kosong, tidak ada rujukan tersisa.
+- Redirect 308 sungguhan dibuktikan lewat `curl` (lihat di atas), bukan diasumsikan dari config.
+
+### Batas issue ini
+
+Tidak ada: layar `/connect/form` (#89), gerbang `canManageForms` (#89), apa pun yang menyentuh
+`crm_be` (issue ini murni `crm_dashboard`). Kartu Formulir sengaja mengarah ke rute kosong, sesuai
+batas tertulis di issue.

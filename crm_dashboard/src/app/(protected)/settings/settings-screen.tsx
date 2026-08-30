@@ -11,10 +11,16 @@
 // mention a write either) — so this is a read-only display of the
 // session already available via useSession(), keeping the two-card
 // visual grouping but dropping the fake edit affordance entirely.
-import { useRouter } from "next/navigation";
+//
+// The "Integrasi API" card that used to link into API key management
+// (issue #48) is REMOVED here, not just re-pointed — issue #86/ADR-012
+// moves that capability out from under Pengaturan entirely, into its
+// own top-level `Connect` menu item. Leaving a second entry point here
+// would contradict the ADR's own reasoning ("Kenapa bukan tetap di
+// dalam Pengaturan"): Settings is for account/org configuration rarely
+// touched after setup, Connect is where the product's capture layer
+// lives. See src/app/(protected)/connect/connect-screen.tsx.
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { canManageAPIKeys } from "@/lib/api-key-rows";
 import { ROLE_LABELS, type Role } from "@/lib/labels";
 import { useSession } from "@/lib/session-context";
 
@@ -29,7 +35,6 @@ function Field({ label, value }: { label: string; value: string }) {
 
 export function SettingsScreen() {
   const session = useSession();
-  const router = useRouter();
 
   return (
     <div className="flex max-w-md flex-col gap-4">
@@ -48,29 +53,6 @@ export function SettingsScreen() {
           <Field label="Role" value={ROLE_LABELS[session.role as Role]} />
         </CardContent>
       </Card>
-
-      {/* Owner/Admin only (issue #48) — Manager/Employee get no ActionAPIKey*
-          at all, so there's nothing for this card to link them into. */}
-      {canManageAPIKeys(session.role) && (
-        <Card>
-          <CardContent className="flex flex-col gap-3">
-            <div>
-              <div className="text-[13.5px] font-semibold">Integrasi API</div>
-              <p className="text-[12.5px] text-muted-foreground">
-                Kelola kredensial untuk sistem eksternal yang mengirim lead ke organization Anda.
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="w-fit"
-              onClick={() => router.push("/settings/api-keys")}
-            >
-              Kelola API Key
-            </Button>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

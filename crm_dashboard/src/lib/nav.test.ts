@@ -18,6 +18,15 @@ describe("isActive", () => {
     // "/teams-report" if such a route is ever added.
     expect(isActive("/teams-report", "/team")).toBe(false);
     expect(isActive("/customers", "/customer")).toBe(false);
+    // Same guard for /connect (issue #86) — td.md §10 calls this out by
+    // name as the collision to watch for.
+    expect(isActive("/connecting-something", "/connect")).toBe(false);
+  });
+
+  it("keeps Connect active on its sub-pages", () => {
+    expect(isActive("/connect", "/connect")).toBe(true);
+    expect(isActive("/connect/api", "/connect")).toBe(true);
+    expect(isActive("/connect/api/docs", "/connect")).toBe(true);
   });
 });
 
@@ -27,6 +36,12 @@ describe("pageTitle", () => {
     expect(pageTitle("/leads")).toBe("Lead");
     expect(pageTitle("/leads/01931f2e-abcd")).toBe("Lead");
     expect(pageTitle("/team")).toBe("Tim");
+    expect(pageTitle("/connect")).toBe("Connect");
+    // /connect is a prefix of /connect/api — href-length sort must still
+    // pick "Connect" (there's no more specific NAV_ITEMS entry for
+    // sub-pages, but this proves the sort doesn't accidentally pick a
+    // shorter, unrelated href instead).
+    expect(pageTitle("/connect/api")).toBe("Connect");
     expect(pageTitle("/settings")).toBe("Pengaturan");
   });
 
@@ -42,7 +57,7 @@ describe("NAV_ITEMS", () => {
   // not, and must not creep back in.
   it("uses Indonesian labels except for the two glossary terms", () => {
     const labels = NAV_ITEMS.map((item) => item.label);
-    expect(labels).toEqual(["Beranda", "Lead", "Customer", "Tugas", "Tim", "Pengaturan"]);
+    expect(labels).toEqual(["Beranda", "Lead", "Customer", "Tugas", "Tim", "Connect", "Pengaturan"]);
     expect(labels).not.toContain("Home");
     expect(labels).not.toContain("Task");
     expect(labels).not.toContain("Settings");
