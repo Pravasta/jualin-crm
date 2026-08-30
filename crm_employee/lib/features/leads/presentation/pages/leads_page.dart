@@ -3,13 +3,33 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/di/injection_container.dart';
 import '../../../../shared/labels.dart';
-import '../../../../shared/relative_time.dart';
 import '../../../../shared/theme.dart';
+import '../../../../shared/widgets/cache_banner.dart';
+import '../bloc/lead_detail_bloc.dart';
+import '../bloc/lead_detail_event.dart';
 import '../bloc/leads_bloc.dart';
 import '../bloc/leads_event.dart';
 import '../bloc/leads_state.dart';
 import '../widgets/lead_list_item.dart';
+import 'lead_detail_page.dart';
+
+/// Push, providing a fresh `LeadDetailBloc` for this one visit and
+/// dispatching its initial load — the same `BlocProvider`-at-the-push-
+/// site pattern the rest of this app doesn't have another Navigator
+/// push to compare against yet, but mirrors how `AppShell` provides
+/// `LeadsBloc` at its own creation site rather than inside `LeadsPage`.
+void _openLeadDetail(BuildContext context, String leadId) {
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => BlocProvider<LeadDetailBloc>(
+        create: (_) => sl<LeadDetailBloc>()..add(LeadDetailRequested(leadId)),
+        child: const LeadDetailPage(),
+      ),
+    ),
+  );
+}
 
 /// Design brief §6 — the layar terpenting. Status chip row + search +
 /// list, offline cache banner (TD §7), and a pull-to-refresh that always
@@ -75,7 +95,7 @@ class _LeadsPageState extends State<LeadsPage> {
                 ),
               ),
               if (state is LeadsLoaded && state.fromCache)
-                _CacheBanner(fetchedAt: state.fetchedAt),
+                CacheBanner(fetchedAt: state.fetchedAt),
               Expanded(child: _Body(state: state)),
             ],
           ),
@@ -202,41 +222,6 @@ class _StatusChip extends StatelessWidget {
   }
 }
 
-class _CacheBanner extends StatelessWidget {
-  final DateTime? fetchedAt;
-
-  const _CacheBanner({required this.fetchedAt});
-
-  @override
-  Widget build(BuildContext context) {
-    final label = fetchedAt != null
-        ? 'Data dari cache · diperbarui ${absoluteTime(fetchedAt!)}'
-        : 'Data dari cache';
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.space20,
-        vertical: AppSpacing.space8,
-      ),
-      color: AppColors.warningTint,
-      child: Row(
-        children: [
-          const Icon(Icons.wifi_off, size: 15, color: AppColors.warning),
-          const SizedBox(width: AppSpacing.space8),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              color: AppColors.warning,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _Body extends StatelessWidget {
   final LeadsState state;
 
@@ -251,7 +236,10 @@ class _Body extends StatelessWidget {
       LeadsLoaded(:final leads) => ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
         itemCount: leads.length,
-        itemBuilder: (context, index) => LeadListItem(lead: leads[index]),
+        itemBuilder: (context, index) => LeadListItem(
+          lead: leads[index],
+          onTap: () => _openLeadDetail(context, leads[index].id),
+        ),
       ),
     };
   }

@@ -13,10 +13,25 @@ import '../../features/auth/domain/usecases/get_current_user_usecase.dart';
 import '../../features/auth/domain/usecases/login_usecase.dart';
 import '../../features/auth/domain/usecases/logout_usecase.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
+import '../../features/leads/data/datasources/activity_remote_data_source.dart';
+import '../../features/leads/data/datasources/external_app_data_source.dart';
 import '../../features/leads/data/datasources/lead_remote_data_source.dart';
+import '../../features/leads/data/repositories/activity_repository_impl.dart';
+import '../../features/leads/data/repositories/external_action_repository_impl.dart';
 import '../../features/leads/data/repositories/lead_repository_impl.dart';
+import '../../features/leads/domain/repositories/activity_repository.dart';
+import '../../features/leads/domain/repositories/external_action_repository.dart';
 import '../../features/leads/domain/repositories/lead_repository.dart';
+import '../../features/leads/domain/usecases/add_lead_note_usecase.dart';
+import '../../features/leads/domain/usecases/get_lead_activities_usecase.dart';
+import '../../features/leads/domain/usecases/get_lead_detail_usecase.dart';
 import '../../features/leads/domain/usecases/get_my_leads_usecase.dart';
+import '../../features/leads/domain/usecases/launch_dialer_usecase.dart';
+import '../../features/leads/domain/usecases/launch_whatsapp_usecase.dart';
+import '../../features/leads/domain/usecases/log_call_usecase.dart';
+import '../../features/leads/domain/usecases/log_whatsapp_opened_usecase.dart';
+import '../../features/leads/domain/usecases/update_lead_status_usecase.dart';
+import '../../features/leads/presentation/bloc/lead_detail_bloc.dart';
 import '../../features/leads/presentation/bloc/leads_bloc.dart';
 import '../api_client.dart';
 import '../cache/response_cache.dart';
@@ -98,4 +113,47 @@ Future<void> initDependencyInjection() async {
   // built once via `late final`), but factory is the architecturally
   // honest choice for what this bloc actually represents.
   sl.registerFactory(() => LeadsBloc(getMyLeads: sl(), authBloc: sl()));
+
+  // --- feature: leads (detail, #72) — data sources ---
+  sl.registerLazySingleton<ActivityRemoteDataSource>(
+    () => ActivityRemoteDataSourceImpl(sl()),
+  );
+  sl.registerLazySingleton<ExternalAppDataSource>(
+    () => ExternalAppDataSourceImpl(),
+  );
+
+  // --- feature: leads (detail, #72) — repositories ---
+  sl.registerLazySingleton<ActivityRepository>(
+    () => ActivityRepositoryImpl(remoteDataSource: sl(), responseCache: sl()),
+  );
+  sl.registerLazySingleton<ExternalActionRepository>(
+    () => ExternalActionRepositoryImpl(sl()),
+  );
+
+  // --- feature: leads (detail, #72) — use cases ---
+  sl.registerLazySingleton(() => GetLeadDetailUseCase(sl()));
+  sl.registerLazySingleton(() => GetLeadActivitiesUseCase(sl()));
+  sl.registerLazySingleton(() => UpdateLeadStatusUseCase(sl()));
+  sl.registerLazySingleton(() => AddLeadNoteUseCase(sl()));
+  sl.registerLazySingleton(() => LogCallUseCase(sl()));
+  sl.registerLazySingleton(() => LogWhatsAppOpenedUseCase(sl()));
+  sl.registerLazySingleton(() => LaunchDialerUseCase(sl()));
+  sl.registerLazySingleton(() => LaunchWhatsAppUseCase(sl()));
+
+  // --- feature: leads (detail, #72) — bloc ---
+  // registerFactory, same reasoning as LeadsBloc — one instance per time
+  // Detail Lead is open, not app-wide state.
+  sl.registerFactory(
+    () => LeadDetailBloc(
+      getLeadDetail: sl(),
+      getLeadActivities: sl(),
+      updateLeadStatus: sl(),
+      addLeadNote: sl(),
+      logCall: sl(),
+      logWhatsAppOpened: sl(),
+      launchDialer: sl(),
+      launchWhatsApp: sl(),
+      authBloc: sl(),
+    ),
+  );
 }

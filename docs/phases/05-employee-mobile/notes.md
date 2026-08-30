@@ -713,3 +713,150 @@ test, seluruhnya lolos.
 
 Menekan satu lead **belum** membuka detail — itu #72. Notifikasi, push, Tugas Saya sungguhan — #73.
 
+---
+
+## #72 — Detail Lead: timeline, telepon/WhatsApp auto-Activity, ubah status, catatan
+
+Layar dengan seluruh aksi tulis pertama di mobile — dan alasan produk ini ada (*follow-up dari HP*).
+Empat aksi (telepon, WhatsApp, ubah status, catatan) + timeline, dibangun di atas fondasi Bloc + Clean
+Architecture #69 sudah tetapkan: domain (entities, repository interfaces, use cases) → data (models,
+data sources, repository impl) → presentation (`LeadDetailBloc` + halaman).
+
+### Dua port logika murni — sebelum Bloc-nya ditulis
+
+`lead_status.dart` (transisi status yang sah) dan `activity_text.dart` (format timeline) ditulis
+**duluan**, sebagai dependency `LeadDetailBloc`/UI, bukan sesudahnya:
+
+- **`lead_status.dart`** — port baris-per-baris dari `crm_dashboard/src/lib/lead-status.ts`'s
+  `isValidStatusTransition`/`statusTransitionOptions`, yang sendiri adalah port tangan dari
+  `crm_be/internal/lead/usecase.go`'s `validateStatusTransition` (diverifikasi ulang langsung terhadap
+  source Go, bukan diasumsikan tidak berubah sejak Phase 2). `statusTransitionOptionsTest` di-porting
+  **satu-satu**, termasuk test "lost dibatasi ke satu opsi reopen-ke-new" — penyempitan UI yang sengaja
+  dari backend yang sebenarnya izinkan reopen ke status main-path mana pun.
+- **`activity_text.dart`** — port dari `crm_dashboard/src/lib/activity-text.ts`'s
+  `activityToTimelineEntry`, dengan **satu perbedaan disengaja**: dashboard resolve `actor_membership_id`
+  ke nama lewat `namesById` (`GET /v1/memberships`); Employee **tidak punya** `ActionMembershipList`
+  (`crm_be/internal/shared/authz/authz.go` — dikonfirmasi langsung di source, bukan diasumsikan dari
+  nama issue). Diganti: `"Anda"` bila `actor_membership_id` cocok sesi sendiri, `"Anggota tim lain"`
+  (istilah generik, sengaja tidak mengklaim nama/peran) untuk yang lain. Dicocokkan terhadap mockup
+  Claude Design asli, yang menampilkan teks literal "Ditugaskan ke Anda" — desain memang sudah dibangun
+  di atas batasan ini, bukan kebetulan cocok.
+
+### `LeadDetailResult` — celah cache banner ditemukan sebelum jadi bug
+
+`LeadRepository.getLeadDetail` semula (draf pertama) mengembalikan `Lead` telanjang, membuang
+`fromCache`/`fetchedAt` yang `cachedGet` sudah hitung — padahal design brief §10 eksplisit: banner
+"dari cache, tanpa sinyal" berlaku untuk Detail Lead, bukan cuma Lead Saya. Ditemukan saat menulis
+`LeadDetailBloc`'s state (butuh dua field itu untuk `LeadDetailLoaded`), sebelum dipakai di UI —
+diperbaiki dengan `LeadDetailResult` (pola sama seperti `LeadListResult`/`ActivityListResult`),
+`GetLeadDetailUseCase` dan `LeadRepositoryImpl.getLeadDetail` disesuaikan.
+
+### `LeadDetailBloc` — satu state `Loaded`, empat sub-state transien di atasnya
+
+Berbeda dari `LeadsBloc`'s beberapa top-level state (`Loading`/`Loaded`/`Error`), keempat aksi tulis
+(ubah status, catatan, telepon, WhatsApp) semuanya **sub-state transien di atas `LeadDetailLoaded`
+yang sama** (`isUpdatingStatus`/`statusError`/`conflict`, `isSubmittingNote`/`noteError`,
+`isLaunchingExternalAction`/`externalActionError`) — bukan state top-level terpisah. Alasannya:
+lead + timeline harus tetap di layar sepanjang aksi berlangsung (dialog konflik §8.2 melayang **di
+atas** konten terakhir yang valid, tidak menggantikannya).
+
+Pola tulis-lalu-refresh: aksi tulis yang berhasil (ubah status, catatan, telepon, WhatsApp) selalu
+diikuti **refetch aktivitas sungguhan** dari server (`_withFreshActivities`), bukan menyisipkan entry
+palsu di klien — server-lah yang mencatat `status_changed`, jadi menebak bentuknya di klien berisiko
+berbeda diam-diam. `LeadStatusConflictAcknowledged` ("muat ulang") memuat ulang **penuh** (lead +
+aktivitas), bukan sekadar menutup dialog — satu-satunya keluar dari data basi.
+
+**Celah kedua ditemukan sebelum jadi bug**: `LeadDetailError` semula tidak membawa `leadId` — cukup
+untuk kegagalan muat pertama, tapi retry setelah kegagalan **refresh** (dari state `Loaded` yang sudah
+kehilangan lead-nya begitu error) tidak punya cara mengetahui lead mana yang harus dimuat ulang.
+Ditemukan saat menulis `_ErrorView`'s tombol "Coba lagi" — `LeadDetailError` sekarang membawa `leadId`.
+
+### Aksi eksternal — `_launchAndLog` dipakai bersama telepon & WhatsApp
+
+Design brief §8.3: activity hanya dicatat **setelah** OS benar-benar membuka aplikasi eksternal, tidak
+pernah saat tombol ditekan. `ExternalActionRepository.launchDialer`/`launchWhatsApp` mengembalikan
+`bool` polos (bukan `Either`) — sinyal terkuat yang bisa didapat Flutter, tidak bisa tahu apakah
+telepon **benar-benar tersambung** atau WhatsApp benar-benar dibalas. `_launchAndLog` (satu helper,
+dipakai `LeadCallRequested` maupun `LeadWhatsAppRequested`): panggil launch → `false` (dibatalkan
+sebelum handoff) → tidak ada activity, tidak ada error (pilihan sadar pengguna, bukan kegagalan);
+`true` → log activity, lalu refetch timeline. Bila log-nya sendiri gagal (mis. koneksi putus tepat
+setelah dialer terbuka), pesan eksplisit "Aksi berhasil, tapi gagal dicatat" — **tidak pernah**
+berpura-pura aksinya sendiri tidak terjadi.
+
+`Lead.phone` vs `Lead.phoneE164` (acceptance criterion #6): dialer selalu pakai `phone` apa adanya
+(nomor tanpa format E.164 tetap bisa ditelepon); tombol WhatsApp hanya aktif bila `phoneE164` non-null
+(`wa.me` butuh nomor internasional asli). `_ActionBar` menggerbangi kedua tombol secara independen.
+
+### `noteError` — draf pertama salah menaruhnya di snackbar, dikoreksi sebelum PR
+
+Draf pertama menyalurkan `noteError` lewat `ScaffoldMessenger` yang sama dengan `statusError`/
+`externalActionError` (toast generik) — tapi design brief §10 eksplisit minta "kesalahan validasi per
+field" untuk **form catatan** secara khusus, bukan toast yang bisa terlewat atau bertahan lebih lama
+dari field yang dibicarakannya. Dikoreksi sebelum PR dibuka: `noteError` dikeluarkan dari
+`BlocConsumer`'s listener, dialirkan sebagai `InputDecoration.errorText` langsung di bawah `TextField`
+catatan (`_NoteForm`) — `statusError`/`externalActionError` tetap lewat snackbar karena keduanya bukan
+kesalahan field, melainkan hasil aksi (ubah status, telepon/WhatsApp) yang tidak terikat satu widget
+input.
+
+### `CacheBanner` diekstrak ke `shared/widgets/` — implementasi kedua yang nyata
+
+Lead Saya (#71) sudah punya `_CacheBanner` privat; Detail Lead butuh **persis** yang sama (Aturan #28:
+ini implementasi kedua yang nyata, bukan abstraksi spekulatif). Diekstrak ke
+`shared/widgets/cache_banner.dart`, `LeadsPage` ditulis ulang memakainya — tidak ada perubahan
+perilaku, dibuktikan `flutter analyze`/test lama tetap lolos tanpa perubahan asersi.
+
+### Verifikasi manual — end-to-end penuh terhadap `crm_be` sungguhan
+
+Backend dev (`docker compose` Postgres, `api` lokal) dipakai untuk membuktikan seluruh AC issue ini
+dengan data nyata, bukan hanya unit test dengan mock:
+
+1. Owner + Employee + satu lead (di-assign lewat `PATCH /v1/leads/{id}/assignment`) disiapkan lewat
+   `crm_be` sungguhan.
+2. **`PATCH .../status`** — sukses (`new`→`contacted`, version naik 2→3) **dan** versi basi (`version:
+   2` setelah versi sungguhan sudah 3) → **`409 version_conflict`** nyata, `current` berisi state
+   terkini persis seperti `respondLeadError`'s Go source.
+3. **`POST .../activities`** — `note_added`, `call_logged`, `whatsapp_opened` masing-masing dikirim
+   sebagai Employee, lalu **dibaca ulang lewat sesi Owner yang terpisah** (`GET .../activities` dengan
+   token Owner, bukan token Employee yang sama) — memenuhi acceptance criterion secara harfiah:
+   "diverifikasi dari sisi Owner, bukan hanya dari mobile". Seluruhnya muncul, urutan terbaru dulu.
+4. **Isolasi tenant** dicek ulang khusus untuk endpoint baru: Employee ketiga yang **tidak** di-assign
+   ke lead ini → `GET /v1/leads/{id}` → `404`, bukan `403` (Aturan #6), dikonfirmasi bukan hanya untuk
+   `GET /v1/leads` (#71) tapi juga endpoint detail yang baru ditambahkan issue ini.
+5. Skrip `flutter test` sekali-pakai (tidak di-commit) menjalankan stack produksi **sungguhan**
+   (`LeadRemoteDataSourceImpl`/`ActivityRemoteDataSourceImpl` → `runApiCall` → `LeadRepositoryImpl`/
+   `ActivityRepositoryImpl`) terhadap `crm_be` di atas via `ApiClient` asli dengan token asli —
+   membuktikan `phone_e164`, `version_conflict` → `VersionConflictFailure<Lead>` dengan `current` yang
+   ter-parse benar, dan urutan timeline (`whatsapp_opened, call_logged, note_added, status_changed,
+   lead_assigned, lead_created`) — seluruhnya lolos terhadap JSON **asli** dari server, bukan fixture
+   tangan.
+
+Widget smoke test terpisah (juga tidak di-commit) memompa `LeadDetailPage` lewat keadaan loading/
+error/loaded (dengan & tanpa telepon/WhatsApp, status `lost`)/transisi-ke-konflik — tidak ada
+exception render; transisi state nyata (bukan initial state) dipakai khusus untuk membuktikan dialog
+konflik muncul lewat `BlocConsumer.listenWhen`, bukan cuma dirender statis. `flutter build apk --debug`
+sukses.
+
+**Tidak diverifikasi** (keterbatasan lingkungan sandbox ini, sama seperti #69–#71): dialer/WhatsApp OS
+sungguhan tidak bisa dibuka dari lingkungan ini — `ExternalActionRepositoryImpl`/`url_launcher` hanya
+teruji lewat mock (`external_action_repository_impl_test.dart`, membuktikan URI `tel:`/`wa.me` yang
+dibangun, bukan handoff OS-nya). Perangkat Android sungguhan masih jadi kewajiban manusia sebelum #73
+menutup phase.
+
+### Test
+
+64 test baru: `lead_status_test.dart` (9, matriks penuh + `statusTransitionOptions` — pola #33),
+`activity_text_test.dart` (25, seluruh 10 tipe activity + kasus "Anda" vs generik vs `null`),
+`activity_repository_impl_test.dart` (4, file baru), `external_action_repository_impl_test.dart` (4,
+file baru, URI `tel:`/`wa.me`), `lead_repository_impl_test.dart` (+5 kasus: `getLeadDetail` ×2,
+`updateStatus` ×3 termasuk `VersionConflictFailure<Lead>` nyata), `lead_detail_bloc_test.dart` (12,
+file baru — termasuk pembuktian "canceled launch tidak pernah memanggil log" dan "conflict tidak
+pernah memanggil refresh aktivitas"). Total suite sekarang 130 test, seluruhnya lolos. `flutter
+analyze` bersih.
+
+### Batas issue ini
+
+Tidak membuat lead baru, tidak mengonversi ke Customer — sesuai cakupan (Employee tidak punya
+`ActionLeadCreate`/`ActionLeadConvert`). Edit `secure_store.dart` (`_storage`→`storage`, dihasilkan
+IDE, tidak berbahaya) masih tertahan di `git stash` sejak #71 — belum diterapkan atau dibuang, masih
+menunggu keputusan.
+

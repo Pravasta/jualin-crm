@@ -44,3 +44,19 @@ class BiometricFailure extends Failure {
 class UnexpectedFailure extends Failure {
   const UnexpectedFailure(super.message);
 }
+
+/// Aturan #35 — `leads` and `tasks` both use optimistic locking
+/// (`version`); a stale write is REJECTED, never silently overwritten,
+/// and `crm_be`'s `409` body carries the row's current state so the UI
+/// can show it and offer "muat ulang" (design brief §8.2). Generic over
+/// [T] so both `leads` (#72) and, once #73 needs it, `tasks` share this
+/// without `core/` importing either feature's entity — `core/` never
+/// imports `features/`.
+class VersionConflictFailure<T> extends Failure {
+  final T current;
+
+  const VersionConflictFailure(super.message, this.current);
+
+  @override
+  List<Object?> get props => [message, current];
+}

@@ -29,6 +29,14 @@ class CachedResult<T> {
 /// decide that by choosing to call this at all, not something enforced
 /// here.
 ///
+/// `dynamic` — not `Map<String, dynamic>` — because not everything
+/// cacheable here is envelope-shaped: `GET /v1/leads`/`/v1/leads/{id}`
+/// return `{data, meta}`/`{data}` (a `Map`), but `GET
+/// /v1/leads/{id}/activities` (Aturan #33's `List` envelope has no
+/// `meta`, and `ApiClient.send()` already narrows to just `data`) hands
+/// back a bare `List`. `cachedGet`'s job is "cache whatever JSON this
+/// endpoint returns", not assume a shape only some callers have.
+///
 /// Deliberately does NOT catch [ApiError] or [SessionExpiredException] —
 /// those mean the server was reached and answered (a real 4xx/5xx, or a
 /// session that needs re-authenticating), which is a different situation
@@ -36,10 +44,10 @@ class CachedResult<T> {
 /// behind stale cached data. Only [fetch] throwing something else
 /// (`SocketException`, connection timeouts, DNS failures — genuine
 /// connectivity failure) triggers the cache fallback.
-Future<CachedResult<Map<String, dynamic>>> cachedGet({
+Future<CachedResult<dynamic>> cachedGet({
   required ResponseCache cache,
   required String key,
-  required Future<Map<String, dynamic>> Function() fetch,
+  required Future<dynamic> Function() fetch,
 }) async {
   try {
     final data = await fetch();
@@ -53,7 +61,7 @@ Future<CachedResult<Map<String, dynamic>>> cachedGet({
     final cached = await cache.get(key);
     if (cached == null) rethrow;
     return CachedResult(
-      data: jsonDecode(cached.body) as Map<String, dynamic>,
+      data: jsonDecode(cached.body),
       fromCache: true,
       fetchedAt: cached.fetchedAt,
     );

@@ -21,11 +21,19 @@ class ApiError implements Exception {
   final String message;
   final List<ErrorDetail>? details;
 
+  /// Only set for `409 version_conflict` (Aturan #35) — the row's
+  /// current state, raw JSON. Left undecoded here (this file has no
+  /// business knowing what a "lead" is); `LeadRepositoryImpl` is what
+  /// parses it into a domain `Lead` when mapping this into a
+  /// `VersionConflictFailure`.
+  final Map<String, dynamic>? current;
+
   const ApiError({
     required this.status,
     required this.code,
     required this.message,
     this.details,
+    this.current,
   });
 
   factory ApiError.fromBody(int status, Map<String, dynamic> body) {
@@ -37,6 +45,7 @@ class ApiError implements Exception {
       details: detailsJson
           ?.map((d) => ErrorDetail.fromJson(d as Map<String, dynamic>))
           .toList(),
+      current: body['current'] as Map<String, dynamic>?,
     );
   }
 
