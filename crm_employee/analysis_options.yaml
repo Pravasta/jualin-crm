@@ -1,0 +1,31 @@
+# This file configures the analyzer, which statically analyzes Dart code to
+# check for errors, warnings, and lints.
+#
+# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
+# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
+# invoked from the command line by running `flutter analyze`.
+
+# The following line activates a set of recommended lints for Flutter apps,
+# packages, and plugins designed to encourage good coding practices.
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  # Raised above flutter_lints' defaults (issue #69) — this app talks to a
+  # network API and secure storage on every screen, so the categories of
+  # mistake worth catching statically are async/resource ones, the same
+  # spirit as crm_be's golangci-lint errcheck (an unhandled error there is
+  # an un-awaited Future here).
+  rules:
+    # A dropped Future in async code fails silently — no crash, no log,
+    # just a refresh/write that never happened. The exact class of bug
+    # errcheck exists to catch on the Go side.
+    - unawaited_futures
+    - cancel_subscriptions
+    - close_sinks
+    - avoid_print
+    - prefer_final_locals
+    - prefer_const_constructors
+    - always_declare_return_types
+
+# Additional information about this file can be found at
+# https://dart.dev/guides/language/analysis-options

@@ -48,8 +48,16 @@ mengingat prefix `fvm`.
 
 ## 3. Struktur `crm_employee/`
 
-Mengikuti bentuk yang sudah terbukti di `crm_dashboard`: **logika murni dipisah dari widget**, supaya
-bisa diuji tanpa merender apa pun (pola `lib/nav.ts`, `lib/lead-filters.ts`, `lib/api-key-rows.ts`).
+> **Direvisi saat implementasi #69** (sebelum PR-nya digabung): pemilik produk secara eksplisit meminta
+> **Bloc + Clean Architecture** menggantikan rancangan awal bagian ini (`provider`/`ChangeNotifier`,
+> `core/` vs `features/` datar). Draf awal §3 dan §6 di bawah ini **digantikan**, bukan dihapus dari
+> riwayat — lihat `docs/phases/05-employee-mobile/notes.md`'s `## #69` untuk kronologinya. Ini
+> keputusan pemilik produk, bukan temuan teknis — dicatat di sini seperti koreksi ADR-004 di Phase 4
+> (Aturan #30: dicatat, bukan didiamkan), tanpa argumen "kenapa lebih baik" karena ini preferensi
+> eksplisit, bukan bug yang diperbaiki.
+
+Setiap fitur (`features/<nama>/`) punya tiga lapis, **arah dependensi selalu ke dalam**
+(`presentation` → `domain` ← `data`; `domain` tidak pernah mengimpor dua lainnya):
 
 ```
 crm_employee/
@@ -57,28 +65,62 @@ crm_employee/
   pubspec.yaml
   analysis_options.yaml          flutter_lints, dinaikkan (§12)
   lib/
-    main.dart
-    app.dart                     MaterialApp, router, theme
+    main.dart                    initDependencyInjection() lalu runApp()
+    app.dart                     BlocProvider<AuthBloc> root + MaterialApp
     core/
-      api_client.dart            HTTP + refresh single-flight (§5)
-      api_error.dart             bentuk error envelope {code,message,details}
-      session.dart               ChangeNotifier — status login, membership, role
-      secure_store.dart          pembungkus flutter_secure_storage
-      cache.dart                 cache baca offline (§7)
+      api_client.dart            HTTP + refresh single-flight (§5) — infra bersama lintas fitur
+      api_error.dart             ApiError/SessionExpiredException — vocabulary jaringan
+      secure_store.dart          TokenStorage (interface) + SecureTokenStorage (flutter_secure_storage)
       config.dart                base URL per flavor
+      error/
+        failures.dart            Failure (sealed) — vocabulary domain, diterjemahkan dari ApiError
+                                  oleh repository impl di lapis data setiap fitur
+      usecases/
+        usecase.dart             UseCase<Result,Params> — Future<Either<Failure,Result>> call(params)
+      di/
+        injection_container.dart get_it — satu composition root untuk seluruh app
     features/
-      auth/                      login, biometric gate
-      leads/                     My Leads, detail, aksi
-      tasks/                     My Tasks
-      notifications/             daftar notifikasi + FCM handler
+      auth/                      login, biometric gate (#69)
+        domain/
+          entities/               AuthUser — tanpa pengetahuan JSON/HTTP
+          repositories/           AuthRepository, BiometricRepository (interface)
+          usecases/               LoginUseCase, LogoutUseCase, GetCurrentUserUseCase, dst.
+        data/
+          models/                 AuthUserModel extends AuthUser, + fromJson
+          datasources/            AuthRemoteDataSource (ApiClient), BiometricLocalDataSource (local_auth)
+          repositories/           AuthRepositoryImpl, BiometricRepositoryImpl — mengoordinasikan
+                                  data source + TokenStorage, menerjemahkan ApiError → Failure
+        presentation/
+          bloc/                   AuthBloc + AuthEvent + AuthState (flutter_bloc)
+          pages/                  AuthGatePage (switcher), LoginPage, BiometricGatePage, HomePage
+      leads/                      My Leads, detail, aksi — bentuk sama (domain/data/presentation)
+      tasks/                      My Tasks
+      notifications/              daftar notifikasi + FCM handler
     shared/
       labels.dart                status/alasan/sumber → Bahasa Indonesia (§11)
       theme.dart                 token warna & tipografi dari design output
       widgets/                   komponen dipakai >1 layar
-  test/                          unit test — logika murni, tanpa widget
+  test/                          struktur mengikuti lib/ — test/features/auth/domain, /data, /presentation
   android/
   ios/                           digenerate, tidak pernah dibangun (§1)
 ```
+
+**`core/` tidak pernah mengimpor `features/`** — `api_client.dart`/`secure_store.dart` adalah
+infrastruktur murni (HTTP, secure storage) yang dipakai bersama oleh fitur manapun; token/sesi tidak
+lagi punya `ChangeNotifier` tunggal (`session.dart` yang lama) — `AuthBloc` (fitur `auth`) adalah
+satu-satunya pemilik status login, diregistrasi sebagai singleton di `injection_container.dart` dan
+dipakai fitur lain lewat event/state, bukan lewat impor langsung.
+
+**Setiap use case membungkus tepat satu operasi repository** (`UseCase<Result, Params>`, `call()`
+tunggal) — pola standar Clean Architecture Flutter, bukan disederhanakan jadi pemanggilan
+repository langsung dari Bloc, walau untuk operasi sesederhana `login`/`logout` ini secara sengaja
+melewati batas "abstraksi hanya setelah implementasi kedua nyata" (Aturan #28) — pengecualian yang
+disengaja untuk pola arsitektur yang diminta eksplisit, bukan pelanggaran diam-diam.
+
+**Operasi yang tidak bisa gagal secara bermakna (`hasStoredSession`, `canAuthenticate`,
+`authenticate`) sengaja TIDAK dibungkus `Either<Failure, T>`** — pembacaan boolean lokal yang
+"gagal"-nya sudah collapse jadi `false` di lapis data, membungkusnya di `Either` yang selalu `Right`
+hanya kosmetik, bukan kejujuran tipe.
 
 **`labels.dart` menyalin nilai dari `crm_dashboard/src/lib/labels.ts`, bukan mengimpornya.** Tidak ada
 mekanisme berbagi kode Dart↔TypeScript, dan membangunnya (codegen dari satu sumber) adalah abstraksi
@@ -146,8 +188,10 @@ Future<T> send<T>(...) async {
 ```
 
 Yang berbeda dari dashboard: refresh token dibaca dari secure storage dan dikirim di **body**, bukan
-diambil dari cookie. Kegagalan refresh → hapus token dari secure storage, `Session` pindah ke
-keadaan keluar.
+diambil dari cookie. Kegagalan refresh → hapus token dari secure storage, lempar
+`SessionExpiredException` — `ApiClient` sendiri tidak tahu apa pun tentang `AuthBloc`/Clean
+Architecture (§6 direvisi); yang menerjemahkan exception ini jadi `Failure` domain dan memutuskan
+navigasi kembali ke login adalah `AuthRepositoryImpl` lalu `AuthBloc`, dua lapis di atasnya.
 
 **Test wajib** (§12): satu test yang menahan refresh lewat `Completer` sampai beberapa panggilan
 paralel mencapai titik single-flight, membuktikan `/v1/auth/refresh` dipanggil **tepat sekali** —
@@ -155,17 +199,35 @@ pola yang sama seperti `api-client.test.ts`.
 
 ---
 
-## 6. State — `provider`, bukan hand-rolled
+## 6. State — `flutter_bloc` + Clean Architecture (direvisi saat #69)
 
-`ChangeNotifier` + `provider`. Satu paket kecil, stabil, dan luas dipakai.
+> Draf asli bagian ini memilih `provider`/`ChangeNotifier` dan secara eksplisit menolak Bloc "untuk
+> aplikasi berlayar sedikit". **Pemilik produk membalik keputusan itu di tengah implementasi #69**,
+> sebelum PR-nya digabung — permintaan langsung, bukan temuan teknis yang mengoreksi kesalahan draf
+> asli. Argumen lama (di bawah, dicoret) dicatat apa adanya, bukan dihapus, mengikuti Aturan #30.
 
-**Kenapa bukan tanpa paket sama sekali** (yang lebih sesuai refleks Aturan #27): `InheritedWidget`
-buatan tangan untuk state sesi menghasilkan **lebih banyak** kode boilerplate untuk hasil yang sama,
-dan boilerplate itu justru tempat bug muncul. Aturan #27 melarang abstraksi *sebelum kebutuhannya
-nyata* — state sesi lintas layar adalah kebutuhan hari pertama, bukan antisipasi.
+~~**Kenapa bukan Riverpod/Bloc**: keduanya membawa konsep baru (provider scope, event/state stream)
+untuk aplikasi berlayar sedikit. Bisa ditinjau ulang bila jumlah layar tumbuh — itu pemicunya.~~
 
-**Kenapa bukan Riverpod/Bloc**: keduanya membawa konsep baru (provider scope, event/state stream)
-untuk aplikasi berlayar sedikit. Bisa ditinjau ulang bila jumlah layar tumbuh — itu pemicunya.
+**Bentuk yang dipakai sekarang** (lihat §3 untuk pohon direktori lengkap):
+
+- **`flutter_bloc`** (`Bloc<Event, State>`, bukan `Cubit`) — event/state eksplisit per fitur.
+  `AuthBloc` (fitur `auth`) satu instance untuk seluruh umur aplikasi, diregistrasi sebagai
+  `registerLazySingleton` di `injection_container.dart`, dipasang di root `app.dart` lewat
+  `BlocProvider`. Menggantikan `core/session.dart`'s `ChangeNotifier` tunggal sepenuhnya — tidak ada
+  lagi state sesi di luar Bloc.
+- **`get_it`** untuk dependency injection — service locator, bukan `InheritedWidget`/`Provider`
+  manual. Satu `initDependencyInjection()` dipanggil sekali di `main()` sebelum `runApp()`,
+  mendaftarkan seluruh rantai use case → repository → data source → core service.
+- **`dartz`'s `Either<Failure, T>`** di batas domain/data — repository interface mengembalikan
+  `Either`, bukan melempar exception domain; `Failure` (sealed class, `core/error/failures.dart`)
+  adalah satu-satunya vocabulary yang boleh menyeberang ke lapis domain/presentation.
+  `ApiError`/`SessionExpiredException` (`core/api_error.dart`, vocabulary jaringan) tidak pernah
+  bocor ke atas `AuthRepositoryImpl` — di situlah keduanya diterjemahkan.
+- **`equatable`** pada seluruh `Event`/`State`/`Failure`/entity domain — perbandingan nilai, bukan
+  identitas objek, supaya `BlocBuilder` dan `bloc_test`'s `expect: () => [...]` bekerja benar.
+- **`bloc_test` + `mocktail`** (dev dependency) — bukti transisi state Bloc tanpa merender widget
+  apa pun, dipasangkan dengan test level repository yang membuktikan pemetaan `ApiError` → `Failure`.
 
 ---
 
@@ -378,6 +440,8 @@ ini**. Yang diuji adalah bagian yang paling mungkin salah diam-diam:
 |---|---|
 | `test/api_client_test.dart` | Refresh **single-flight** — beberapa 401 paralel → tepat 1 refresh (pola `api-client.test.ts` #31). `MockClient` dari `package:http` |
 | `test/api_client_test.dart` | Refresh gagal → token dihapus dari secure storage, sesi keluar |
+| `test/features/auth/presentation/bloc/auth_bloc_test.dart` | **(#69, ditambahkan saat revisi Bloc)** seluruh transisi state §4.1 — `bloc_test` + `mocktail` atas 6 use case, tanpa jaringan/widget |
+| `test/features/auth/data/repositories/auth_repository_impl_test.dart` | **(#69)** pemetaan `ApiError`/`SessionExpiredException` → `Failure`, orkestrasi data source + `TokenStorage` |
 | `test/cache_test.dart` | Simpan→baca respons; jaringan gagal → cache dipakai; logout → cache kosong |
 | `test/labels_test.dart` | Jumlah & nilai enum cocok dengan backend — 8/6/4/4, mengunci drift dari `labels.ts` |
 | `test/lead_status_test.dart` | Transisi status yang ditawarkan UI ⊆ yang backend izinkan (pola `lead-status.ts` #33) |

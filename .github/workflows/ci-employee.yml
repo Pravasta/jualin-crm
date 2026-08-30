@@ -1,0 +1,42 @@
+name: CI — Employee Mobile
+
+# Monorepo (ADR-009): this workflow must only run for changes that actually
+# touch crm_employee. Without the paths filter, every backend/dashboard-only
+# PR would burn CI time running the Flutter pipeline (ci-backend.yml and
+# ci-dashboard.yml have the mirror-image filter).
+on:
+  pull_request:
+    paths:
+      - "crm_employee/**"
+      - ".github/workflows/ci-employee.yml"
+  push:
+    branches: [main]
+    paths:
+      - "crm_employee/**"
+      - ".github/workflows/ci-employee.yml"
+
+defaults:
+  run:
+    working-directory: crm_employee
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Reads crm_employee/.fvmrc directly — one source of truth for the
+      # pinned version (3.44.0, decision M2), the same reasoning
+      # ci-backend.yml's go-version-file: crm_be/go.mod pin follows. No
+      # separate version literal here that could silently drift from
+      # .fvmrc.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: crm_employee/.fvmrc
+          channel: stable
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      # No `flutter build apk` here — a real build needs
+      # android/app/google-services.json, which is deliberately not
+      # committed (TD §14). Building the APK is a manual/local step
+      # (`make mobile-apk`) until Firebase is wired in issue #73.
