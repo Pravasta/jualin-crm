@@ -70,7 +70,7 @@ export function APIKeysScreen() {
       <div className="mb-3.5 flex items-center justify-between">
         <h2 className="text-[13.5px] font-semibold">API Key</h2>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.push("/settings/api-keys/docs")}>
+          <Button variant="outline" onClick={() => router.push("/connect/api/docs")}>
             Dokumentasi integrasi
           </Button>
           <Button onClick={() => setCreateOpen(true)}>+ Buat kunci baru</Button>

@@ -15,6 +15,7 @@ import {
   UserRound,
   SquareCheckBig,
   UsersRound,
+  Plug,
   Settings,
   LogOut,
   type LucideIcon,
@@ -36,6 +37,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/customers": UserRound,
   "/tasks": SquareCheckBig,
   "/team": UsersRound,
+  "/connect": Plug,
   "/settings": Settings,
 };
 

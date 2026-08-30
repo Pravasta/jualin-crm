@@ -13,12 +13,20 @@ export interface NavItemConfig {
 // product's own terms. "Home"/"Task"/"Settings" from the design are
 // translated: those have ordinary Indonesian words, and acceptance
 // criterion #12 requires the interface to be Indonesian throughout.
+// "Connect" (between Tim and Pengaturan) is issue #86/ADR-012 — the
+// capture-channel surface (API, Formulir, Webhook) raised out of
+// Pengaturan into its own menu item. Visible to EVERY role (keputusan
+// D6): this list is never filtered by role, the same way /settings
+// isn't today — the gate for what a role can actually do inside
+// Connect lives in the screens themselves (canManageAPIKeys today,
+// canManageForms in #89), not here.
 export const NAV_ITEMS: NavItemConfig[] = [
   { href: "/", label: "Beranda" },
   { href: "/leads", label: "Lead" },
   { href: "/customers", label: "Customer" },
   { href: "/tasks", label: "Tugas" },
   { href: "/team", label: "Tim" },
+  { href: "/connect", label: "Connect" },
   { href: "/settings", label: "Pengaturan" },
 ];
 

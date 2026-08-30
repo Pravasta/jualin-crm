@@ -91,7 +91,7 @@ export function APIDocsScreen() {
     <div className="flex max-w-2xl flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-[15px] font-semibold">Dokumentasi integrasi</h1>
-        <Button variant="outline" onClick={() => router.push("/settings/api-keys")}>
+        <Button variant="outline" onClick={() => router.push("/connect/api")}>
           ← Kembali ke API Key
         </Button>
       </div>
