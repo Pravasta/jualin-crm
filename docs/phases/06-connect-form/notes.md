@@ -541,3 +541,121 @@ Tidak ada: endpoint submit (#87, sudah ada), UI pengelolaan form (#89). Prosedur
 "tempel snippet ke halaman HTML kosong" (TD §12) tetap masuk `docs/testing/flow/` di issue penutup
 (#89) — verifikasi browser di atas memakai iframe manual sebagai pengganti sementara untuk AC #88
 sendiri, bukan menggantikan prosedur resmi yang direncanakan.
+
+## #89 — Dashboard: manajemen form + snippet embed — penutup Phase 6
+
+Layar terakhir Phase 6, murni `crm_dashboard`. Backend sudah lengkap sejak #85 (CRUD) dan #88 (embed);
+tidak ada perubahan Go. `NAV_ITEMS`/`pageTitle` untuk `/connect` sudah beres sejak #86 — #89 tidak
+menyentuh `nav.ts`.
+
+### Editor jadi route `/connect/form/[id]`, bukan dialog
+
+Keputusan yang diambil sendiri (dilaporkan ke pemilik produk sebelum implementasi): editor per-form
+adalah **route detail** seperti `/leads/[id]` dan `/customers/[id]`, bukan dialog seperti
+`CreateAPIKeyDialog`. Isinya besar — nama, 6×(toggle enabled + toggle required + input label),
+allowlist domain, dua kotak snippet dengan tombol salin, tombol nonaktifkan — dan dialog setinggi itu
+harus scroll. TD §10 hanya menyebut satu route (`/connect/form`, "daftar & pengelolaan"); menambah
+`[id]` konsisten dengan pola route detail yang sudah ada dua kali di codebase ini, bukan mekanisme
+baru.
+
+### Forms **tidak** punya optimistic locking — beda dari lead/task
+
+`formJSON` tidak membawa `version`; `form.Usecase.Update` last-write-wins. Jadi editor **tidak**
+membawa `version` bolak-balik dan **tidak** ada jalur `409 version_conflict` (Aturan #35 tidak berlaku
+untuk `forms`). Dicatat eksplisit di doc comment `forms.ts` supaya session berikutnya tidak mencari
+penanganan konflik yang memang tidak ada.
+
+### `firstFieldConfigError` — cermin `Fields.Validate` Go, hanya untuk pesan inline
+
+Backend menolak kombinasi tidak koheren (`required && !enabled`; `enabled && label==""`) dengan
+`validation_failed` generik yang tidak menyebut field mana. `firstFieldConfigError` (`forms.ts`,
+diuji terpisah di `forms.test.ts`) mengulang aturan yang sama **hanya** supaya editor bisa menaruh
+pesan merah di bawah field yang salah, bukan sebagai banner buta. Backend tetap sumber kebenaran —
+kalau helper ini meleset, backend tetap menolak. Toggle di UI juga menjaga kedua invariant tetap
+koheren saat diklik (mematikan field ikut mematikan "wajib"; menandai "wajib" ikut menyalakan field).
+
+### `NEXT_PUBLIC_EMBED_BASE_URL` — env var terpisah, bukan pakai ulang API base
+
+Snippet embed menunjuk ke `GET /embed/{public_key}` + `GET /embed.js`, yang hari ini disajikan
+`crm_be` sendiri (`http://localhost:8080`). TD §13 menyebut `EMBED_BASE_URL` sebagai "dipakai
+dashboard membangun snippet". Dibuat env var dashboard sendiri (`NEXT_PUBLIC_EMBED_BASE_URL`, fallback
+ke `NEXT_PUBLIC_API_BASE_URL`) daripada memakai ulang API base — ADR-005 D1 mewajibkan halaman embed
+pindah ke hostname berbeda dari dashboard saat deployment; var terpisah membuat perpindahan itu
+perubahan config, bukan perubahan kode. Dibaca **saat pemanggilan** (`embedBaseUrl()`), bukan saat
+module load, supaya trailing-slash tertangani dan test bisa `vi.stubEnv` tanpa main import order.
+`||` bukan `??` di rantai fallback — string kosong (bisa terjadi di sebagian setup deploy) harus jatuh
+ke kandidat berikutnya, bukan dianggap nilai sah.
+
+### `escapeHtmlAttribute` — nama form masuk ke `title="..."`
+
+Nama form adalah teks yang diketik pelanggan; ia dirender ke atribut HTML `title=""` di snippet.
+Di-escape (`&`, `<`, `>`, `"`) supaya nama ber-`"` tidak memecah tag — cermin apa yang `html/template`
+lakukan server-side untuk label field di halaman embed (TD §16 risiko XSS). Varian JSX melewatkannya
+sebagai string literal JS (`JSON.stringify`) karena React yang meng-escape saat render.
+
+### Tiga varian snippet, satu kalimat penjelas
+
+`autoResizeSnippet` (dianjurkan, + `embed.js`), `fixedHeightSnippet` (tanpa script pihak ketiga),
+`jsxSnippet` (`style={{ border: 0 }}`, `height={620}`). Editor menampilkan dua yang pertama sebagai
+kotak salin dan JSX di balik toggle — TD §10 minta "menjelaskan bedanya dalam satu kalimat, bukan
+menyodorkan dua kotak tanpa keterangan". `height="620"` tetap ada di varian auto sebagai nilai awal
+sebelum script sempat jalan (mencegah kedip).
+
+### Gerbang role di level fetch
+
+`canManageForms` (`form-permissions.ts`, di sebelah `canManageAPIKeys`) — Owner/Admin, cermin persis
+matriks `authz.go` untuk `ActionForm*`. Gerbang ada **di atas** `useEffect` yang memanggil
+`listForms`/`getForm` di kedua layar (`/connect/form` dan `/connect/form/[id]`), jadi Manager/Employee
+yang mengetik URL langsung tidak menghasilkan satu pun panggilan `/v1/forms` — pola sama seperti
+`canManageAPIKeys` di #48.
+
+### Cakupan doc penutup phase — dicek satu per satu
+
+- `api.md`, `authentication.md`, `authorization.md`, `multi-tenancy.md` — **sudah lengkap** untuk
+  Phase 6, ditutup bertahap oleh #85 (matriks `form.*`, pengecualian unik keempat)/#87 (tiga error
+  code, bab submit publik, backfill baris keempat `multi-tenancy.md`)/#88 (bab halaman embed). Diperiksa
+  satu per satu di #89; tidak ada gap tersisa. Satu perbaikan kecil: `api.md` masih menyebut
+  `/settings/api-keys/docs` (path lama sebelum #86) → diperbaiki ke `/connect/api/docs`.
+- `docs/testing/flow/08-formulir-embed.md` — **baru**. Prosedur "tempel snippet ke halaman HTML
+  kosong lalu isi dari browser" (AC #1 & #10). Sekalian: `02`/`05`/`06` masih menunjuk
+  `/settings/api-keys` (debt #86, redirect tetap jalan tapi menyesatkan QA) → diperbaiki ke
+  `/connect/api` karena berkasnya di folder yang sama yang sedang disunting (Aturan #30: dicatat, bukan
+  diperbaiki diam-diam).
+- `STATUS.md` — baris Selesai #89, Phase 6 di *Progress per Phase* jadi ✅, kunci Turnstile tetap di
+  *Punya Lead Time* (sudah ada sejak #87; keterangannya diperbarui — tidak lagi menyebut #88/#89
+  sebagai "tidak diblokir" karena keduanya sudah selesai).
+
+### Test
+
+- `form-permissions.test.ts` (2) — gerbang Owner/Admin.
+- `form-snippet.test.ts` (14) — resolusi `embedBaseUrl` (prefer var khusus, fallback, strip trailing
+  slash), `escapeHtmlAttribute`, ketiga varian snippet (URL + public_key benar, `data-jualin-form`,
+  script pendamping, `height` awal, nama ter-escape di `title`, JSX pakai objek style).
+- `forms.test.ts` (5) — `firstFieldConfigError` mencerminkan `Fields.Validate` (wajib-tapi-nonaktif,
+  aktif-label-kosong, urutan kanonik).
+- Total dashboard: 106 test lolos (85 → 106). Tidak ada test komponen React (`vitest.config.mts`
+  sengaja hanya `.test.ts`).
+
+### Verifikasi manual end-to-end — `docker compose` + browser sungguhan
+
+`docker compose up -d --build`, register org baru + verifikasi lewat Mailpit + login sebagai Owner,
+lalu:
+
+1. **Buat form** lewat API dashboard sungguhan → 6 field ter-seed dengan label Indonesia default.
+2. **PATCH** nama + label (`email` → "Alamat Email", `product` diaktifkan + label diubah) + `allowed_origins: ["http://localhost:9099"]` → response mencerminkan semuanya.
+3. Snippet dari `autoResizeSnippet()` sungguhan (`NEXT_PUBLIC_EMBED_BASE_URL=http://localhost:8080`) ditempel ke `index.html` kosong, disajikan lewat `python3 -m http.server 9099`.
+4. `GET /embed/{public_key}` (dengan `Referer` dari `:9099`) → 200, label yang diubah muncul, field `company` (nonaktif) **tidak** dirender, `form_token` time-trap asli ada di HTML.
+5. **Submit dari browser origin** (`Origin: http://localhost:9099`, `application/x-www-form-urlencoded`, tunggu >2 detik) → `201`, `X-RateLimit-*` per-form asli.
+6. `GET /v1/leads?source=form` → lead baru dengan `source: "form"`, `source_form_id` cocok, `assigned_to_membership_id`/`created_by_membership_id` **kosong**, `phone_e164` ter-normalisasi, catatan = isi field message.
+7. `submit_count` form → `1`.
+8. Submit dari `Origin: http://evil.example` → `403`.
+9. **Nonaktifkan**: `DELETE` → `204`; `DELETE` kedua → `404`; `GET /embed/{public_key}` setelahnya → `404`; `GET /v1/forms` → daftar kosong; lead dari langkah 6 **tetap ada**.
+
+`npm run typecheck && lint && test && build` bersih.
+
+### Batas issue ini
+
+Verifikasi anti-spam sungguhan terhadap Cloudflare Turnstile **tetap tertunda** (`CAPTCHA_PROVIDER=none`
+sepanjang phase — akun Cloudflare belum diurus, `STATUS.md` *Punya Lead Time*). `TurnstileVerifier`
+sendiri sudah diuji terhadap server palsu sejak #87; yang belum adalah round-trip ke Cloudflare asli.
+Tidak memblokir penutupan Phase 6 — semua fungsi lain jalan penuh tanpanya.

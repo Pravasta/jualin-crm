@@ -47,7 +47,7 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 - [ ] Terima undangan, cabang **user baru** (isi nama+password)
 - [ ] Terima undangan, cabang **user sudah ada** (satu tombol konfirmasi)
 - [ ] Employee di `/team`: daftar anggota terlihat (read-only), tapi tanpa tombol undang/ubah/nonaktifkan
-- [ ] Employee di `/settings/api-keys`: pesan "tidak tersedia untuk role Anda", **nol** panggilan API
+- [ ] Employee di `/connect/api`: pesan "tidak tersedia untuk role Anda", **nol** panggilan API
 - [ ] Admin **tidak bisa** ubah role Owner (403)
 - [ ] Owner **bisa** promosikan orang lain jadi co-Owner
 - [ ] Nonaktifkan anggota **tanpa** lead terbuka → langsung, tanpa dialog
@@ -104,6 +104,21 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 - [ ] Nonaktifkan employee dari dashboard → aplikasi kehilangan akses pada panggilan API berikutnya
 - [ ] Logout menghapus device token dari backend (push berikutnya tidak sampai)
 - [ ] Uninstall aplikasi → `device_tokens` dibersihkan pada percobaan kirim berikutnya, bukan menumpuk
+
+## 8 — Formulir Embed (Phase 6)
+
+- [ ] Menu **Connect** → kartu Formulir aktif; kartu Webhook "Belum tersedia" (bukan "terkunci paket")
+- [ ] Buat formulir dari dashboard — enam field terisi label Indonesia default
+- [ ] Ubah label field & aktifkan/nonaktifkan; "wajib" ikut mengaktifkan field, label kosong menolak simpan
+- [ ] Allowlist: `localhost` tanpa skema ditolak; `http://localhost:9099` diterima
+- [ ] **Salin snippet, tempel ke `index.html` kosong, sajikan dari `http://localhost:9099` → formulir muncul dengan label yang diubah**
+- [ ] Field nonaktif tidak dirender; tinggi iframe menyesuaikan isi (embed.js)
+- [ ] **Isi formulir dari browser (tunggu >2 detik) → lead masuk, Sumber: Formulir, tanpa pembuat/penerima**
+- [ ] Angka Submission di daftar formulir bertambah
+- [ ] Halaman yang sama dari port lain (di luar allowlist) → iframe ditolak / submit `403`
+- [ ] Varian tanpa script tetap bekerja (tinggi tetap); varian JSX memakai `style={{ border: 0 }}`
+- [ ] Employee di `/connect/form` (dan `/connect/form/{id}` langsung): pesan "tidak tersedia untuk role Anda", **nol** panggilan `/v1/forms`
+- [ ] Nonaktifkan formulir → hilang dari daftar, iframe jadi `404`, lead yang sudah masuk tetap ada
 
 ## Kalau semua tercentang
 
