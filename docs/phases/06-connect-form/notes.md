@@ -407,3 +407,137 @@ commit) memanggil `formtoken.Issue` dengan secret asli dari `docker-compose.yml`
 Tidak ada: `GET /embed/{public_key}` dan `GET /embed.js` (#88), UI dashboard manajemen form (#89).
 `docs/testing/flow/`'s prosedur manual "tempel snippet ke HTML kosong" (TD §12) — butuh halaman embed
 (#88) untuk punya snippet yang bisa ditempel sama sekali; masuk ke issue penutup phase.
+
+---
+
+## #88 — Halaman embed (iframe) + CSP per-form
+
+Kemampuan baru bagi `crm_be` — hari ini backend tidak pernah menyajikan HTML sama sekali (nol
+`html/template`, nol `http.FileServer`, nol berkas `.html`). Karena itu issue tersendiri, bukan
+tempelan pada #87. Prasyarat #85 sudah terpenuhi.
+
+### Kontradiksi TD ditemukan sebelum menulis kode — diajukan, bukan diputuskan sepihak
+
+Issue #88 AC eksplisit tulis *"Tanpa CAPTCHA, halaman murni HTML — nol JavaScript"*. Tapi D8 (auto-
+resize, ditambahkan belakangan lewat PR #92) minta `ResizeObserver`+`postMessage` di halaman embed
+**selalu**, tidak bersyarat pada CAPTCHA — TD §7's baris "JavaScript hanya bila turnstile" luput
+diperbarui saat D8 masuk. Diajukan dua opsi ke pemilik produk: **D8 menang** dipilih — script auto-
+resize (kecil, cuma miliknya sendiri) tetap ada tanpa CAPTCHA; yang tetap benar dari niat AC aslinya
+adalah *tanpa CAPTCHA, tidak ada script pihak ketiga*, bukan *tidak ada JavaScript sama sekali*. TD §7
+diperbaiki di tempat sebelum implementasi dimulai — lihat baris "JavaScript" di tabelnya, sekarang
+mencatat sejarah koreksi ini secara eksplisit.
+
+Konsekuensi kedua yang ikut ditemukan: TD §7's literal CSP (`default-src 'none'; style-src
+'unsafe-inline'; form-action 'self'; frame-ancestors <allowlist>`) **tidak punya `script-src` sama
+sekali** — dengan `default-src 'none'`, itu berarti SETIAP script (inline auto-resize milik sendiri,
+maupun Turnstile) akan diblokir browser sendiri, bukan cuma "sebaiknya dihindari". Diperbaiki dengan
+menambah `script-src 'nonce-<per-request>'` (plus `https://challenges.cloudflare.com` saat turnstile
+aktif) — nonce dipilih daripada `'unsafe-inline'` karena tidak banyak kerja ekstra dan mengurangi
+blast radius XSS secara nyata: satu-satunya script inline di halaman ini adalah auto-resize milik
+sendiri, jadi nonce membuktikan itu satu-satunya yang boleh jalan, bukan "semua inline script boleh".
+
+### Nonce base64 std vs URL-safe — celah nyata ditemukan oleh test sendiri
+
+Draf pertama `generateNonce` memakai `base64.StdEncoding` — alfabetnya memuat `+`/`/`/`=`. Test
+`TestHandler_Embed_NonceMatchesCSPAndScriptTags` (membandingkan nonce di header CSP dengan nonce di
+atribut `<script nonce="...">`) merah: `html/template` meng-HTML-escape atribut, mengubah `+` jadi
+`&#43;` di badan HTML, sementara header CSP tetap memuat `+` mentah. **Bukan bug fungsional** — browser
+sungguhan mendekode entity HTML kembali ke `+` sebelum mencocokkan nonce, jadi ini akan tetap bekerja
+di browser nyata. Diperbaiki tetap: `base64.RawURLEncoding` (alfabet `-`/`_`, tanpa `=`) tidak butuh
+escaping apa pun, menghilangkan kerapuhan itu sepenuhnya alih-alih bergantung pada browser mendekode
+dengan benar.
+
+### `internal/form/template.go` — satu berkas `//go:embed`, mengikuti pola `migrations/embed.go`
+
+`go:embed` tidak bisa menjangkau ke luar direktori berkas `.go`-nya — karena itu berkas ini di
+`internal/form/` (satu level di atas `template/`), bukan di dalam `template/` itu sendiri, persis
+alasan yang sudah ditulis `migrations/embed.go` untuk `*.sql`. Dua aset: `template/form.gohtml`
+(`html/template`, **bukan** `text/template` — TD §7's satu-satunya jalur XSS di phase ini, escaping
+kontekstual otomatis) dan `template/embed.js` (byte mentah, disajikan apa adanya, bukan template sama
+sekali — D8's companion script tidak memuat data per-form apa pun).
+
+### `AllowedOriginsJSON template.JS` — cara aman menyuntik array JSON ke `<script>`
+
+`{{.AllowedOriginsJSON}}` dirender TANPA tanda kutip di sekitarnya (`var allowedOrigins =
+{{.AllowedOriginsJSON}};`) — kalau nilainya `string` biasa, `html/template`'s escaper konteks-JS akan
+memperlakukannya sebagai STRING LITERAL, bukan ekspresi array. `template.JS` memberi tahu
+`html/template` nilainya sudah aman apa adanya, dilewati tanpa escaping ulang — idiom resminya untuk
+kasus ini, benar dipakai di sini karena isinya sudah melalui `encoding/json.Marshal` di sisi Go
+(`forms.allowed_origins`, data yang diset Owner/Admin lewat PATCH terautentikasi, bukan input
+pengunjung anonim), bukan string bebas yang belum diverifikasi bentuknya.
+
+### `orderedEnabledFields` — `AllFieldKeys`, bukan `range fields`
+
+Field dirender dengan urutan yang SAMA setiap render — `range` langsung atas `Fields` (map) akan
+mengacak urutan field antar request, karena Go tidak menjamin urutan iterasi map. `AllFieldKeys`
+(urutan tetap dari `entity.go`) dipakai sebagai sumber urutan; `Fields`-nya sendiri hanya dikonsultasi
+per key. Dibuktikan test `TestHandler_Embed_FieldOrderIsDeterministic` — 5 render berturut-turut,
+urutan tetap sama.
+
+### `embed.js` — `EMBED_ORIGIN` dari `document.currentScript.src`, iframe dicocokkan lewat `e.source`
+
+TD §7's snippet literal untuk `embed.js` menyebut `EMBED_ORIGIN` dan `frame` sebagai variabel yang
+sudah tersedia tanpa menjelaskan dari mana asalnya — dua celah kecil diselesaikan saat implementasi:
+`EMBED_ORIGIN` diturunkan dari `document.currentScript.src` (origin skrip ini sendiri dimuat, valid
+selama eksekusi sinkron awal skrip termasuk untuk skrip `async`); `frame` yang tepat dicari lewat
+`document.querySelectorAll("iframe[data-jualin-form]")` dan dicocokkan `contentWindow === e.source` —
+bukan asumsi "iframe pertama di halaman", supaya halaman dengan lebih dari satu form tertanam tetap
+me-resize iframe yang benar.
+
+### Respons embed — `httpx.WriteError` tetap dipakai untuk 404, bukan halaman 404 HTML terpisah
+
+`public_key` tak dikenal mengembalikan envelope JSON error yang sama dengan endpoint API lain, bukan
+halaman HTML 404 kustom — meski route ini menyajikan HTML untuk kasus sukses. Tautan embed yang rusak
+adalah kasus tepi jarang; membangun bentuk 404 kedua khusus HTML untuk satu kasus itu saja tidak
+sepadan (Aturan #27).
+
+### Tidak ada kasus isolasi tenant baru di `tenant_isolation_test.go`
+
+Berbeda dari #87 (yang menambah kasus baru untuk submit), #88 sengaja **tidak** menambah kasus baru —
+scoping organization halaman embed 100% diwarisi dari `Usecase.ResolvePublicKey` yang sudah ada dan
+sudah diuji isolasinya di #87 sendiri. Tidak ada jalur kode baru di #88 yang bisa membocorkan data
+lintas organization; menambah test isolasi di sini hanya akan mengulang apa yang #87 sudah buktikan.
+
+### Test
+
+- `internal/form/handler_test.go` — 17 test embed baru: sukses 200 + `Content-Type`, 404 kunci tak
+  dikenal, 404 form terhapus (identik dengan kunci tak dikenal), label `<script>` di-escape (AC
+  literal), `frame-ancestors` dari `allowed_origins` DAN kosong→`'none'`, `X-Frame-Options` tidak
+  pernah dikirim, `Cache-Control: no-store`, tanpa CAPTCHA tidak ada script Cloudflare (tapi auto-
+  resize tetap ada), CAPTCHA aktif merender widget+script dengan site key benar, nonce CSP cocok
+  persis dengan setiap atribut `nonce` di badan HTML, `allowedOrigins` JSON cocok dengan
+  `forms.allowed_origins`, field disabled tidak dirender, urutan field deterministik lintas 5 render,
+  `GET /embed.js` dengan `Cache-Control` benar + smoke-check empat pengaman D8 ada di byte yang
+  sungguhan disajikan, `form_token` yang dirender adalah token time-trap sungguhan yang lolos
+  `formtoken.Verify`.
+- Sintaks JS diverifikasi lewat `node --check` — `embed.js` dan skrip auto-resize yang diekstrak dari
+  `form.gohtml` (dengan placeholder templat diganti nilai dummy) — bukan dipercaya dari mata telanjang.
+
+### Verifikasi manual end-to-end — sungguhan, `docker compose` + `curl` + browser nyata
+
+`docker compose up -d --build` (boot sukses), form dibuat dengan nama DAN label field berisi
+`<script>alert(1)</script>` lewat dashboard API sungguhan:
+
+1. `GET /embed/{public_key}` sungguhan → `200`, header `Cache-Control: no-store` asli, `Content-
+   Security-Policy` dengan `frame-ancestors`/`script-src` nonce asli, **tidak ada** header
+   `X-Frame-Options` sama sekali.
+2. Judul dan label yang berisi `<script>alert(1)</script>` muncul di HTML sebagai `&lt;script&gt;...`
+   — bukan tag hidup — dibuktikan dari body response sungguhan, bukan dari baca kode.
+3. Form dengan `allowed_origins` kosong → `frame-ancestors 'none'` sungguhan.
+4. `public_key` tak dikenal → `404` sungguhan.
+5. `GET /embed.js` → `200`, `Cache-Control: public, max-age=3600` asli.
+6. **Verifikasi browser sungguhan untuk AC "bisa di-iframe dari allowlist, tidak bisa dari luar
+   allowlist"**: dua server statis lokal dijalankan di port berbeda (`:9001` = origin yang dimasukkan
+   ke `allowed_origins` form, `:9002` = origin di luar allowlist), masing-masing menyematkan iframe ke
+   halaman embed yang sama. Kedua tab dibuka di browser sungguhan pemilik produk untuk konfirmasi
+   visual — pemeriksaan header CSP di atas sudah membuktikan **apa yang server kirim**, tapi AC ini
+   secara eksplisit minta "diverifikasi dari browser sungguhan, bukan dari membaca header", jadi
+   konfirmasi visual tetap dicatat sebagai langkah terpisah, bukan diasumsikan otomatis lolos karena
+   header-nya benar.
+
+### Batas issue ini
+
+Tidak ada: endpoint submit (#87, sudah ada), UI pengelolaan form (#89). Prosedur manual formal
+"tempel snippet ke halaman HTML kosong" (TD §12) tetap masuk `docs/testing/flow/` di issue penutup
+(#89) — verifikasi browser di atas memakai iframe manual sebagai pengganti sementara untuk AC #88
+sendiri, bukan menggantikan prosedur resmi yang direncanakan.

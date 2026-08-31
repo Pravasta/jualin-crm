@@ -1,9 +1,15 @@
 package form
 
 import (
+	"bytes"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"html/template"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -63,14 +69,27 @@ type Handler struct {
 	usecase        *Usecase
 	submitIPLimit  publicRateLimiter
 	submitKeyLimit publicRateLimiter
+	// captchaProvider/turnstileSiteKey are ONLY consulted by the embed
+	// handler (#88) to decide whether to render Turnstile's widget and
+	// what public site key to embed — never used for verification
+	// (Usecase.Submit already holds the real captcha.Verifier for that).
+	// Deliberately NOT on Usecase: TurnstileSiteKey is a rendering
+	// concern (it's meant to be embedded in client-facing HTML, never a
+	// secret, unlike TurnstileSecretKey), not business logic.
+	captchaProvider  string
+	turnstileSiteKey string
 }
 
 // NewHandler takes two SEPARATE rate limiters (TD §6 keputusan D4) —
 // one keyed by IP, one by public_key — not one limiter checked twice,
 // since the two axes have independently configured budgets
-// (FORM_SUBMIT_RATE_LIMIT_IP vs _FORM).
-func NewHandler(usecase *Usecase, submitIPLimit, submitKeyLimit publicRateLimiter) *Handler {
-	return &Handler{usecase: usecase, submitIPLimit: submitIPLimit, submitKeyLimit: submitKeyLimit}
+// (FORM_SUBMIT_RATE_LIMIT_IP vs _FORM). captchaProvider/turnstileSiteKey
+// map directly to CAPTCHA_PROVIDER/TURNSTILE_SITE_KEY (config.go).
+func NewHandler(usecase *Usecase, submitIPLimit, submitKeyLimit publicRateLimiter, captchaProvider, turnstileSiteKey string) *Handler {
+	return &Handler{
+		usecase: usecase, submitIPLimit: submitIPLimit, submitKeyLimit: submitKeyLimit,
+		captchaProvider: captchaProvider, turnstileSiteKey: turnstileSiteKey,
+	}
 }
 
 // RegisterRoutes mounts /v1/forms as two SEPARATE gin groups sharing
@@ -100,6 +119,14 @@ func (h *Handler) RegisterRoutes(r gin.IRouter, authMW gin.HandlerFunc) {
 
 	public := r.Group("/v1/forms")
 	public.POST("/:id/submit", h.submit)
+
+	// GET /embed/{public_key} and GET /embed.js (#88) live OUTSIDE /v1
+	// entirely (TD §7: "ia bukan API, ia halaman") — no envelope
+	// {data, meta}, no auth middleware, registered directly on r rather
+	// than any group. :id here means public_key, same non-UUID
+	// treatment as the submit route above.
+	r.GET("/embed/:id", h.embed)
+	r.GET("/embed.js", h.embedJS)
 }
 
 type createRequest struct {
@@ -320,6 +347,176 @@ func payloadTooLargeError() error {
 		Code:    "payload_too_large",
 		Message: "Isi request melebihi batas 32 KB.",
 	}
+}
+
+// --- embed page (#88, TD §7 keputusan D1) ---
+
+// embedFieldView is one <input>/<textarea> the template renders — built
+// from Form.Fields, never handed the map directly, so the template
+// itself never has to know about Go map iteration order (which isn't
+// stable) or FieldKey's zero-value semantics.
+type embedFieldView struct {
+	Key      string
+	Label    string
+	Required bool
+	Type     string // "text" | "email" | "tel" | "textarea"
+}
+
+// fieldInputTypes maps each fixed field (ADR-005 — six keys, no form
+// builder) to an HTML5 input type/textarea. Not configurable — TD never
+// gives forms.fields a "type" a customer could set, only
+// enabled/required/label.
+var fieldInputTypes = map[FieldKey]string{
+	FieldName:    "text",
+	FieldEmail:   "email",
+	FieldPhone:   "tel",
+	FieldCompany: "text",
+	FieldMessage: "textarea",
+	FieldProduct: "text",
+}
+
+// orderedEnabledFields walks AllFieldKeys (entity.go's fixed order) —
+// never ranges over Fields directly, since Go map iteration order is
+// randomized and the rendered form's field order must be the SAME on
+// every request, not shuffled per-render.
+func orderedEnabledFields(fields Fields) []embedFieldView {
+	views := make([]embedFieldView, 0, len(AllFieldKeys))
+	for _, key := range AllFieldKeys {
+		cfg, ok := fields[key]
+		if !ok || !cfg.Enabled {
+			continue
+		}
+		views = append(views, embedFieldView{
+			Key: string(key), Label: cfg.Label, Required: cfg.Required, Type: fieldInputTypes[key],
+		})
+	}
+	return views
+}
+
+// embedPageData feeds template/form.gohtml. AllowedOriginsJSON is
+// template.JS-typed deliberately — see template.go's doc comment on why
+// that's the correct, safe way to inject an already-serialized JSON
+// array as a JS expression rather than a JS string literal.
+type embedPageData struct {
+	FormName           string
+	PublicKey          string
+	Fields             []embedFieldView
+	FormToken          string
+	AllowedOriginsJSON template.JS
+	CaptchaEnabled     bool
+	TurnstileSiteKey   string
+	Nonce              string
+}
+
+// embed renders GET /embed/{public_key} — TD §7: no auth middleware, no
+// {data, meta} envelope, Cache-Control: no-store (the page embeds a
+// short-lived time-trap token). :id is public_key, not a UUID — same
+// non-parsing as submit's own handler.
+//
+// A public_key that doesn't resolve gets the exact same 404 a deleted
+// one does (Usecase.ResolvePublicKey, unchanged from #87) — still
+// written through httpx.WriteError even on this HTML route: a broken
+// embed link is a rare edge case, and inventing a second, HTML-flavored
+// 404 page solely for it isn't worth the extra surface (Rule #27).
+func (h *Handler) embed(c *gin.Context) {
+	publicKey := c.Param("id")
+
+	found, _, err := h.usecase.ResolvePublicKey(c.Request.Context(), publicKey)
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+
+	nonce, err := generateNonce()
+	if err != nil {
+		httpx.WriteError(c, fmt.Errorf("form: embed: %w", err))
+		return
+	}
+
+	allowedOriginsJSON, err := json.Marshal(found.AllowedOrigins)
+	if err != nil {
+		httpx.WriteError(c, fmt.Errorf("form: embed: marshal allowed_origins: %w", err))
+		return
+	}
+
+	captchaEnabled := h.captchaProvider == "turnstile"
+	data := embedPageData{
+		FormName:           found.Name,
+		PublicKey:          found.PublicKey,
+		Fields:             orderedEnabledFields(found.Fields),
+		FormToken:          h.usecase.IssueFormToken(found.ID),
+		AllowedOriginsJSON: template.JS(allowedOriginsJSON), // #nosec G203 -- already-serialized JSON from encoding/json, not raw user input; template.JS is the documented html/template idiom for this
+		CaptchaEnabled:     captchaEnabled,
+		TurnstileSiteKey:   h.turnstileSiteKey,
+		Nonce:              nonce,
+	}
+
+	var buf bytes.Buffer
+	if err := formPage.Execute(&buf, data); err != nil {
+		httpx.WriteError(c, fmt.Errorf("form: embed: render: %w", err))
+		return
+	}
+
+	c.Header("Content-Security-Policy", cspHeader(found.AllowedOrigins, nonce, h.captchaProvider))
+	// X-Frame-Options is deliberately NEVER set here — it can't express
+	// a per-form allowlist the way frame-ancestors can, and setting both
+	// would just be redundant everywhere frame-ancestors already covers
+	// (TD §7).
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "text/html; charset=utf-8", buf.Bytes())
+}
+
+// embedJS serves the D8 companion script — a static asset, the same
+// bytes for every form, cached publicly (unlike the embed page itself,
+// this carries no per-form or per-request state to leak by caching).
+func (h *Handler) embedJS(c *gin.Context) {
+	c.Header("Cache-Control", "public, max-age=3600")
+	c.Data(http.StatusOK, "text/javascript; charset=utf-8", embedJS)
+}
+
+// cspHeader builds the embed page's Content-Security-Policy — see TD §7
+// for the full reasoning behind each directive. frame-ancestors is
+// per-form (allowedOrigins, this row only, never a global policy); an
+// empty allowlist becomes 'none' — a form nobody has configured an
+// origin for yet fails CLOSED, not open (TD §7: "gagal tertutup, bukan
+// terbuka"). script-src carries a per-request nonce (never
+// 'unsafe-inline' — the auto-resize script is the only inline script
+// this page ever emits, and a nonce means an attacker who somehow got
+// OTHER markup injected still couldn't get their own script to run),
+// plus Cloudflare's own origin when Turnstile is enabled.
+func cspHeader(allowedOrigins []string, nonce, captchaProvider string) string {
+	frameAncestors := "'none'"
+	if len(allowedOrigins) > 0 {
+		frameAncestors = strings.Join(allowedOrigins, " ")
+	}
+	scriptSrc := "'nonce-" + nonce + "'"
+	if captchaProvider == "turnstile" {
+		scriptSrc += " https://challenges.cloudflare.com"
+	}
+	return "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; script-src " +
+		scriptSrc + "; frame-ancestors " + frameAncestors
+}
+
+// generateNonce returns a fresh per-request CSP nonce — never cached or
+// reused across requests (the embed page itself is Cache-Control:
+// no-store, so there's no risk of a stale nonce being served from a
+// cache anyway, but generating fresh every render is what makes the
+// nonce mean anything at all: a static, hardcoded nonce would be
+// exactly as weak as 'unsafe-inline').
+//
+// RawURLEncoding, not StdEncoding: std base64's alphabet includes '+',
+// '/', '=', all of which html/template HTML-escapes when the nonce
+// lands inside the <script nonce="..."> attribute (found by this
+// package's own test — a real browser decodes the entities back
+// correctly, so it wasn't a functional bug, but there's no reason to
+// depend on that when RawURLEncoding's alphabet needs no escaping at
+// all and makes the nonce trivially comparable in page source).
+func generateNonce() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate nonce: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // formJSON always includes public_key in full — unlike apiKeyJSON,
