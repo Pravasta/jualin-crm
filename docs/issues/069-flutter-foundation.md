@@ -66,5 +66,11 @@ ada yang peduli" itu penting — yang pertama benar, yang kedua tidak.
   sekali** — ia tidak akan pernah muncul sebagai keluhan tentang fitur ini, hanya sebagai "aplikasinya
   error". Pemicu tunggu itu tidak akan pernah terpicu. Layak jadi issue tersendiri; tidak diperbaiki
   di #98 (issue ini memutuskan, bukan mengimplementasi).
+  **Diputuskan pemilik produk 31 Agustus 2026 (saat Phase 7 dibuka): digabung ke sesi verifikasi HP
+  Android**, bukan issue terpisah sekarang. Alasannya kuat — perbaikannya butuh layar pemilih
+  organization di Flutter, dan itu **tidak bisa diverifikasi tanpa perangkat fisik**, persis seperti
+  lima AC Phase 5 yang sudah menunggu di `073`. Satu sesi dengan HP di tangan menyelesaikan keduanya;
+  dua sesi terpisah berarti yang satu tetap menunggu perangkat yang sama. Pemicunya sekarang **konkret
+  dan pasti terjadi** (sesi verifikasi HP), bukan "sampai skenarionya muncul" yang tidak akan pernah.
 - Poin kedua (fallback biometric memakai `LoginPage` penuh) **tetap terbuka** — murni UX, pemicunya
   pemakaian nyata di HP, yang juga belum terjadi.
