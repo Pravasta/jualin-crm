@@ -47,7 +47,7 @@ rekan setimnya), tapi tombol **+ Undang anggota**, ganti role, dan **Nonaktifkan
 Bagian **Undangan tertunda** juga tidak muncul sama sekali untuk role ini (bukan cuma disembunyikan —
 `listInvitations` tidak pernah dipanggil untuk role tanpa hak itu).
 
-5. Buka `/settings/api-keys` sebagai Employee.
+5. Buka `/connect/api` sebagai Employee.
 
 **Hasil yang diharapkan:** **tidak** ada daftar kunci sama sekali — hanya pesan *"Manajemen API key
 tidak tersedia untuk role Anda."* Buka tab Network di devtools browser: **tidak ada** panggilan ke

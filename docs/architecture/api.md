@@ -250,7 +250,7 @@ per satu, melainkan karena `authz.Require` tidak punya jalan untuk mengizinkanny
 Contoh `curl` yang **sungguhan bekerja** hanya bisa dibuat dengan kredensial nyata, dan raw secret hanya
 pernah tersedia sekali saat kunci dibuat (Aturan #21) — dokumen statis ini sengaja **tidak** memuat
 contoh dengan kredensial palsu yang terlihat berfungsi padahal tidak. Contoh langsung-pakai yang
-sungguhan ada di dashboard, `/settings/api-keys/docs`, dan tersambung otomatis dengan kunci yang sedang
+sungguhan ada di dashboard, `/connect/api/docs`, dan tersambung otomatis dengan kunci yang sedang
 Anda lihat.
 
 ### Error khusus jalur ini

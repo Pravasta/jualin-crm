@@ -8,7 +8,7 @@ lewat API key, dari luar dashboard sama sekali. Ini juga satu-satunya berkas yan
 
 ## 5.1 Buat API key
 
-1. Buka **Pengaturan** (`/settings`) → kartu **API Key** (atau langsung `/settings/api-keys`).
+1. Buka menu **Connect** → kartu **API** (atau langsung `/connect/api`).
 2. Klik **+ Buat kunci baru**.
 3. **Nama**: `Website Testing`, submit.
 
@@ -134,7 +134,7 @@ permintaan berikutnya harus `429` dengan header `Retry-After`.)
 
 ## 5.7 Halaman dokumentasi integrasi
 
-1. Di `/settings/api-keys`, klik **Dokumentasi integrasi**.
+1. Di `/connect/api`, klik **Dokumentasi integrasi**.
 
 **Hasil yang diharapkan:** halaman referensi menampilkan `key_prefix` kunci `Website Testing` (bukan
 secret lengkap — sudah tidak bisa ditampilkan lagi sejak §5.1), contoh curl dengan placeholder
@@ -143,7 +143,7 @@ kenapa kunci **tidak boleh** dipakai dari kode sisi browser.
 
 ## 5.8 Cabut kunci
 
-1. Kembali ke `/settings/api-keys`, klik **Cabut** pada kunci `Website Testing`, konfirmasi.
+1. Kembali ke `/connect/api`, klik **Cabut** pada kunci `Website Testing`, konfirmasi.
 
 **Hasil yang diharapkan:** status kunci berubah jadi tercabut (`revoked_at` terisi), tapi baris
 kuncinya **tetap terlihat** di daftar (tidak dihapus — supaya Owner tahu ia pernah ada). Revoke juga
