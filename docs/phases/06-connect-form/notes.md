@@ -220,3 +220,190 @@ untuk `/connect/api` juga diuji — memastikan sort href-terpanjang-dulu tidak s
 Tidak ada: layar `/connect/form` (#89), gerbang `canManageForms` (#89), apa pun yang menyentuh
 `crm_be` (issue ini murni `crm_dashboard`). Kartu Formulir sengaja mengarah ke rute kosong, sesuai
 batas tertulis di issue.
+
+---
+
+## #87 — Endpoint submit publik + lima lapis anti-spam
+
+Risiko keamanan tertinggi di phase ini — endpoint pertama yang menerima request dari browser orang
+asing, dengan kredensial yang sengaja terbuka. Prasyarat #85 sudah terpenuhi. Cakupan penuh: principal
+keempat (`tenant.PrincipalPublicForm`, akhirnya dipakai sejak Phase 1), cabang ketiga `authz.Require`,
+paket baru `internal/shared/formtoken` dan `internal/shared/captcha`, cabang `PrincipalPublicForm` di
+`lead.Usecase.Create`, dan `POST /v1/forms/{public_key}/submit` itu sendiri.
+
+### Dua keputusan diajukan eksplisit sebelum menulis kode — TD punya celah nyata, bukan diasumsikan
+
+**Content-Type body submit.** TD §7 bilang halaman embed tanpa CAPTCHA "murni HTML +
+`<form method="post">`", tapi tidak pernah menyebutkan Content-Type endpoint submit secara eksplisit —
+dan itu menentukan cara body di-parse serta bentuk `raw_payload` (kolom `jsonb`). Diajukan ke pemilik
+produk: **`application/x-www-form-urlencoded`** dipilih — form native browser tanpa JavaScript,
+konsisten dengan kalimat TD §7. Konsekuensinya: `raw_payload` **tidak** byte mentah body (beda dari
+jalur API key, yang bodinya sudah JSON) — handler membangunnya dari field yang sudah di-parse,
+mengecualikan tiga field protokol (honeypot, token, respons captcha), lalu di-marshal ulang jadi JSON
+sebelum disimpan.
+
+**Celah waktu honeypot vs CAPTCHA.** TD §5 menaruh honeypot di posisi 6, sebelum time-trap dan CAPTCHA
+di posisi 7-8 — supaya bot tidak pernah dapat pesan error yang bisa dipelajari, dan supaya kuota
+verifikasi CAPTCHA tidak terbuang ke request yang sudah diketahui bot. Konsekuensinya: submission
+honeypot berhenti jauh lebih cepat daripada submission asli yang sampai memanggil Turnstile (bisa
+sampai `CAPTCHA_TIMEOUT`) — celah waktu nyata, sementara AC eksplisit minta "tidak bisa dibedakan
+termasuk waktu respons". Diajukan tiga opsi (ikuti urutan TD apa adanya + catat keterbatasan / delay
+buatan di jalur honeypot / tetap jalankan time-trap+CAPTCHA di jalur honeypot lalu buang hasilnya).
+**Opsi pertama dipilih** — TD §5 sudah punya alasan tertulis untuk urutan ini, menata ulang berarti
+menyimpang dari keputusan TD tanpa otorisasi baru. Keterbatasan dicatat di `Usecase.Submit`'s doc
+comment dan `api.md`, bukan didiamkan.
+
+### `LeadCreator` — bridge primitif, mengulang arah `lead.ActivityRecorder`/`PushSender` terbalik
+
+`lead.Usecase.Create` **memakai ulang apa adanya** (keputusan D5 TD), tapi `internal/form` tidak boleh
+mengimpor `internal/lead` langsung — diverifikasi dulu sebelum menulis apa pun: `grep` seluruh
+repository membuktikan **hanya** `cmd/api` yang pernah mengimpor `internal/lead` di luar paket itu
+sendiri, tidak ada domain lain yang jadi pengecualian, termasuk `customer` (yang membaca tabel `leads`
+lewat SQL repository sendiri, bukan lewat `lead.Usecase`). `LeadCreator` di `form/port.go` karena itu
+memakai **primitif saja** (`name string`, `email, phone, company, notes *string`, `rawPayload []byte`)
+— bentuk yang sama seperti `lead.ActivityRecorder`/`NotificationSender`/`PushSender`, hanya arahnya
+terbalik. `leadCreatorAdapter` (composition root, `cmd/api/form_store.go`) menerjemahkannya ke
+`lead.CreateLeadInput` dan memanggil `lead.Usecase.Create` yang **sama persis** dipakai dashboard/API
+key — termasuk `authz.Require(ActionLeadCreate)`-nya, yang untuk `PrincipalPublicForm` otomatis
+lewat `publicFormAllows`. `Usecase.Submit` sendiri **tidak pernah** memanggil `authz.Require` — ia
+sepenuhnya bergantung pada gerbang di dalam `lead.Usecase.Create`.
+
+### `lead.Usecase.Create` — cabang `PrincipalPublicForm`, bentuk sama dengan `PrincipalAPIKey`
+
+`Source` dipaksa `"form"`, `AssignedToMembershipID` ditolak (`insufficient_scope`) bila body
+mengirimkannya, `SourceFormID` diisi dari `t.FormID` — bukan dari `in`, alasan yang sama seperti
+`SourceAPIKeyID` (Rule #5, dicatat eksplisit di `CreateLeadInput`'s doc comment). **Tanpa** panggilan
+`maybeCleanupExpiredIdempotencyKeys` — TD §5 eksplisit forms tidak pernah kirim `Idempotency-Key`.
+`leads.source_form_id` sendiri sudah ada sejak migration `0007` (#85) — tidak ada migration baru di
+#87.
+
+### `internal/shared/formtoken` — waktu terpotong ke detik, bukan bug, ketahuan lewat test sendiri
+
+Token literal mengikuti TD §6: `base64url(issued_at_unix) + "." + base64url(HMAC-SHA256(...))` — unix
+**detik**, bukan milidetik. Draf pertama test batas (`age == minAge - 1ms`, `age == maxAge` persis)
+merah karena `issuedAt.Unix()` membulatkan ke bawah ke detik penuh sementara `verifyAt`'s offset test
+dihitung dari `issuedAt` yang masih punya pecahan detik — perbedaan sampai ~1 detik antara usia
+"sungguhan" dan usia yang dihitung ulang dari timestamp yang sudah dibulatkan. **Bukan bug
+implementasi** — TD sendiri menulis literal "unix", jadi kelonggaran sampai ~1 detik di sekitar batas
+2 detik memang karakteristik desain yang diterima. Diperbaiki di sisi test: `issuedAt :=
+time.Now().Truncate(time.Second)` di setiap kasus batas, supaya model mental test cocok persis dengan
+apa yang `issueAt`/`verifyAt` sungguhan simpan. `ErrInvalidToken` satu sentinel untuk tanda tangan
+salah/terlalu cepat/kedaluwarsa/rusak — mencerminkan TD §9's satu kode `form_token_invalid`, sama
+seperti `apikey.ResolveAPIKey` mengumpulkan semua alasan kegagalan jadi satu 401.
+
+### `internal/shared/captcha` — gagal tertutup, bukan gagal terbuka, saat Cloudflare tak terjangkau
+
+`NoopVerifier` (selalu lolos) dan `TurnstileVerifier` (HTTP POST ke `siteverify`, tanpa SDK — pola
+sama seperti `push.FCMSender` memanggil HTTP v1 API FCM langsung, Rule #27). Keputusan sadar:
+kegagalan JARINGAN ke Cloudflare (timeout, tak terjangkau) **menolak** submission, bukan meloloskannya
+— berbeda dari `push`/`mailer` yang best-effort dan tidak pernah menggagalkan aksi pemicunya. CAPTCHA
+di sini adalah gerbang, bukan efek samping: satu hiccup infrastruktur Cloudflare tidak boleh diam-diam
+berubah jadi jendela spam terbuka (TD §6 — anti-spam adalah fitur ekonomi). `TURNSTILE_SECRET_KEY`
+tidak pernah muncul di pesan error — diverifikasi lewat test yang mencari string secret di
+`err.Error()`, bukan dipercaya dari baca kode (Aturan #26).
+
+### Route publik `/v1/forms/:id/submit` — jebakan wildcard TD §8 sendiri, dua `r.Group` beda middleware
+
+`:id` dipakai **dua arti berbeda** di paket yang sama: `/v1/forms/:id` (kelola, `authMW`) memperlakukannya
+sebagai id baris; `/v1/forms/:id/submit` (publik, tanpa middleware apa pun) memperlakukannya sebagai
+`public_key` — sengaja **tidak** `uuid.Parse`. Gin menuntut nama wildcard sama di segmen yang sama;
+preseden persis `internal/task`/`internal/activity` berbagi `/v1/leads/:id` dari paket terpisah, di
+sini dari `r.Group` terpisah dalam paket yang sama.
+
+### `submit_count` — tidak diminta eksplisit oleh AC #87, tapi dinaikkan di sini karena #87 satu-satunya tempat yang bisa
+
+Kolom `forms.submit_count` sudah ada sejak #85 dengan komentar "angka untuk ditampilkan di dashboard",
+tapi tidak ada AC #87 yang secara literal minta menaikkannya. Diputuskan menaikkannya tetap di sini
+karena `Usecase.Submit` adalah **satu-satunya** jalur yang pernah menghasilkan event submission —
+kalau tidak dinaikkan di #87, tidak ada issue lain di phase ini yang akan pernah melakukannya, dan
+kolomnya jadi permanen mati. Best-effort, **di luar** transaksi lead (tidak bisa berbagi transaksi
+dengan `lead.Usecase.Create` yang buram di balik `LeadCreator`) — kegagalan menaikkan tidak pernah
+menggagalkan response submission, karena lead-nya sudah benar-benar dibuat.
+
+### Respons submit — `{"id": ...}` saja, bukan `leadJSON` penuh
+
+TD §5 hanya menyatakan langkah 10 berakhir `201`, tidak menspesifikkan bentuk body. Diputuskan minimal
+sadar: mengembalikan `leadJSON` penuh (seperti jalur dashboard/API key) akan membocorkan
+`assigned_to_membership_id`, `created_by_membership_id`, `lead_number`, dan field internal lain ke
+pengunjung anonim yang tidak seharusnya melihatnya sama sekali. `{"id": <uuid lead>}` cukup untuk
+kebutuhan #88 nanti (indikator sukses), tanpa membocorkan apa pun.
+
+### Backfill dari #85 — dua celah ditemukan sambil mengerjakan #87, diperbaiki di sini
+
+1. **`authz_test.go` tidak pernah menyentuh Form actions.** `allActions` dan `TestRequire`'s kasus
+   per-role masih nol entri `ActionForm*` — file punya komentar sendiri yang eksplisit menyebut ini
+   "celah nyata, bukan hipotetis" untuk kasus `ActionAPIKey*` di #46, dan pola yang sama terulang
+   untuk `ActionForm*` di #85. Diperbaiki di sini karena #87 toh menyentuh file yang sama untuk
+   `PrincipalPublicForm`'s test sendiri.
+2. **`multi-tenancy.md` tidak pernah menyebut pengecualian keempat.** TD §1 (#85) eksplisit menulis
+   "multi-tenancy.md ditambah baris keempat (§15)" sebagai bagian cakupannya sendiri — tidak
+   dilakukan. Ditambahkan sekarang (`## Pengecualian keempat`).
+
+Keduanya dicatat di sini sebagai temuan, bukan diperbaiki diam-diam (Aturan #30).
+
+### Test
+
+- `internal/shared/formtoken/formtoken_test.go` — tanda tangan valid/tamper, batas `<2s`/`>30m`
+  inklusif, token form lain ditolak, token rusak ditolak.
+- `internal/shared/captcha/turnstile_internal_test.go` + `captcha_test.go` — bentuk request
+  `siteverify`, token kosong tidak memanggil jaringan sama sekali, gagal tertutup saat Cloudflare
+  tak terjangkau/respons rusak, timeout dihormati, secret/token tidak pernah di pesan error.
+  `TestNoopVerifier_AlwaysSucceeds`.
+- `internal/shared/authz/authz_test.go` — cabang `PrincipalPublicForm` diuji sebagai tabel atas
+  **seluruh** `Action` (bukan daftar tulisan tangan), plus backfill Form actions di atas.
+  `TestRequire_PublicFormPrincipal_NeverConsultsRoleMap`.
+- `internal/lead/usecase_unit_test.go` — cabang `PrincipalPublicForm`: penugasan ditolak, source
+  dipaksa, raw_payload tersimpan, tidak pernah memicu cleanup idempotency.
+  `internal/lead/repository_postgres.go`/`entity.go` — `source_form_id` ikut round-trip (dibuktikan
+  test repository real Postgres yang sudah ada, bukan test baru).
+- `internal/form/usecase_unit_test.go` — 14 test `Submit`: 404 kunci tak dikenal/form terhapus,
+  origin ditolak (termasuk allowlist kosong dan header hilang), honeypot sukses-palsu tanpa lead
+  DAN urutan setelah origin, token salah/form lain, captcha gagal, field wajib (termasuk `product`
+  yang tanpa kolom Lead), sukses penuh (`tenant.Context` yang diteruskan diperiksa persis), gagal di
+  `leadCreator` melewatkan increment.
+- `internal/form/handler_test.go` — 10 test HTTP: sukses 201 lewat body url-encoded sungguhan,
+  field tak dikenal vs field protokol di `raw_payload`, 404/403/413, honeypot 201 tanpa lead di DB,
+  rate limit IP dan per-form 429 dengan header, **rate limit sebelum body dibaca** dibuktikan
+  langsung (body oversized + limit habis → 429, bukan 413).
+- `cmd/api/public_form_api_test.go` — end-to-end dengan `form.Usecase` DAN `lead.Usecase` nyata
+  tersambung lewat `leadCreatorAdapter` sungguhan: lead sungguhan muncul dengan `source`/
+  `source_form_id` benar, `raw_payload` DB sungguhan, `submit_count` naik, penugasan tidak pernah
+  bisa dikirim, origin pelanggan tidak pernah dapat header CORS tapi submission tetap sukses.
+- `cmd/api/tenant_isolation_test.go` — kasus baru
+  `TestTenantIsolation_FormSubmit_CreatesLeadOnlyInFormsOwnOrganization`: bentuknya beda dari tabel
+  404 generik (tidak ada principal yang mencoba resource org lain — intinya submission form org B
+  tidak pernah bocor terlihat dari sesi org A). **Dibuktikan bisa gagal**: filter
+  `organization_id = $1` dihapus sementara dari `lead.FindAllByOrg`, test merah (org A melihat 1
+  lead padahal seharusnya 0), dikembalikan, tidak pernah commit.
+- `internal/shared/config/config_test.go` — `TestMain` menambah `FORM_TOKEN_SECRET` global (lewat
+  `os.Setenv`, bukan `t.Setenv`, supaya test lain yang tidak tahu variabel ini ada tetap lolos) —
+  ditemukan perlu setelah env.Parse (caarlos0/env) terbukti gagal-cepat pada field required
+  **pertama** yang hilang menurut urutan deklarasi struct, bukan mengumpulkan semua. 4 test
+  produksi (`TestLoad_ProductionMode` dkk.) diperbarui menambah `CAPTCHA_PROVIDER=turnstile` +
+  kunci, mengikuti pola `PUSH_PROVIDER=fcm` yang sudah ada di situ. 12 test baru untuk
+  `FORM_TOKEN_SECRET`/`CAPTCHA_PROVIDER`/`FORM_SUBMIT_RATE_LIMIT_*`.
+
+### Verifikasi manual end-to-end — sungguhan, `docker compose` + `curl`
+
+`docker compose up -d --build api` (boot sukses membuktikan validasi config baru tidak merusak
+fail-fast yang sudah ada), form dibuat lewat dashboard API sungguhan, `allowed_origins` diset, token
+time-trap dibangkitkan lewat `cmd/gentoken` sekali-pakai (dihapus setelah dipakai, tidak pernah
+commit) memanggil `formtoken.Issue` dengan secret asli dari `docker-compose.yml`:
+
+1. Submit sukses lewat `application/x-www-form-urlencoded` asli → `201`, lead sungguhan di DB dengan
+   `source='form'`, `source_form_id` benar, `raw_payload` berisi field tak dikenal (`utm_source`)
+   tapi **tidak** `form_token`; `forms.submit_count` naik ke 1.
+2. Origin salah dan Origin tidak dikirim sama sekali → keduanya `403 origin_not_allowed` sungguhan.
+3. `public_key` tak dikenal → `404 not_found` sungguhan.
+4. Honeypot terisi → `201` dengan id yang terlihat asli, tapi jumlah lead di DB **tetap 1** — tidak
+   bertambah.
+5. Token rusak → `400 form_token_invalid` sungguhan.
+6. Body 40KB → `413 payload_too_large` sungguhan.
+7. 22 request beruntun dari IP yang sama (termasuk request-request verifikasi di atas, total tepat
+   20 sebelum limit) → mulai request ke-21 `429`, header `Retry-After`/`X-RateLimit-*` sungguhan.
+
+### Batas issue ini
+
+Tidak ada: `GET /embed/{public_key}` dan `GET /embed.js` (#88), UI dashboard manajemen form (#89).
+`docs/testing/flow/`'s prosedur manual "tempel snippet ke HTML kosong" (TD §12) — butuh halaman embed
+(#88) untuk punya snippet yang bisa ditempel sama sekali; masuk ke issue penutup phase.

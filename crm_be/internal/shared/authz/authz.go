@@ -261,18 +261,42 @@ var apiKeyScopeFor = map[Action]string{
 	ActionLeadCreate: "leads:write",
 }
 
+// publicFormAllows is the COMPLETE list of what a public form key
+// (tenant.PrincipalPublicForm, Phase 6 #87, TD §4) can ever do — one
+// line, and it must stay that way: public_key is embedded in every page
+// that installs the form (ADR-005), so anything reachable here is
+// reachable by anyone who views source. Deny-by-absence, same shape as
+// apiKeyScopeFor: a new Action added in any future phase is
+// automatically closed to this principal without anyone writing an
+// exception for it.
+//
+// Deliberately a SEPARATE map from apiKeyScopeFor rather than folded
+// into it — the two answer different questions. An api_key has scopes a
+// customer can choose to grant; a form has exactly one fixed capability
+// that was never a choice. Merging them risks someone adding a scope to
+// api_key later and, without meaning to, handing it to every installed
+// form too.
+var publicFormAllows = map[Action]bool{
+	ActionLeadCreate: true,
+}
+
 // Require reports whether t may perform action, returning a 403
-// (already catalogued in api.md) when it may not. Two principals, two
-// completely separate gates, chosen by t.PrincipalType — a
-// PrincipalAPIKey context has no Role at all, so it must never fall
-// through to permissions[""][action] and get an accidental answer
-// either way; it is checked against apiKeyScopeFor and t.Scopes
-// instead, and never touches the role-based map below.
+// (already catalogued in api.md) when it may not. Three principals,
+// three completely separate gates, chosen by t.PrincipalType —
+// PrincipalAPIKey and PrincipalPublicForm contexts have no Role at all,
+// so neither may ever fall through to permissions[""][action] and get
+// an accidental answer either way.
 func Require(t tenant.Context, action Action) error {
 	if t.PrincipalType == tenant.PrincipalAPIKey {
 		scope, ok := apiKeyScopeFor[action]
 		if !ok || !slices.Contains(t.Scopes, scope) {
 			return InsufficientScopeError()
+		}
+		return nil
+	}
+	if t.PrincipalType == tenant.PrincipalPublicForm {
+		if !publicFormAllows[action] {
+			return forbiddenError()
 		}
 		return nil
 	}

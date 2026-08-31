@@ -30,6 +30,16 @@ var validSMTPTLSModes = []string{"starttls", "none"}
 // validMailProviders (Phase 5 #68).
 var validPushProviders = []string{"none", "fcm"}
 
+// "none" (captcha.NoopVerifier, always passes) or "turnstile"
+// (captcha.TurnstileVerifier) — same shape as validMailProviders/
+// validPushProviders (Phase 6 #87, TD §6 keputusan D2).
+var validCaptchaProviders = []string{"none", "turnstile"}
+
+// minFormTokenSecretLength mirrors minJWTSecretLength (Aturan #36) —
+// FORM_TOKEN_SECRET is its own value, never JWT_SECRET reused, so
+// rotating one never forces rotating the other (TD §6).
+const minFormTokenSecretLength = 32
+
 // Config holds all environment-derived settings for crm_be.
 type Config struct {
 	AppEnv string `env:"APP_ENV" envDefault:"development"`
@@ -103,6 +113,33 @@ type Config struct {
 	// SMB traffic, exposed via env so it can be tuned once real
 	// integrators exist without a deploy.
 	PublicAPIRateLimit int `env:"PUBLIC_API_RATE_LIMIT" envDefault:"60"`
+
+	// FormTokenSecret signs the time-trap token embedded in the embed
+	// page (Phase 6 #87, TD §6) — a SEPARATE secret from JWTSecret on
+	// purpose, so rotating one never forces rotating the other. Required
+	// with no default, same reasoning as JWTSecret: a process booting
+	// with a generated or empty secret would silently invalidate every
+	// token already embedded in a live customer page.
+	FormTokenSecret string `env:"FORM_TOKEN_SECRET,required"`
+
+	// Captcha* configure captcha.Verifier (Phase 6 #87, TD §6 keputusan
+	// D2) — same shape as MailProvider/PushProvider above. "none"
+	// (captcha.NoopVerifier, always passes) is enough for the whole
+	// phase except real anti-spam verification itself; rejected outright
+	// when APP_ENV=production for the identical silent-failure reason
+	// MAIL_PROVIDER=log and PUSH_PROVIDER=none are.
+	CaptchaProvider    string        `env:"CAPTCHA_PROVIDER" envDefault:"none"`
+	TurnstileSiteKey   string        `env:"TURNSTILE_SITE_KEY"`
+	TurnstileSecretKey string        `env:"TURNSTILE_SECRET_KEY"`
+	CaptchaTimeout     time.Duration `env:"CAPTCHA_TIMEOUT" envDefault:"5s"`
+
+	// FormSubmitRateLimit{IP,Form} are POST /v1/forms/{public_key}/submit's
+	// two independent budgets (Phase 6 #87, TD §6 keputusan D4) —
+	// requests per minute, fixed window, one bucket keyed by IP and one
+	// by public_key. Not measured numbers, same honesty as
+	// PublicAPIRateLimit's own comment.
+	FormSubmitRateLimitIP   int `env:"FORM_SUBMIT_RATE_LIMIT_IP" envDefault:"20"`
+	FormSubmitRateLimitForm int `env:"FORM_SUBMIT_RATE_LIMIT_FORM" envDefault:"60"`
 
 	// TrustedProxies lists the IPs/CIDRs whose X-Forwarded-For/X-Real-IP
 	// header may be believed (Phase 4.5 TD §1). The literal "none" means
@@ -195,6 +232,36 @@ func (c *Config) validate() error {
 	}
 	if len(c.JWTSecret) < minJWTSecretLength {
 		return fmt.Errorf("config invalid: JWT_SECRET must be at least %d bytes, got %d", minJWTSecretLength, len(c.JWTSecret))
+	}
+	if len(c.FormTokenSecret) < minFormTokenSecretLength {
+		return fmt.Errorf("config invalid: FORM_TOKEN_SECRET must be at least %d bytes, got %d", minFormTokenSecretLength, len(c.FormTokenSecret))
+	}
+	if !slices.Contains(validCaptchaProviders, c.CaptchaProvider) {
+		return fmt.Errorf("config invalid: CAPTCHA_PROVIDER must be one of %v, got %q", validCaptchaProviders, c.CaptchaProvider)
+	}
+	// A production process with anti-spam turned off fails silently —
+	// no error, no crash, just every spam submission accepted (Phase 6
+	// TD §6). Identical reasoning to MAIL_PROVIDER=log and
+	// PUSH_PROVIDER=none being rejected in production above.
+	if c.AppEnv == "production" && c.CaptchaProvider == "none" {
+		return fmt.Errorf(`config invalid: CAPTCHA_PROVIDER must not be "none" when APP_ENV=production`)
+	}
+	if c.CaptchaProvider == "turnstile" {
+		if c.TurnstileSiteKey == "" {
+			return fmt.Errorf("config invalid: TURNSTILE_SITE_KEY must be set when CAPTCHA_PROVIDER=turnstile")
+		}
+		if c.TurnstileSecretKey == "" {
+			return fmt.Errorf("config invalid: TURNSTILE_SECRET_KEY must be set when CAPTCHA_PROVIDER=turnstile")
+		}
+		if c.CaptchaTimeout <= 0 {
+			return fmt.Errorf("config invalid: CAPTCHA_TIMEOUT must be positive, got %s", c.CaptchaTimeout)
+		}
+	}
+	if c.FormSubmitRateLimitIP <= 0 {
+		return fmt.Errorf("config invalid: FORM_SUBMIT_RATE_LIMIT_IP must be positive, got %d", c.FormSubmitRateLimitIP)
+	}
+	if c.FormSubmitRateLimitForm <= 0 {
+		return fmt.Errorf("config invalid: FORM_SUBMIT_RATE_LIMIT_FORM must be positive, got %d", c.FormSubmitRateLimitForm)
 	}
 	if c.AppEnv == "production" && !c.CookieSecure {
 		return fmt.Errorf("config invalid: COOKIE_SECURE must be true when APP_ENV=production")

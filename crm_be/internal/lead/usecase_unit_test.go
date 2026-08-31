@@ -48,7 +48,7 @@ func (f *fakeLeadRepo) Create(_ context.Context, t tenant.Context, in lead.Creat
 		Name: in.Name, Email: in.Email, Phone: in.Phone, PhoneE164: in.PhoneE164, Company: in.Company, Notes: in.Notes,
 		Status: "new", Source: in.Source, AssignedToMembershipID: in.AssignedToMembershipID,
 		IdempotencyKey: in.IdempotencyKey, Version: 1, CreatedByMembershipID: in.CreatedByMembershipID,
-		RawPayload: in.RawPayload, SourceAPIKeyID: in.SourceAPIKeyID,
+		RawPayload: in.RawPayload, SourceAPIKeyID: in.SourceAPIKeyID, SourceFormID: in.SourceFormID,
 	}
 	f.nextNumber++
 	f.byID[l.ID] = l
@@ -805,5 +805,89 @@ func TestUnit_Create_UserPrincipal_NeverTriggersCleanup(t *testing.T) {
 	}
 	if len(store.repo.cleanupCalls) != 0 {
 		t.Errorf("expected no cleanup call for a user-principal create, got %d", len(store.repo.cleanupCalls))
+	}
+}
+
+// --- Create: public form principal (Phase 6 #87) ---
+
+func formActor(org, formID uuid.UUID) tenant.Context {
+	return tenant.Context{OrganizationID: org, PrincipalType: tenant.PrincipalPublicForm, FormID: &formID}
+}
+
+func TestUnit_Create_PublicForm_AssignedToMembershipID_Rejected(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	actor := formActor(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
+	assignee := uuid.Must(uuid.NewV7())
+
+	_, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi", AssignedToMembershipID: &assignee})
+
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "insufficient_scope" {
+		t.Fatalf("expected insufficient_scope, got: %v", err)
+	}
+	if len(store.repo.byID) != 0 {
+		t.Error("expected no lead to have been created")
+	}
+}
+
+// TestUnit_Create_PublicForm_SourceAlwaysForcedToForm mirrors
+// TestUnit_Create_APIKey_SourceAlwaysForcedToAPI — the body's own
+// "source" is overridden, not merely defaulted, and source_form_id is
+// stamped from the resolved principal, never from the request.
+func TestUnit_Create_PublicForm_SourceAlwaysForcedToForm(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	formID := uuid.Must(uuid.NewV7())
+	actor := formActor(uuid.Must(uuid.NewV7()), formID)
+
+	created, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi", Source: "manual"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.Source != "form" {
+		t.Errorf("expected source forced to %q, got %q", "form", created.Source)
+	}
+	if created.SourceFormID == nil || *created.SourceFormID != formID {
+		t.Errorf("expected source_form_id %s, got %v", formID, created.SourceFormID)
+	}
+	if created.SourceAPIKeyID != nil {
+		t.Errorf("expected source_api_key_id nil for a form create, got %v", created.SourceAPIKeyID)
+	}
+	if created.CreatedByMembershipID != nil {
+		t.Errorf("expected created_by_membership_id nil for a form create, got %v", created.CreatedByMembershipID)
+	}
+}
+
+func TestUnit_Create_PublicForm_RawPayloadStored(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	actor := formActor(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
+	raw := []byte(`{"name":"Budi","product":"Paket A"}`)
+
+	created, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi", RawPayload: raw})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if string(created.RawPayload) != string(raw) {
+		t.Errorf("expected raw_payload stored verbatim, got %q", created.RawPayload)
+	}
+}
+
+// TestUnit_Create_PublicForm_NeverTriggersCleanup is
+// TestUnit_Create_UserPrincipal_NeverTriggersCleanup's form-principal
+// counterpart — TD §5 is explicit forms never send an Idempotency-Key,
+// so the sweep (scoped to the API key path only) must never fire here
+// either.
+func TestUnit_Create_PublicForm_NeverTriggersCleanup(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store)
+	actor := formActor(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
+
+	if _, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if len(store.repo.cleanupCalls) != 0 {
+		t.Errorf("expected no cleanup call for a public-form create, got %d", len(store.repo.cleanupCalls))
 	}
 }

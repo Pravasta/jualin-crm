@@ -69,16 +69,16 @@ func (r *postgresRepository) Create(ctx context.Context, t tenant.Context, in Cr
 		INSERT INTO leads (
 			id, organization_id, lead_number, name, email, phone, phone_e164, company, notes,
 			source, assigned_to_membership_id, raw_payload, idempotency_key, created_by_membership_id,
-			source_api_key_id
+			source_api_key_id, source_form_id
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		RETURNING ` + leadColumns
 
 	id := uuid.Must(uuid.NewV7())
 	row := r.q.QueryRow(ctx, insertQ,
 		id, t.OrganizationID, nextNumber, in.Name, in.Email, in.Phone, in.PhoneE164, in.Company, in.Notes,
 		in.Source, in.AssignedToMembershipID, in.RawPayload, in.IdempotencyKey, in.CreatedByMembershipID,
-		in.SourceAPIKeyID,
+		in.SourceAPIKeyID, in.SourceFormID,
 	)
 	created, err := scanLead(row)
 	if err != nil {
@@ -452,7 +452,8 @@ func membershipIDOrNil(t tenant.Context) uuid.UUID {
 const leadColumns = `
 	id, organization_id, lead_number, name, email, phone, phone_e164, company, notes,
 	status, lost_reason, source, assigned_to_membership_id, raw_payload, idempotency_key,
-	version, created_by_membership_id, created_at, updated_at, deleted_at, source_api_key_id`
+	version, created_by_membership_id, created_at, updated_at, deleted_at, source_api_key_id,
+	source_form_id`
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -464,6 +465,7 @@ func scanLead(row rowScanner) (*Lead, error) {
 		&l.ID, &l.OrganizationID, &l.LeadNumber, &l.Name, &l.Email, &l.Phone, &l.PhoneE164, &l.Company, &l.Notes,
 		&l.Status, &l.LostReason, &l.Source, &l.AssignedToMembershipID, &l.RawPayload, &l.IdempotencyKey,
 		&l.Version, &l.CreatedByMembershipID, &l.CreatedAt, &l.UpdatedAt, &l.DeletedAt, &l.SourceAPIKeyID,
+		&l.SourceFormID,
 	)
 	if err != nil {
 		return nil, err

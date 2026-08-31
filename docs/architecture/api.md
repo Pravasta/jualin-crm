@@ -120,6 +120,9 @@ Bertambah seiring fitur. Setiap kode baru dicatat di sini.
 | 401 | `invalid_api_key` | Kredensial `jln_*` tidak dikenal, sudah direvoke, atau kedaluwarsa — ketiganya pesan yang sama (issue #47) |
 | 403 | `insufficient_scope` | Principal `api_key` mencoba aksi di luar scope-nya — termasuk mengirim `assigned_to_membership_id` ke `POST /v1/leads` (issue #47) |
 | 413 | `payload_too_large` | Body `POST /v1/leads` jalur API key melebihi 64 KB (issue #47) |
+| 403 | `origin_not_allowed` | Header `Origin` di luar `forms.allowed_origins` — termasuk saat header itu tidak dikirim sama sekali, dan saat allowlist-nya sendiri kosong (issue #87) |
+| 400 | `form_token_invalid` | Token time-trap salah tanda tangan, terlalu cepat (<2 detik), kedaluwarsa (>30 menit), atau untuk `form_id` lain — keempatnya pesan yang sama (issue #87) |
+| 400 | `captcha_failed` | Turnstile menolak, token tidak dikirim, atau verifikasi ke Cloudflare sendiri gagal — ketiganya jalur yang sama, gagal tertutup (issue #87) |
 
 > `invalid_activity_type` dan `membership_has_open_leads` seharusnya masuk katalog ini saat issue #21
 > dan #22 selesai ("setiap kode baru dicatat di sini") — luput saat itu, ditambahkan di sini saat
@@ -271,3 +274,92 @@ Detail mekanisme (throttle, penghapusan malas) ada di `docs/phases/04-public-api
 Body `POST /v1/leads` yang dikirim lewat API key disimpan **apa adanya** di `leads.raw_payload`,
 termasuk field yang tidak dikenal sama sekali (bukan hanya field opsional yang dikenal tapi kosong) —
 lihat baris "Field tak dikenal pada request" di bagian *Payload* di atas.
+
+---
+
+## Formulir Publik (Phase 6, issue #87)
+
+Satu-satunya endpoint: `POST /v1/forms/{public_key}/submit`, dengan principal `public_form` (lihat
+bagian *Autentikasi* di atas). Berbeda dari jalur API key dalam satu hal mendasar: kredensialnya
+(`public_key`) **sengaja terbuka untuk semua orang** — ia tertanam di HTML halaman pelanggan (ADR-005).
+Yang melindungi endpoint ini bukan kerahasiaan kredensial, melainkan lima lapis anti-abuse di bawah.
+
+### Content-Type — `application/x-www-form-urlencoded`, bukan JSON
+
+Berbeda dari **setiap** endpoint lain di API ini (Aturan #33 tetap berlaku untuk *response*-nya).
+Halaman embed (#88) tanpa `CAPTCHA_PROVIDER=turnstile` adalah `<form method="post">` HTML murni, tanpa
+JavaScript sama sekali — itu berarti body-nya harus bisa diterima browser secara native, dan browser
+tidak bisa mengirim JSON tanpa `fetch`. Keputusan ini diambil eksplisit saat implementasi #87, bukan
+default yang kebetulan terjadi.
+
+### Kredensial
+
+```
+pk_<22 karakter base64url>
+```
+
+Di **path**, bukan `Authorization` — tidak ada middleware auth yang dipasang di route ini; handler
+memanggil `form.Usecase.ResolvePublicKey` secara langsung. Setiap kegagalan (kunci tidak ada, form
+dihapus) mengembalikan `404 not_found` yang identik — bukan `401`, karena kredensial ini memang bukan
+rahasia (lihat `multi-tenancy.md` untuk detail pengecualian unik-lintas-organization-nya).
+
+### Otorisasi — daftar tertutup satu baris
+
+`public_form` hanya bisa melakukan **satu** hal: `lead.create`. Mencoba memanggil endpoint apa pun yang
+lain tidak mungkin secara struktural — `authz.Require` menolak berdasarkan **ketiadaan** aksi di peta
+`publicFormAllows`, bukan karena setiap handler memeriksanya (pola sama dengan `apiKeyScopeFor`, Aturan
+#24). Dibuktikan sebagai tabel atas seluruh `authz.Action`, bukan daftar tulisan tangan.
+
+### Lima lapis anti-abuse (ADR-005, TD Phase 6 §6)
+
+Ditegakkan berurutan — **urutan ini mengikat**, rate limit selalu lebih dulu dari segalanya, termasuk
+sebelum body dibaca:
+
+| # | Lapis | Kejujuran tentang kekuatannya |
+|---|---|---|
+| 1 | Rate limit per IP | `FixedWindow`, `FORM_SUBMIT_RATE_LIMIT_IP` (default 20/menit) |
+| 2 | Rate limit per form | `FixedWindow` terpisah, `FORM_SUBMIT_RATE_LIMIT_FORM` (default 60/menit) — dua sumbu independen, bukan satu limiter dicek dua kali |
+| 3 | Cap body 32KB | Setengah dari cap `POST /v1/leads` (64KB) — pengunjung anonim tidak pernah butuh lebih |
+| 4 | Origin allowlist | `Origin` **bisa dipalsukan** klien non-browser — menghalangi penyalahgunaan biasa, bukan penyerang tertarget |
+| 5 | Honeypot | Field tersembunyi CSS; terisi → **sukses palsu**, tidak ada lead. Efektif terhadap bot naif saja |
+| 6 | Time-trap (token HMAC) | **Bukan anti-replay** — token sah bisa dipakai berulang dalam jendela 2 detik–30 menitnya; yang membatasi pengulangan adalah rate limit |
+| 7 | CAPTCHA (Turnstile, opsional) | Lapis terkuat, satu-satunya yang butuh pihak ketiga — `CAPTCHA_PROVIDER=none` cukup untuk pengembangan |
+
+Honeypot diperiksa **sebelum** time-trap dan CAPTCHA — supaya bot tidak pernah menerima pesan kesalahan
+yang bisa dipelajari, dan supaya kuota verifikasi CAPTCHA tidak terbuang ke request yang sudah diketahui
+bot. **Konsekuensi yang diterima sadar**: submission honeypot-tripped karena itu bisa berbalas jauh
+lebih cepat daripada submission asli yang sampai memanggil Turnstile — celah waktu ini terdokumentasi,
+bukan tidak disadari (`docs/phases/06-connect-form/notes.md`'s `## #87`).
+
+### Error khusus jalur ini
+
+Ditambahkan ke katalog di atas, dipakai **hanya** oleh jalur formulir:
+
+| HTTP | `code` | Kapan |
+|---|---|---|
+| 404 | `not_found` | `public_key` tidak dikenal atau formnya sudah dihapus |
+| 403 | `origin_not_allowed` | `Origin` di luar `forms.allowed_origins`, termasuk saat kosong/tidak dikirim |
+| 400 | `form_token_invalid` | Token time-trap salah tanda tangan, <2 detik, >30 menit, atau untuk `form_id` lain |
+| 400 | `captcha_failed` | Turnstile menolak (bila `CAPTCHA_PROVIDER=turnstile`) |
+| 413 | `payload_too_large` | Body melebihi 32 KB |
+| 400 | `validation_failed` | Field yang ditandai wajib di `forms.fields` kosong |
+
+### Field tak dikenal, dan yang sengaja tidak tersimpan sebagai kolom
+
+Seluruh field yang dikirim disimpan di `leads.raw_payload` sebagai JSON, **kecuali** tiga field
+protokol (honeypot, token time-trap, respons CAPTCHA) — field itu bukan isi submission, tidak pernah
+ikut tersimpan. `product` (satu dari enam field tetap ADR-005) tidak punya kolom `leads` sendiri; ia
+tetap divalidasi bila ditandai wajib, dan tetap tersimpan di `raw_payload` seperti field tak dikenal
+lainnya.
+
+### Penugasan — tidak pernah bisa dikirim
+
+Sama seperti jalur API key: pengunjung situs tidak punya cara mengirim `assigned_to_membership_id` sama
+sekali — `SubmitInput` tidak punya field untuk itu, bukan sekadar diabaikan setelah diterima.
+
+### CORS tidak relevan di sini
+
+`CORS_ALLOWED_ORIGINS`/middleware CORS di atas menjaga panggilan `fetch`/XHR dari dashboard — sebuah
+`<form method="post">` native browser bukan permintaan yang digerbangi CORS sama sekali (CORS membatasi
+JavaScript **membaca** respons lintas-origin, bukan apakah request-nya terkirim). Satu-satunya yang
+menjaga siapa boleh submit ke endpoint ini adalah Origin allowlist di atas (lapis #4).

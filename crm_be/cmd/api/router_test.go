@@ -29,6 +29,12 @@ func testConfig() *config.Config {
 		AppBaseURL:         "http://localhost:3000",
 		PublicAPIRateLimit: 100,    // see isolationTestConfig's comment (Phase 4 #47)
 		PushProvider:       "none", // see isolationTestConfig's comment (Phase 5 #68) — a zero-value "" here would hit newPushSender's unreachable default and panic
+		// See isolationTestConfig's comment (Phase 6 #87) — same
+		// zero-value-panics-newCaptchaVerifier reasoning as PushProvider.
+		CaptchaProvider:         "none",
+		FormTokenSecret:         "router-test-form-token-secret-32-bytes",
+		FormSubmitRateLimitIP:   100,
+		FormSubmitRateLimitForm: 100,
 	}
 }
 

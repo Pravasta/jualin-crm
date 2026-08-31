@@ -27,6 +27,7 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/metrics"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/notification"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authn"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/captcha"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/config"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
@@ -178,14 +179,21 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	metricsUsecase := metrics.NewUsecase(metrics.New(pool))
 	metrics.NewHandler(metricsUsecase).RegisterRoutes(r, authMW)
 
-	// form (Phase 6 #85) is management-only in this issue — no public
-	// route needs formUsecase ahead of time the way lead needed apikey/
-	// device, so it's wired here alongside every other domain's own
-	// handler rather than earlier. The public POST /v1/forms/{public_key}/
-	// submit route and GET /embed/{public_key} page are #87/#88's, not
-	// mounted from this package yet.
-	formUsecase := form.NewUsecase(newFormStore(pool))
-	form.NewHandler(formUsecase).RegisterRoutes(r, authMW)
+	// form's public submit route (Phase 6 #87) needs leadUsecase (already
+	// built above) bridged through leadCreatorAdapter — the composition
+	// root is the one place allowed to import both internal/form and
+	// internal/lead (form.LeadCreator's own doc comment explains why no
+	// domain package does this itself). GET /embed/{public_key} is
+	// #88's, not mounted from this package yet.
+	formUsecase := form.NewUsecase(
+		newFormStore(pool),
+		newCaptchaVerifier(cfg),
+		[]byte(cfg.FormTokenSecret),
+		newLeadCreatorAdapter(leadUsecase),
+	)
+	formSubmitIPLimiter := ratelimit.NewFixedWindow(cfg.FormSubmitRateLimitIP, time.Minute)
+	formSubmitKeyLimiter := ratelimit.NewFixedWindow(cfg.FormSubmitRateLimitForm, time.Minute)
+	form.NewHandler(formUsecase, formSubmitIPLimiter, formSubmitKeyLimiter).RegisterRoutes(r, authMW)
 
 	r.NoRoute(func(c *gin.Context) {
 		httpx.RespondError(c, http.StatusNotFound, "not_found", "Route tidak ditemukan.")
@@ -270,6 +278,27 @@ func newPushSender(cfg *config.Config, log *slog.Logger) push.Sender {
 		return sender
 	default:
 		panic(fmt.Sprintf("unreachable: unknown PUSH_PROVIDER %q passed config validation", cfg.PushProvider))
+	}
+}
+
+// newCaptchaVerifier mirrors newPushSender's shape (Phase 6 #87, TD §6
+// keputusan D2) — no *slog.Logger parameter, unlike newPushSender:
+// NoopVerifier has nothing informative to log ("not verified" is the
+// entire, permanent behavior of CAPTCHA_PROVIDER=none, not a per-call
+// event), and TurnstileVerifier's own errors are already handled by its
+// caller (Usecase.Submit maps them to captcha_failed) without needing a
+// logger threaded in here just to construct it.
+func newCaptchaVerifier(cfg *config.Config) captcha.Verifier {
+	switch cfg.CaptchaProvider {
+	case "none":
+		return captcha.NoopVerifier{}
+	case "turnstile":
+		return captcha.NewTurnstileVerifier(captcha.TurnstileConfig{
+			SecretKey: cfg.TurnstileSecretKey,
+			Timeout:   cfg.CaptchaTimeout,
+		})
+	default:
+		panic(fmt.Sprintf("unreachable: unknown CAPTCHA_PROVIDER %q passed config validation", cfg.CaptchaProvider))
 	}
 }
 

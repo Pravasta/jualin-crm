@@ -64,6 +64,16 @@ services:
       # #73, td.md §14); switching to `fcm` is a local .env override,
       # never a docker-compose.yml default.
       PUSH_PROVIDER: none
+      # Dev-only placeholder — same reasoning as JWT_SECRET above.
+      # Required (no default), so a missing secret fails boot loudly
+      # instead of silently invalidating every embed page's in-flight
+      # time-trap token (issue #87).
+      FORM_TOKEN_SECRET: development-only-form-token-secret-do-not-use-in-production
+      # "none" (always passes) — same "works on a fresh clone with zero
+      # setup" reasoning as PUSH_PROVIDER above. Real Turnstile keys have
+      # nowhere safe to live in this file; switching to `turnstile` is a
+      # local .env override, never a docker-compose.yml default.
+      CAPTCHA_PROVIDER: none
     ports:
       - "8080:8080"
     depends_on:

@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -43,6 +44,7 @@ import (
 )
 
 const isolationJWTSecret = "isolation-test-jwt-secret-32-bytes-long"
+const isolationFormTokenSecret = "isolation-test-form-token-secret-32-bytes"
 
 func isolationTestConfig() *config.Config {
 	return &config.Config{
@@ -66,6 +68,19 @@ func isolationTestConfig() *config.Config {
 		// #68) — every isolation test in this file goes through
 		// newRouter, so this has to be set explicitly here too.
 		PushProvider: "none",
+		// Same reasoning as PushProvider above, for newCaptchaVerifier
+		// (Phase 6 #87) — "" would hit its own unreachable default case.
+		CaptchaProvider: "none",
+		// Required, min 32 bytes (config.go's minFormTokenSecretLength) —
+		// same reasoning as JWTSecret above: a zero-value "" here would
+		// make formtoken.Verify/Issue operate with an empty key, which
+		// isn't what a real boot could ever produce (config.Load's own
+		// validate() would reject it first).
+		FormTokenSecret: isolationFormTokenSecret,
+		// Same reasoning as PublicAPIRateLimit above — zero would reject
+		// every submit-route request outright.
+		FormSubmitRateLimitIP:   100,
+		FormSubmitRateLimitForm: 100,
 	}
 }
 
@@ -487,5 +502,48 @@ func seedIsolationDeviceToken(t *testing.T, pool *pgxpool.Pool, org, membershipI
 	const q = `INSERT INTO device_tokens (id, organization_id, membership_id, token, platform) VALUES ($1, $2, $3, $4, 'android')`
 	if _, err := pool.Exec(t.Context(), q, id, org, membershipID, token); err != nil {
 		t.Fatalf("seed isolation device token: %v", err)
+	}
+}
+
+// TestTenantIsolation_FormSubmit_CreatesLeadOnlyInFormsOwnOrganization
+// is TD §12's "submit ke public_key milik org lain" — a different
+// shape from the generic 404 table above, deliberately: there is no
+// acting principal here to compare an org against (the entire point of
+// public_key is that anyone, unauthenticated, from any origin, can
+// attempt a submission), so the property worth proving isn't "you get
+// 404 trying someone else's resource" but "a form's submissions land
+// ONLY in its own organization, never leaking into whichever other
+// organization happens to share the same database". seedRealForm,
+// validFormToken, and doFormPost are public_form_api_test.go's — same
+// package, reused rather than duplicated.
+func TestTenantIsolation_FormSubmit_CreatesLeadOnlyInFormsOwnOrganization(t *testing.T) {
+	r, pool := newIsolationRouter(t)
+
+	orgA, _, ownerAMembership := seedOrgOwner(t, pool, "Form Isolation Org A", "form-owner-a@example.com")
+	tokenA := mintBearerToken(t, uuid.Must(uuid.NewV7()), orgA, ownerAMembership, tenant.RoleOwner)
+
+	orgB, _, ownerBMembership := seedOrgOwner(t, pool, "Form Isolation Org B", "form-owner-b@example.com")
+	formB := seedRealForm(t, pool, orgB, ownerBMembership, []string{"https://customer-site.example"})
+
+	values := url.Values{"name": {"Budi"}, "phone": {"0812"}, "form_token": {validFormToken(formB.ID)}}
+	w := doFormPost(r, "/v1/forms/"+formB.PublicKey+"/submit", "https://customer-site.example", values)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Org A's own authenticated view must see NOTHING from Org B's form
+	// submission.
+	listA := doIsolationRequest(r, http.MethodGet, "/v1/leads", tokenA, nil)
+	if listA.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", listA.Code, listA.Body.String())
+	}
+	var bodyA struct {
+		Data []struct{ ID string } `json:"data"`
+	}
+	if err := json.Unmarshal(listA.Body.Bytes(), &bodyA); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(bodyA.Data) != 0 {
+		t.Fatalf("expected org A to see 0 leads, got %d — a form-submitted lead leaked across organizations", len(bodyA.Data))
 	}
 }
