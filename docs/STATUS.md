@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 31 Agustus 2026 — **Issue #98 selesai** (sapu bersih `docs/issues/`: 6 berkas yang terlewat ditinjau, celah pointer ditutup). Sebelumnya: **#89 — Phase 6 selesai**.
-**Phase sekarang:** belum ada. Phase 6 selesai; Phase 7 (Webhook) belum dibuka. GATE freeze **dilewati secara sadar** oleh pemilik produk (lihat *Berikutnya*).
+**Last updated:** 31 Agustus 2026 — **Phase 7 dibuka** (PRD, TD, issues #100–#104). Sebelumnya: **#98** (sapu bersih `docs/issues/`), **#89** (Phase 6 selesai).
+**Phase sekarang:** Phase 7 — Outbound Webhook. Phase 6 selesai; GATE freeze **dilewati secara sadar** oleh pemilik produk (lihat *Berikutnya*).
 
 ---
 
@@ -66,9 +66,14 @@
 
 ## Sedang Dikerjakan
 
-**Tidak ada.** Phase 6 selesai ([#85–#89](https://github.com/Pravasta/jualin-crm/milestone/9),
-`docs/phases/06-connect-form/`). Phase 7 (Webhook) belum dibuka — belum ada PRD/TD/issue. Langkah
-manusia berikutnya ada di *Berikutnya* di bawah.
+**Phase 7 — Outbound Webhook** ([#100–#104](https://github.com/Pravasta/jualin-crm/milestone/10)).
+Dokumen: `docs/phases/07-outbound-webhook/`. PRD, TD, dan pemecahan issue selesai; **belum ada satu pun
+issue yang dikerjakan**. Berikutnya **#100** — migration `0008`, `safedial`, domain `webhook`, CRUD.
+
+**Dipecah secara sadar**: Phase 7 hanya **outbound**. Inbound webhook jadi **Phase 7.5** — ia
+pengulangan bentuk Phase 6 (kredensial publik, satu endpoint, signature menggantikan honeypot),
+sementara outbound kelas yang sama sekali berbeda (antrian, worker, SSRF). Bentuk payload inbound
+sudah diputuskan di muka: **tetap, sama seperti API Phase 4**.
 
 **Verifikasi anti-spam sungguhan (Turnstile) masih tertunda** — seluruh Phase 6 dibangun & diverifikasi
 dengan `CAPTCHA_PROVIDER=none` (akun Cloudflare belum diurus, lihat *Punya Lead Time* di bawah).
@@ -89,11 +94,11 @@ di bawah adalah poin yang jujur belum bisa diputuskan, dengan pemicunya masing-m
 | Berkas | Terbuka | Pemicu peninjauan |
 |---|---|---|
 | [`047`](./issues/047-public-lead-api.md) | angka `PUBLIC_API_RATE_LIMIT`; retensi `idempotency_key` | Traffic integrator produksi. **Baca sebelum menulis TD Phase 7** — webhook masuk hampir pasti butuh dedup, dan mekanisme `idempotency_key` yang ada belum pernah diuji di volume |
-| [`069`](./issues/069-flutter-foundation.md) | **cacat fungsional**: Employee multi-organization tidak bisa login di mobile; fallback biometric | Yang pertama **butuh issue tersendiri**, bukan menunggu apa pun |
+| [`069`](./issues/069-flutter-foundation.md) | **cacat fungsional**: Employee multi-organization tidak bisa login di mobile; fallback biometric | **Digabung ke sesi verifikasi HP Android** — keputusan pemilik produk 31 Agu 2026: perbaikannya toh tidak bisa diverifikasi tanpa perangkat fisik, jadi dikerjakan sekalian bersama 5 AC Phase 5 di `073`. Bukan lagi "butuh issue tersendiri sekarang" |
 | [`070`](./issues/070-design-foundation.md) | hitung mundur backoff; profil di gerbang biometric | Pemakaian nyata di HP |
 | [`071`](./issues/071-my-leads.md) | **tanpa paginasi** (ambang `per_page=25`); filter multi-select; kotak pencarian | Employee dengan >25 lead. Satu masalah dengan `073`'s pengurutan klien |
 | [`072`](./issues/072-detail-lead.md) | istilah aktor timeline; error layar penuh; aksi batal senyap | Mockup desain berikutnya / pemakaian nyata |
-| [`073`](./issues/073-tasks-fcm-notifications.md) | **5 AC menunggu HP Android**; pengurutan klien; cache notifikasi; `markRead` optimistik | Perangkat fisik + `FCM_CREDENTIALS_FILE` |
+| [`073`](./issues/073-tasks-fcm-notifications.md) | **5 AC menunggu HP Android**; pengurutan klien; cache notifikasi; `markRead` optimistik | Perangkat fisik + `FCM_CREDENTIALS_FILE`. **Sesi ini sekalian mengerjakan cacat 409 dari `069`** — keduanya butuh perangkat yang sama |
 | [`087`](./issues/087-form-submit-anti-spam.md) | angka rate limit form & time-trap; celah waktu honeypot | Form terpasang di situs pelanggan; celah honeypot **belum pernah aktif** (`CAPTCHA_PROVIDER=none`) |
 
 **Angka rate limit ditinjau sekali untuk semua**, bukan per angka — pemicunya sama, dan `api.md` bagian
@@ -103,6 +108,32 @@ daftar itu, bukan memulai keraguan terpisah.
 > **Kenapa bagian ini ada.** Pointer seperti ini tidak pernah dipasang untuk Phase 5 dan Phase 6,
 > sehingga enam berkas di atas tidak pernah dibaca saat phase-nya ditutup (#98). Templat issue kini
 > mewajibkannya.
+
+### Phase 7 — Outbound Webhook — baru dibuka (#100–#104)
+
+**Data berhenti jadi jalan satu arah.** Phase 4 dan 6 membuat lead bisa **masuk** tanpa developer;
+begitu masuk, ia berhenti di sini. Phase 7 membalik arahnya — saat sesuatu terjadi di Jualin, sistem
+lain diberi tahu sendiri. Dokumen: `docs/phases/07-outbound-webhook/`.
+
+**Phase pertama di mana kita yang memanggil, bukan yang dipanggil.** Seluruh permukaan jaringan produk
+ini sampai sekarang bersifat masuk. Di sini pelanggan memberi kita URL dan server kita meneleponnya —
+konsekuensi keamanannya terbalik arah dan lebih berat. **SSRF adalah risiko terbesar phase ini**, dan
+pertahanannya (`internal/shared/safedial`) sengaja lahir di issue pertama, bersama tempat pertama yang
+membutuhkannya.
+
+**Dua keputusan besar diambil di muka:**
+
+- **Tidak ada tabel `jobs` generik** — `webhook_deliveries` **adalah** antriannya. Ini penyimpangan
+  tertulis dari `freeze.md` bagian 5 ketentuan #4, dicatat penuh di `prd.md` D1 beserta kewajiban
+  evaluasi ulangnya: outbound webhook satu-satunya konsumen async di produk (email dan push keduanya
+  fire-and-forget), dan tabel generik untuk satu konsumen melanggar Aturan #28.
+- **Worker goroutine di binary `api` yang sama**, klaim lewat `FOR UPDATE SKIP LOCKED` — tanpa broker,
+  tanpa deployable baru, tanpa leader election. Postgres yang menjamin dua instance tidak mengirim
+  ganda, bukan koordinasi buatan kita — dan itu **wajib dibuktikan di bawah konkurensi nyata**, bukan
+  diasumsikan karena klausanya tertulis.
+
+**Tidak ada pihak ketiga** — berbeda dari Phase 5 (Firebase) dan Phase 6 (Turnstile). Tidak ada issue
+yang terblokir menunggu akun siapa pun.
 
 ### Phase 6 — Connect & Embedded Form — ✅ SELESAI (#85–#89)
 
@@ -312,5 +343,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 4.6 | Email Delivery | ✅ | ✅ | ✅ #63–#64 | ✅ |
 | 5 | Employee Mobile | ✅ | ✅ | ✅ #68–#73 | ✅ |
 | 6 | Connect & Embedded Form | ✅ | ✅ | ✅ #85–#89 | ✅ |
+| 7 | Outbound Webhook | ✅ | ✅ | ✅ #100–#104 | ⬜ |
+| 7.5 | Inbound Webhook | ⬜ | ⬜ | ⬜ | ⬜ |
 
 Pekerjaan yang sedang berjalan: `gh issue list --state open`
