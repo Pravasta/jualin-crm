@@ -7,6 +7,7 @@ package formtoken
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,14 +140,33 @@ func TestVerify_MalformedToken_Rejected(t *testing.T) {
 	}
 }
 
+// TestVerify_TamperedSignature_Rejected found a genuine flaky-test bug
+// during CI, not a formtoken bug: flipping the LAST character of the
+// signature's base64url encoding is unreliable. A 32-byte SHA-256
+// digest's final symbol only carries 4 meaningful bits (32 mod 3 = 2
+// leftover bytes → a trailing symbol with 2 discarded padding bits,
+// standard base64 tail math) — 'A' and 'B' happen to differ ONLY in
+// that discarded low bit, so whenever the real last character already
+// shared the same top 4 bits as 'A' (a 4-in-64 chance per random
+// signature — true for original characters 'A','B','C','D'), the
+// "tamper" silently decoded back to the SAME bytes and the test failed
+// non-deterministically (reproduced locally at ~6% with -count=500,
+// matching that math exactly). Fixed by flipping the FIRST character of
+// the signature instead — guaranteed to sit inside one of the digest's
+// ten full 3-byte-to-4-symbol groups, where every bit of every symbol
+// is meaningful, so any character change is guaranteed to change real
+// signature bytes.
 func TestVerify_TamperedSignature_Rejected(t *testing.T) {
 	formID := uuid.Must(uuid.NewV7())
 	issuedAt := time.Now().Truncate(time.Second) // matches the second-granularity issueAt/verifyAt actually store, so test offsets are exact, not fuzzed by truncation
 	token := issueAt(testSecret, formID, issuedAt)
 
-	// Flip the token's last character — still valid base64url shape (in
-	// almost every case), but the signature no longer matches.
-	tampered := token[:len(token)-1] + flipChar(token[len(token)-1])
+	sep := strings.IndexByte(token, '.')
+	if sep < 0 || sep+1 >= len(token) {
+		t.Fatalf("test fixture broken: expected token to contain '.' followed by a signature, got %q", token)
+	}
+	sigStart := sep + 1
+	tampered := token[:sigStart] + flipChar(token[sigStart]) + token[sigStart+1:]
 	if err := verifyAt(testSecret, tampered, formID, issuedAt.Add(minAge)); err != ErrInvalidToken {
 		t.Errorf("expected ErrInvalidToken for a tampered signature, got: %v", err)
 	}
