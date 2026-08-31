@@ -187,6 +187,16 @@ func (u *Usecase) ResolvePublicKey(ctx context.Context, publicKey string) (*Form
 	}, nil
 }
 
+// IssueFormToken mints a fresh time-trap token for formID (TD §6) — the
+// embed handler (#88) calls this once per render, embedding the result
+// as the page's hidden form_token field. Keeps u.formTokenSecret
+// encapsulated behind the Usecase rather than the handler reaching into
+// an unexported field directly, even though both live in the same
+// package.
+func (u *Usecase) IssueFormToken(formID uuid.UUID) string {
+	return formtoken.Issue(u.formTokenSecret, formID)
+}
+
 // SubmitInput is Submit's argument — everything the handler already
 // extracted from the HTTP request before calling in. TD §5's alur steps
 // 1-3 (both rate limits, the 32KB body cap) already happened in the

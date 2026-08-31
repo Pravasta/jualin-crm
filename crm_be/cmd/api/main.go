@@ -193,7 +193,8 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	)
 	formSubmitIPLimiter := ratelimit.NewFixedWindow(cfg.FormSubmitRateLimitIP, time.Minute)
 	formSubmitKeyLimiter := ratelimit.NewFixedWindow(cfg.FormSubmitRateLimitForm, time.Minute)
-	form.NewHandler(formUsecase, formSubmitIPLimiter, formSubmitKeyLimiter).RegisterRoutes(r, authMW)
+	form.NewHandler(formUsecase, formSubmitIPLimiter, formSubmitKeyLimiter, cfg.CaptchaProvider, cfg.TurnstileSiteKey).
+		RegisterRoutes(r, authMW)
 
 	r.NoRoute(func(c *gin.Context) {
 		httpx.RespondError(c, http.StatusNotFound, "not_found", "Route tidak ditemukan.")

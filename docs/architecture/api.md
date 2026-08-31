@@ -362,4 +362,18 @@ sekali — `SubmitInput` tidak punya field untuk itu, bukan sekadar diabaikan se
 `CORS_ALLOWED_ORIGINS`/middleware CORS di atas menjaga panggilan `fetch`/XHR dari dashboard — sebuah
 `<form method="post">` native browser bukan permintaan yang digerbangi CORS sama sekali (CORS membatasi
 JavaScript **membaca** respons lintas-origin, bukan apakah request-nya terkirim). Satu-satunya yang
-menjaga siapa boleh submit ke endpoint ini adalah Origin allowlist di atas (lapis #4).
+menjaga siapa boleh submit ke endpoint ini adalah Origin allowlist di atas (lapis #4). Alasan yang
+sama persis berlaku untuk `GET /embed/{public_key}` di bawah — iframe `src` adalah navigasi biasa,
+bukan permintaan yang digerbangi CORS.
+
+---
+
+## Halaman embed — bukan bagian API ini (Phase 6, issue #88)
+
+`GET /embed/{public_key}` dan `GET /embed.js` **sengaja tidak** didokumentasikan di halaman ini —
+keduanya bukan API: tanpa envelope `{data, meta}`, tanpa `Authorization`, respons HTML/JS mentah,
+bukan JSON. Ini konsisten dengan TD §7's kalimat sendiri: *"ia bukan API, ia halaman"*. Dokumentasi
+lengkapnya (CSP, `frame-ancestors` per-form, `X-Frame-Options` yang sengaja tidak dikirim, escaping
+`html/template`, auto-resize D8) ada di
+[`docs/phases/06-connect-form/td.md`](../phases/06-connect-form/td.md) §7 dan
+[`notes.md`](../phases/06-connect-form/notes.md)'s `## #88`.

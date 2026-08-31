@@ -70,10 +70,28 @@ func newTestRouter(t *testing.T) (*gin.Engine, *pgxpool.Pool) {
 
 // newTestRouterWithLeadCreator is newTestRouter's Submit-test-facing
 // variant — exposes the *form.Usecase's dependencies a submit test
-// needs to swap (which lead creator; captcha/rate-limit swaps use their
-// own dedicated constructors below, same reasoning) without every CRUD
-// test above having to know Submit-specific plumbing exists.
+// needs to swap (which lead creator; rate-limit swaps use their own
+// dedicated constructor below, same reasoning) without every CRUD test
+// above having to know Submit-specific plumbing exists.
+// CAPTCHA_PROVIDER=none — embed/CSP tests that need turnstile use
+// newTestRouterWithCaptcha instead.
 func newTestRouterWithLeadCreator(t *testing.T, leadCreator form.LeadCreator) (*gin.Engine, *pgxpool.Pool, *form.Usecase) {
+	t.Helper()
+	r, pool, u, _ := newTestRouterFull(t, leadCreator, "none", "")
+	return r, pool, u
+}
+
+// newTestRouterWithCaptcha is the embed-page tests' variant (#88) —
+// exposes captchaProvider/turnstileSiteKey, which only the embed
+// handler ever consults (rendering the Turnstile widget/script, never
+// verification).
+func newTestRouterWithCaptcha(t *testing.T, captchaProvider, turnstileSiteKey string) (*gin.Engine, *pgxpool.Pool, *form.Usecase) {
+	t.Helper()
+	r, pool, u, _ := newTestRouterFull(t, &fakeLeadCreator{}, captchaProvider, turnstileSiteKey)
+	return r, pool, u
+}
+
+func newTestRouterFull(t *testing.T, leadCreator form.LeadCreator, captchaProvider, turnstileSiteKey string) (*gin.Engine, *pgxpool.Pool, *form.Usecase, *form.Handler) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	pool := dbtest.NewPool(t)
@@ -82,8 +100,9 @@ func newTestRouterWithLeadCreator(t *testing.T, leadCreator form.LeadCreator) (*
 	r := gin.New()
 	ipLimit := ratelimit.NewFixedWindow(generousSubmitLimit, time.Minute)
 	keyLimit := ratelimit.NewFixedWindow(generousSubmitLimit, time.Minute)
-	form.NewHandler(u, ipLimit, keyLimit).RegisterRoutes(r, authn.Middleware(testClaimsParser{}))
-	return r, pool, u
+	h := form.NewHandler(u, ipLimit, keyLimit, captchaProvider, turnstileSiteKey)
+	h.RegisterRoutes(r, authn.Middleware(testClaimsParser{}))
+	return r, pool, u, h
 }
 
 func bearerToken(t *testing.T, userID, orgID, membershipID uuid.UUID, role tenant.Role) string {
@@ -384,7 +403,7 @@ func newTestRouterWithLimits(t *testing.T, ipLimit, keyLimit int) (*gin.Engine, 
 	u := form.NewUsecase(newTestStore(pool), captcha.NoopVerifier{}, testFormTokenSecret, &fakeLeadCreator{})
 
 	r := gin.New()
-	form.NewHandler(u, ratelimit.NewFixedWindow(ipLimit, time.Minute), ratelimit.NewFixedWindow(keyLimit, time.Minute)).
+	form.NewHandler(u, ratelimit.NewFixedWindow(ipLimit, time.Minute), ratelimit.NewFixedWindow(keyLimit, time.Minute), "none", "").
 		RegisterRoutes(r, authn.Middleware(testClaimsParser{}))
 	return r, pool
 }
@@ -655,5 +674,340 @@ func TestHandler_Submit_RateLimitRunsBeforeBodyIsRead(t *testing.T) {
 	w := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://example.com", oversized)
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected 429 (rate limit wins over body size), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- embed page (#88) ---
+
+func doGet(r *gin.Engine, path string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestHandler_Embed_Success_Returns200WithHTML(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "none", "")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_embed_success", []string{"https://example.com"}, form.DefaultFields())
+
+	w := doGet(r, "/embed/"+f.PublicKey)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("expected Content-Type text/html, got %q", ct)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `action="/v1/forms/`+f.PublicKey+`/submit"`) {
+		t.Errorf("expected the form's action to point at this form's own submit URL, got:\n%s", body)
+	}
+}
+
+func TestHandler_Embed_UnknownPublicKey_Returns404(t *testing.T) {
+	r, _, _ := newTestRouterWithCaptcha(t, "none", "")
+	w := doGet(r, "/embed/pk_does-not-exist")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandler_Embed_DeletedForm_Returns404_SameAsUnknown(t *testing.T) {
+	r, pool, u := newTestRouterWithCaptcha(t, "none", "")
+	ctx := context.Background()
+	org, userID, membershipID := seedOrgAndOwner(t, ctx, pool)
+	token := bearerToken(t, userID, org, membershipID, tenant.RoleOwner)
+	_ = u
+
+	created := doJSON(r, http.MethodPost, "/v1/forms", token, map[string]string{"name": "Website"})
+	id := decodeID(t, created)
+	csrfless := doJSON(r, http.MethodDelete, "/v1/forms/"+id, token, nil)
+	if csrfless.Code != http.StatusNoContent {
+		t.Fatalf("expected delete to succeed, got %d: %s", csrfless.Code, csrfless.Body.String())
+	}
+
+	// The form's public_key is still in the DB row (soft delete never
+	// scrubs it) — fetch it directly to confirm /embed/{that key} 404s
+	// exactly like a key that never existed.
+	var publicKey string
+	if err := pool.QueryRow(ctx, `SELECT public_key FROM forms WHERE id = $1`, id).Scan(&publicKey); err != nil {
+		t.Fatalf("query public_key: %v", err)
+	}
+
+	unknown := doGet(r, "/embed/pk_definitely-never-existed")
+	deleted := doGet(r, "/embed/"+publicKey)
+	if deleted.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for a deleted form's embed page, got %d: %s", deleted.Code, deleted.Body.String())
+	}
+	if deleted.Body.String() != unknown.Body.String() {
+		t.Errorf("expected a deleted form's 404 body to be identical to an unknown key's, got %q vs %q", deleted.Body.String(), unknown.Body.String())
+	}
+}
+
+// TestHandler_Embed_LabelWithScriptTag_Escaped is #88's own acceptance
+// criterion, verbatim: label berisi <script> — html/template's
+// contextual escaping must neutralize it, proving text/template was
+// never accidentally used anywhere in this render path.
+func TestHandler_Embed_LabelWithScriptTag_Escaped(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "none", "")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	malicious := `<script>alert(1)</script>`
+	fields := form.Fields{
+		form.FieldName: {Enabled: true, Required: true, Label: malicious},
+	}
+	f := seedRealForm(t, ctx, pool, org, "pk_xss_test", []string{"https://example.com"}, fields)
+
+	w := doGet(r, "/embed/"+f.PublicKey)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, malicious) {
+		t.Fatalf("expected the label to be HTML-escaped, but the literal <script> tag survived verbatim in:\n%s", body)
+	}
+	if !strings.Contains(body, "&lt;script&gt;") {
+		t.Errorf("expected an HTML-escaped form of the label, got:\n%s", body)
+	}
+}
+
+func TestHandler_Embed_CSP_FrameAncestorsFromAllowedOrigins(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "none", "")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_csp_test", []string{"https://a.example.com", "https://b.example.com"}, form.DefaultFields())
+
+	w := doGet(r, "/embed/"+f.PublicKey)
+	csp := w.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "frame-ancestors https://a.example.com https://b.example.com") {
+		t.Errorf("expected frame-ancestors to list both allowed origins, got CSP: %q", csp)
+	}
+}
+
+// TestHandler_Embed_EmptyAllowlist_FrameAncestorsNone is #88's own
+// acceptance criterion: a form nobody has configured an origin for yet
+// fails CLOSED (frame-ancestors 'none'), not open.
+func TestHandler_Embed_EmptyAllowlist_FrameAncestorsNone(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "none", "")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_empty_allowlist", []string{}, form.DefaultFields())
+
+	w := doGet(r, "/embed/"+f.PublicKey)
+	csp := w.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "frame-ancestors 'none'") {
+		t.Errorf("expected frame-ancestors 'none' for an empty allowlist, got CSP: %q", csp)
+	}
+}
+
+// TestHandler_Embed_XFrameOptionsNeverSent is #88's own acceptance
+// criterion, verbatim.
+func TestHandler_Embed_XFrameOptionsNeverSent(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "none", "")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_no_xfo", []string{"https://example.com"}, form.DefaultFields())
+
+	w := doGet(r, "/embed/"+f.PublicKey)
+	if got := w.Header().Get("X-Frame-Options"); got != "" {
+		t.Errorf("expected X-Frame-Options to never be sent, got %q", got)
+	}
+}
+
+func TestHandler_Embed_CacheControlNoStore(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "none", "")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_no_store", []string{"https://example.com"}, form.DefaultFields())
+
+	w := doGet(r, "/embed/"+f.PublicKey)
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("expected Cache-Control: no-store, got %q", got)
+	}
+}
+
+// TestHandler_Embed_NoCaptcha_NoThirdPartyScript is #88's own
+// acceptance criterion as corrected during implementation (see
+// notes.md's "## #88" and td.md §7's amended JavaScript row): without
+// CAPTCHA there is still a small first-party auto-resize script (D8),
+// but NEVER Cloudflare's third-party one.
+func TestHandler_Embed_NoCaptcha_NoThirdPartyScript(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "none", "")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_no_captcha", []string{"https://example.com"}, form.DefaultFields())
+
+	w := doGet(r, "/embed/"+f.PublicKey)
+	body := w.Body.String()
+	if strings.Contains(body, "challenges.cloudflare.com") {
+		t.Errorf("expected no Cloudflare script when CAPTCHA_PROVIDER=none, got:\n%s", body)
+	}
+	if !strings.Contains(body, "jualin:resize") {
+		t.Errorf("expected the first-party auto-resize script to still be present, got:\n%s", body)
+	}
+	if strings.Contains(body, `class="cf-turnstile"`) {
+		t.Errorf("expected no Turnstile widget div when CAPTCHA_PROVIDER=none, got:\n%s", body)
+	}
+}
+
+func TestHandler_Embed_CaptchaEnabled_RendersTurnstileWidgetAndScript(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "turnstile", "test-site-key-abc")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_captcha_on", []string{"https://example.com"}, form.DefaultFields())
+
+	w := doGet(r, "/embed/"+f.PublicKey)
+	body := w.Body.String()
+	if !strings.Contains(body, "challenges.cloudflare.com") {
+		t.Errorf("expected Cloudflare's script when CAPTCHA_PROVIDER=turnstile, got:\n%s", body)
+	}
+	if !strings.Contains(body, `data-sitekey="test-site-key-abc"`) {
+		t.Errorf("expected the configured site key in the widget div, got:\n%s", body)
+	}
+}
+
+// TestHandler_Embed_NonceMatchesCSPAndScriptTags proves the nonce CSP
+// asserts is trustworthy is the SAME nonce every <script> tag in the
+// body actually carries — a mismatch would make the browser refuse to
+// run the very scripts the page depends on (auto-resize, and
+// Turnstile's own).
+func TestHandler_Embed_NonceMatchesCSPAndScriptTags(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "turnstile", "test-site-key-abc")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_nonce_test", []string{"https://example.com"}, form.DefaultFields())
+
+	w := doGet(r, "/embed/"+f.PublicKey)
+	csp := w.Header().Get("Content-Security-Policy")
+	nonceIdx := strings.Index(csp, "'nonce-")
+	if nonceIdx == -1 {
+		t.Fatalf("expected a nonce in the CSP header, got: %q", csp)
+	}
+	rest := csp[nonceIdx+len("'nonce-"):]
+	nonce := rest[:strings.IndexByte(rest, '\'')]
+	if nonce == "" {
+		t.Fatal("expected a non-empty nonce")
+	}
+
+	body := w.Body.String()
+	scriptCount := strings.Count(body, `nonce="`+nonce+`"`)
+	totalScriptTags := strings.Count(body, "<script ")
+	if scriptCount != totalScriptTags || totalScriptTags == 0 {
+		t.Errorf("expected every <script> tag (%d found) to carry the CSP's own nonce %q (%d matched), body:\n%s", totalScriptTags, nonce, scriptCount, body)
+	}
+}
+
+func TestHandler_Embed_AllowedOriginsJSON_MatchesFormAllowedOrigins(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "none", "")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	origins := []string{"https://a.example.com", "https://b.example.com"}
+	f := seedRealForm(t, ctx, pool, org, "pk_json_test", origins, form.DefaultFields())
+
+	w := doGet(r, "/embed/"+f.PublicKey)
+	body := w.Body.String()
+	wantJSON, _ := json.Marshal(origins)
+	if !strings.Contains(body, "var allowedOrigins = "+string(wantJSON)) {
+		t.Errorf("expected the inline script to embed allowedOrigins as %s, got:\n%s", wantJSON, body)
+	}
+}
+
+func TestHandler_Embed_OnlyEnabledFieldsRendered(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "none", "")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	fields := form.Fields{
+		form.FieldName:    {Enabled: true, Required: true, Label: "Nama"},
+		form.FieldCompany: {Enabled: false, Required: false, Label: "Perusahaan"},
+	}
+	f := seedRealForm(t, ctx, pool, org, "pk_enabled_only", []string{"https://example.com"}, fields)
+
+	w := doGet(r, "/embed/"+f.PublicKey)
+	body := w.Body.String()
+	if !strings.Contains(body, `name="name"`) {
+		t.Errorf("expected the enabled 'name' field to render, got:\n%s", body)
+	}
+	if strings.Contains(body, `name="company"`) {
+		t.Errorf("expected the disabled 'company' field to NOT render, got:\n%s", body)
+	}
+}
+
+// TestHandler_Embed_FieldOrderIsDeterministic proves fields render in
+// AllFieldKeys' fixed order every time — Go map iteration over
+// Form.Fields is randomized, so a naive `range fields` implementation
+// would shuffle field order between requests.
+func TestHandler_Embed_FieldOrderIsDeterministic(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "none", "")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_field_order", []string{"https://example.com"}, form.DefaultFields())
+
+	var firstBody string
+	for i := 0; i < 5; i++ {
+		w := doGet(r, "/embed/"+f.PublicKey)
+		nameIdx := strings.Index(w.Body.String(), `name="name"`)
+		phoneIdx := strings.Index(w.Body.String(), `name="phone"`)
+		if nameIdx == -1 || phoneIdx == -1 || nameIdx > phoneIdx {
+			t.Fatalf("run %d: expected 'name' field before 'phone' field (AllFieldKeys order), got:\n%s", i, w.Body.String())
+		}
+		if i == 0 {
+			firstBody = w.Body.String()
+		}
+	}
+	_ = firstBody
+}
+
+func TestHandler_EmbedJS_Returns200WithCorrectCacheControl(t *testing.T) {
+	r, _, _ := newTestRouterWithCaptcha(t, "none", "")
+	w := doGet(r, "/embed.js")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Cache-Control"); got != "public, max-age=3600" {
+		t.Errorf("expected Cache-Control: public, max-age=3600, got %q", got)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/javascript") {
+		t.Errorf("expected Content-Type text/javascript, got %q", ct)
+	}
+	body := w.Body.String()
+	// Smoke-check the four mandatory D8 safety constraints are present
+	// in whatever bytes actually got served — guards against the
+	// embedded file being edited later without them.
+	for _, want := range []string{"jualin:resize", "e.origin !== EMBED_ORIGIN", "h < 100 || h > 4000", "e.source"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected embed.js to contain %q, got:\n%s", want, body)
+		}
+	}
+}
+
+// TestHandler_Embed_FormTokenIsValidTimeTrapToken proves the rendered
+// form_token isn't just SOME string — it's a genuine token that
+// formtoken.Verify accepts for this exact form's id once past the
+// 2-second minimum age.
+func TestHandler_Embed_FormTokenIsValidTimeTrapToken(t *testing.T) {
+	r, pool, _ := newTestRouterWithCaptcha(t, "none", "")
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	f := seedRealForm(t, ctx, pool, org, "pk_token_test", []string{"https://example.com"}, form.DefaultFields())
+
+	w := doGet(r, "/embed/"+f.PublicKey)
+	body := w.Body.String()
+	const marker = `name="form_token" value="`
+	idx := strings.Index(body, marker)
+	if idx == -1 {
+		t.Fatalf("expected a form_token hidden input, got:\n%s", body)
+	}
+	rest := body[idx+len(marker):]
+	tokenValue := rest[:strings.IndexByte(rest, '"')]
+	if tokenValue == "" {
+		t.Fatal("expected a non-empty form_token")
+	}
+
+	time.Sleep(2100 * time.Millisecond)
+	if err := formtoken.Verify(testFormTokenSecret, tokenValue, f.ID); err != nil {
+		t.Errorf("expected the rendered form_token to verify against this form's id, got: %v", err)
 	}
 }

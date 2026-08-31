@@ -282,10 +282,10 @@ Namespace **di luar** `/v1` — ia bukan API, ia halaman. Tidak ada middleware a
 |---|---|
 | Rendering | `html/template` + `//go:embed` — paket baru `internal/form/template/` |
 | Escaping | `html/template` melakukan escaping kontekstual otomatis. **Label field berasal dari input pelanggan** dan dirender ke HTML — ini satu-satunya jalur XSS di phase ini, dan `text/template` **dilarang** di sini |
-| CSP | `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors <allowlist form ini>` |
+| CSP | `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; script-src 'nonce-<per-request>' [https://challenges.cloudflare.com bila turnstile]; frame-ancestors <allowlist form ini>` |
 | `X-Frame-Options` | **Tidak dikirim** — ia tidak mengenal daftar origin, dan `frame-ancestors` menggantikannya sepenuhnya |
 | Cache | `Cache-Control: no-store` — halaman memuat token time-trap yang berumur pendek |
-| JavaScript | Hanya bila `CAPTCHA_PROVIDER=turnstile` (script Turnstile). Tanpa CAPTCHA, form murni HTML + `<form method="post">` |
+| JavaScript | **Selalu ada** — auto-resize (D8, di bawah) butuh `ResizeObserver`+`postMessage` terlepas dari CAPTCHA. Baris ini awalnya menulis "hanya bila turnstile", ditulis sebelum D8 ada dan tidak pernah diperbarui saat D8 ditambahkan (PR #92) — koreksi ditemukan & diperbaiki saat #88. Yang tetap benar dari niat aslinya: **tanpa CAPTCHA, tidak ada script pihak ketiga** — hanya potongan kecil auto-resize milik sendiri, bukan kerangka merender form (form tetap `<form method="post">` biasa) |
 
 `frame-ancestors` **per-form**, diambil dari `forms.allowed_origins` baris itu — bukan satu kebijakan
 global. Ini justru lebih ketat daripada host statis, yang hanya bisa mengirim satu header untuk semua

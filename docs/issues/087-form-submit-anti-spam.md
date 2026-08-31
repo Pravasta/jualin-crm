@@ -19,7 +19,11 @@ dikenal, bukan error yang jelas):
 - Respons CAPTCHA: `cf-turnstile-response` — **bukan** pilihan codebase ini, konvensi tetap widget
   Cloudflare Turnstile sendiri.
 
-**Dicek ulang saat #88 dibangun**: apakah keempat nama ini benar-benar dipakai di `form.gohtml`.
+**Dicek ulang saat #88 dibangun**: apakah keempat nama ini benar-benar dipakai di `form.gohtml`. —
+✅ **Dikonfirmasi saat #88**: keenam field isi memakai `name="{{.Key}}"` dari `FieldKey`'s nilai
+string sendiri, honeypot `name="website"`, token `name="form_token"`, dan `class="cf-turnstile"`
+(Cloudflare sendiri yang menyuntik `cf-turnstile-response` lewat widget-nya, bukan dirender manual di
+sini) — semuanya cocok persis dengan yang `handler_http.go`'s konstanta harapkan.
 
 ## Deviasi dari TD — sudah diverifikasi benar lewat AskUserQuestion, catat alasannya
 
