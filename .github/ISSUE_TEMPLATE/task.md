@@ -42,4 +42,6 @@ assignees: ''
 - [ ] `docs/phases/<NN>-<slug>/notes.md` diperbarui
 - [ ] `docs/STATUS.md` diperbarui bila ada utang teknis atau phase selesai
 - [ ] `docs/issues/<NNN>-<slug>.md` ditambah/diperbarui bila ada temuan di luar cakupan issue ini yang perlu ditinjau ulang saat penutup phase (skill `jualin-issue-log`) — kosongkan bila tidak ada
+- [ ] **Bila berkas itu dibuat/diubah: pointer-nya dipasang** di `docs/phases/<NN>-<slug>/issues.md` (bagian penutupan phase) **dan** `docs/STATUS.md` — berkas temuan tanpa penunjuk tidak akan pernah dibaca lagi, dan itu sudah terjadi dua kali (Phase 5 & 6, ditemukan di #98)
+- [ ] **Bila issue ini menutup phase: `docs/issues/*` milik phase itu benar-benar dibaca**, tiap poin terbuka diputuskan atau dinyatakan ulang dengan pemicu eksplisit — bukan dilewati karena checklist-nya tidak menyebutnya
 - [ ] PR dibuka dengan `Refs #<issue>` — **bukan** `Closes`

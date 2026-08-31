@@ -59,7 +59,30 @@ sebelum push bisa diuji sungguhan.
 - **`api.md` sengaja tidak diubah** — TD §15 minta "endpoint device-tokens di daftar endpoint", tapi
   berkas itu tidak punya daftar endpoint literal (isinya konvensi, bukan katalog rute). Dicatat sebagai
   penyimpangan dari TD yang dilaporkan, bukan dipaksa cocok.
+  — ✅ **Ditutup di #98**: penilaian ini benar, dan sekarang **ditegakkan di berkasnya sendiri**.
+  `architecture/api.md` menyatakan eksplisit bahwa ia konvensi + bab per jalur publik, **bukan katalog
+  rute**, dan menunjuk daftar endpoint ke `td.md` §8 masing-masing phase. Ditulis di sana justru karena
+  permintaan yang sama berpotensi terulang di TD Phase 7.
 
 ---
 
-**Belum ditinjau** — menunggu verifikasi HP Android dari pemilik produk, dan keputusan Phase 6.
+**Ditinjau 31 Agustus 2026 di #98.** Dua pemicu yang berkas ini tunggu sudah berbeda keadaannya:
+**keputusan Phase 6 sudah jatuh** (Phase 6 dibuka, dikerjakan, dan ditutup — #85–#89), sementara
+**verifikasi HP Android masih belum terjadi**.
+
+**Hasil:**
+
+- **Lima AC yang butuh HP Android tetap terbuka apa adanya.** Tidak ada yang berubah sejak #73 —
+  perangkat fisik dan `FCM_CREDENTIALS_FILE` sama-sama masih di tangan pemilik produk. Sudah tercatat
+  sejajar di `STATUS.md` (*Berikutnya* → Phase 5) dan `docs/testing/flow/07-mobile-android.md`; berkas
+  ini tidak menambah apa pun selain menahan daftarnya tetap utuh.
+- **`/v1/tasks` diurutkan ulang di klien** dan **tanpa paginasi di `071`** ternyata **satu celah yang
+  sama, bukan dua**: mobile tidak punya paginasi di mana pun, sehingga pengurutan sisi klien aman
+  *persis selama* itu benar. Keduanya harus ditangani bersama kalau salah satunya naik jadi issue —
+  memperbaiki satu saja meninggalkan yang lain dalam keadaan yang lebih menyesatkan (daftar terurut
+  rapi yang diam-diam tidak lengkap).
+- **Tiga poin sisanya** (`assigned_to` eksplisit, tap baris task membuka lead, `/v1/notifications`
+  tanpa cache, `markRead` optimistik) **tetap terbuka** — semuanya menunggu pemakaian nyata, dan tidak
+  ada yang bisa diputuskan lebih jujur tanpa itu.
+- **Satu poin arsip ditutup**: `api.md` bukan katalog rute — kini dinyatakan di berkasnya sendiri
+  (lihat di atas).

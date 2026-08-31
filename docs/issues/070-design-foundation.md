@@ -29,4 +29,16 @@ relatif WCAG 2.1), bukan angka yang dicetak project desain. Detail lengkap tabel
 
 ---
 
-**Belum ditinjau** — menunggu penutupan Phase 5 (#73).
+**Ditinjau 31 Agustus 2026 di #98, bukan di #73 seperti direncanakan** (alasan sama seperti
+`069` — pointer `docs/issues/` tidak pernah dipasang di `issues.md` Phase 5).
+
+**Hasil — kedua poin tetap terbuka, keduanya murni UX dan pemicunya belum terjadi:**
+
+- **Hitung mundur backoff login.** Butuh `Retry-After` mengalir dari respons ke `ApiClient`. Diperiksa
+  di #98: backend **memang** mengirim `Retry-After` pada 429 login (`internal/auth/handler_http.go`'s
+  `respondRateLimited`), jadi datanya ada dan tinggal dibaca — hambatannya di sisi klien saja, bukan
+  kontrak. Tetap ditunda: pemicunya UX di HP sungguhan.
+- **Gerbang biometric tanpa nama/organization.** Syarat yang ditulis poin ini ("tinjau ulang bila
+  #71/#72 pernah membangun cache profil untuk alasan lain") **diperiksa dan tidak terpenuhi**:
+  `cachedGet` dipakai untuk leads, activities, tasks — **tidak ada cache profil pengguna**. Jadi tidak
+  ada yang bisa dipakai ulang, dan poin ini tetap seperti semula.

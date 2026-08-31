@@ -73,3 +73,31 @@ rencana** begitu hasil desain masuk. Pelajaran itu diterapkan langsung di sini, 
 **#68 sengaja tidak menunggu apa pun.** Ia murni Go dan tanpa UI, jadi ia bisa jalan sejak hari
 pertama sementara `design-brief.md` dikerjakan desainer. Pola yang sama seperti #30 membuka Phase 3
 dan #46 membuka Phase 4.
+
+---
+
+## Penutupan phase — ditambahkan retroaktif (#98)
+
+**Bagian ini tidak ada saat #73 menutup Phase 5.** Akibatnya kelima berkas `docs/issues/` milik phase
+ini (`069`–`073`) tidak pernah ditinjau **secara sistematis** saat phase ditutup, dan tidak satu pun
+ditutup — tidak ada langkah yang memaksanya. Ditambahkan di #98, yang sekaligus melakukan
+peninjauannya. Dicatat apa adanya, bukan ditulis seolah langkah ini selalu ada (Aturan #30).
+
+> **Bukan berarti tidak ada yang dibaca.** #73 memang meninjau satu poin dari `069` (login mobile vs
+> `409 organization_selection_required`) dan membawanya ke `STATUS.md` *Utang Teknis*. Yang hilang
+> adalah **prosesnya**, bukan kepeduliannya — dan tanpa proses, enam poin dari empat berkas lain tidak
+> terbawa ke mana pun.
+
+0. **Cek `docs/issues/069`, `070`, `071`, `072`, `073`** — checklist ringkas deviasi/keputusan dari
+   kelima issue phase ini yang perlu ditinjau ulang sebelum phase benar-benar ditutup. Preseden yang
+   bekerja: [`04-public-api/issues.md`](../04-public-api/issues.md) langkah 0, yang membuat #49
+   benar-benar meninjau `046`/`047` dan menemukan satu poin yang salah dikategorikan.
+1. Seluruh acceptance criteria `prd.md` dicek satu per satu — termasuk yang **tidak bisa** dibuktikan
+   tanpa HP Android fisik, yang dicatat jujur sebagai belum terverifikasi, bukan dianggap lolos
+2. `docs/STATUS.md` — Phase 5 ✅, dan daftar AC yang menunggu perangkat fisik tetap terlihat
+3. `docs/testing/flow/` bertambah prosedur mobile
+
+> **Hasil peninjauan #98:** satu poin naik kelas dari "keputusan UX" jadi **cacat fungsional**
+> (Employee multi-organization tidak bisa login di mobile — `069`), satu celah ternyata **dua catatan
+> untuk masalah yang sama** (tanpa paginasi di `071` + pengurutan sisi klien di `073`), dan lima AC
+> tetap menunggu HP Android. Detail di masing-masing berkas.

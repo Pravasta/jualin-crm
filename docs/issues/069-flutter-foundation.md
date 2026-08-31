@@ -14,9 +14,18 @@
       `memberships`, dan alur terima undangan (#11, #34) membolehkan user yang sudah ada diundang ke
       organization kedua — jadi seorang Employee **bisa** secara sah multi-organization. Diputuskan
       sengaja tidak dibangun di #69 karena TD tidak memintanya dan kasusnya jarang untuk akun Employee
-      spesifiknya (biasanya satu pekerjaan, satu organization) — tapi harus ditinjau ulang saat #73:
+      spesifiknya (biasanya satu pekerjaan, satu organization) — ~~tapi harus ditinjau ulang saat #73:
       apakah kasus ini pernah benar-benar terjadi di penggunaan nyata, dan kalau ya, apakah pesan error
-      mentah itu cukup atau perlu picker sungguhan.
+      mentah itu cukup atau perlu picker sungguhan.~~
+      **Ditinjau di #98 — dinaikkan dari "keputusan UX" jadi CACAT FUNGSIONAL.** `grep` seluruh
+      `crm_employee/lib/` menemukan **nol** kemunculan `organization_selection_required` — bukan
+      "ditangani seadanya", melainkan tidak ditangani sama sekali. Akibatnya bukan pesan yang kurang
+      rapi: Employee multi-organization **tidak bisa login sama sekali** ke aplikasi mobile, karena
+      tidak ada jalan apa pun untuk memilih organization. Aplikasi ini satu-satunya alat follow-up di
+      lapangan, jadi kelasnya bukan kosmetik.
+      Framing awal ("tinjau ulang bila terasa janggal") **salah menilai dampaknya** — ia menganggap
+      hasilnya pesan yang jelek, padahal hasilnya pintu terkunci. Perlu issue tersendiri; tidak
+      diperbaiki di #98 (issue ini memutuskan, bukan mengimplementasi).
 - [ ] **"Masuk dengan password" (fallback biometric gagal) memakai ulang `LoginPage` penuh**
       (email+password), bukan layar "konfirmasi password" yang lebih ringan untuk sesi yang tokennya
       sebenarnya masih hidup. Sengaja disederhanakan (TD tidak merinci UI-nya) — tinjau ulang bila
@@ -39,4 +48,23 @@ sungguhan dicoba, dicatat di sini supaya tidak perlu ditemukan ulang:
 
 ---
 
-**Belum ditinjau** — menunggu penutupan Phase 5 (#73).
+**Ditinjau 31 Agustus 2026 di #98.**
+
+**Koreksi terhadap dugaan awal #98 sendiri:** pemeriksaan ini semula menyimpulkan berkas ini "tidak
+pernah dibaca sama sekali" saat Phase 5 ditutup. **Itu terlalu keras.** `docs/STATUS.md` bagian *Utang
+Teknis* membuktikan #73 **memang** meninjau poin pertama di bawah — lengkap dengan `grep` sendiri —
+dan membawanya ke sana. Yang benar: **tidak ada peninjauan sistematis** atas berkas ini (tidak ada
+langkah "cek `docs/issues/*`" di `issues.md` Phase 5, dan berkas ini tidak pernah ditutup), tapi satu
+poin kebetulan terbawa lewat jalur lain. Dicatat karena membedakan "tidak ada prosesnya" dari "tidak
+ada yang peduli" itu penting — yang pertama benar, yang kedua tidak.
+
+**Hasil:**
+
+- Poin pertama **dinaikkan jadi cacat fungsional**, dan yang berubah bukan faktanya (#73 sudah tahu)
+  melainkan **penilaian dampaknya**: baik berkas ini maupun baris Utang Teknis sama-sama menunggu
+  "skenario multi-organization sungguhan muncul", padahal orang yang terkena **tidak bisa login sama
+  sekali** — ia tidak akan pernah muncul sebagai keluhan tentang fitur ini, hanya sebagai "aplikasinya
+  error". Pemicu tunggu itu tidak akan pernah terpicu. Layak jadi issue tersendiri; tidak diperbaiki
+  di #98 (issue ini memutuskan, bukan mengimplementasi).
+- Poin kedua (fallback biometric memakai `LoginPage` penuh) **tetap terbuka** — murni UX, pemicunya
+  pemakaian nyata di HP, yang juga belum terjadi.
