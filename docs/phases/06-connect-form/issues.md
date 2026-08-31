@@ -96,6 +96,13 @@ Phase 6 tutup bila **14 acceptance criteria** di [`prd.md`](./prd.md) terpenuhi 
 (snippet ditempel di halaman kosong → lead masuk) dan #2 (`public_key` tidak bisa membaca apa pun).
 Lalu:
 
+0. **Cek `docs/issues/087-form-submit-anti-spam.md`** — checklist ringkas deviasi/keputusan dari #87
+   yang perlu ditinjau ulang sebelum phase benar-benar ditutup (kontrak nama field #87→#88, angka rate
+   limit & time-trap yang belum diukur, celah waktu honeypot). Bukan pengganti langkah 1–4 di bawah,
+   hanya supaya tidak ada yang terlewat di antara PR yang sudah lama merge.
+   > **Langkah ini tidak ada saat #89 menutup Phase 6, dan akibatnya berkas itu tidak pernah dibaca.**
+   > Ditambahkan retroaktif di #98, yang sekaligus melakukan peninjauannya. Dicatat apa adanya
+   > (Aturan #30) — bukan ditulis seolah langkah ini selalu ada.
 1. `api.md`, `authentication.md`, `authorization.md`, `multi-tenancy.md` diperbarui (TD §15)
 2. `docs/testing/flow/` bertambah berkas: memasang form dan mengisinya dari browser
 3. `docs/STATUS.md` — Phase 6 ✅, **kunci Turnstile** masuk *Punya Lead Time*

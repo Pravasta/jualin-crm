@@ -29,6 +29,14 @@ ini **di luar cakupan issue yang sedang dikerjakan**:
 - **Deviasi dari teks issue/PRD/TD sendiri** yang ternyata implementasinya benar dan teksnya yang
   keliru — perlu diverifikasi ulang terhadap **PRD**, bukan cuma TD atau checklist issue (lihat contoh
   di bawah), supaya penutup phase tidak salah mengikuti teks yang sudah diketahui salah.
+- **Kontrak kabel antar-issue** — nilai literal yang issue ini tetapkan dan issue **berikutnya** harus
+  cocokkan persis, di mana ketidakcocokannya gagal **diam-diam** alih-alih melempar error. Preseden:
+  `docs/issues/087-form-submit-anti-spam.md` bagian *Kontrak kabel untuk #88* — #87 menetapkan nama
+  field literal (`website` untuk honeypot, `form_token`, `cf-turnstile-response`), #88 merendernya, dan
+  salah ketik satu nama saja akan membuat setiap submission gagal sebagai "field kosong", bukan sebagai
+  kesalahan yang terlihat. Dicatat di #87, dicek dan dikonfirmasi di #88, ditutup dengan bukti di #98.
+  **Layak diulang setiap kali dua issue berbagi kontrak yang tidak dijaga compiler** — payload webhook
+  Phase 7 adalah kandidat berikutnya.
 
 **Bukan untuk:**
 

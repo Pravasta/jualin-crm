@@ -36,4 +36,18 @@
 
 ---
 
-**Belum ditinjau** — menunggu penutupan Phase 5 (#73).
+**Ditinjau 31 Agustus 2026 di #98, bukan di #73 seperti direncanakan** (alasan sama seperti `069`).
+
+**Hasil — ketiganya tetap terbuka; semuanya menunggu pemakaian nyata yang belum pernah terjadi
+(aplikasi belum pernah dipakai di HP sungguhan oleh pengguna sungguhan).** Satu dinaikkan
+kejelasannya:
+
+- **Tanpa paginasi** adalah yang paling berisiko dari ketiganya, dan pemicunya bisa dinyatakan
+  konkret alih-alih "volume tinggi": `GET /v1/leads` memakai `per_page` default **25**
+  (`meta.per_page`, dibuktikan di verifikasi #89). Jadi ambangnya bukan abstrak — **Employee dengan
+  lebih dari 25 lead ter-assign tidak akan pernah melihat yang ke-26 dan seterusnya**, tanpa pesan
+  apa pun bahwa ada yang disembunyikan. Itu angka yang mudah dicapai satu tenaga penjualan aktif dalam
+  hitungan minggu. Tetap tidak diperbaiki di #98 (issue ini memutuskan, bukan mengimplementasi), tapi
+  kalau salah satu dari ketiga poin ini naik jadi issue lebih dulu, ini yang pertama.
+- Filter multi-select dan kotak pencarian tanpa mockup: keduanya menunggu masukan desain/pemakaian,
+  tidak ada yang bisa diputuskan lebih jujur sekarang.

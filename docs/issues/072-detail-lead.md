@@ -38,4 +38,17 @@
 
 ---
 
-**Belum ditinjau** — menunggu penutupan Phase 5 (#73).
+**Ditinjau 31 Agustus 2026 di #98, bukan di #73 seperti direncanakan** (alasan sama seperti `069`).
+
+**Hasil — ketiganya tetap terbuka, tidak ada yang bisa diputuskan lebih jujur sekarang.** Semuanya
+bergantung pada pengamatan yang belum pernah bisa dilakukan: pengguna sungguhan memakai aplikasi di HP
+sungguhan. Yang bisa ditambahkan hanya kejelasan pemicunya:
+
+- **"Anggota tim lain"** — pemicunya bukan pemakaian, melainkan **mockup desain berikutnya** yang
+  menunjukkan kasus aktor-bukan-diri-sendiri. Kalau tidak ada putaran desain lagi, istilah ini menjadi
+  final apa adanya, bukan menggantung selamanya.
+- **Error layar penuh saat kegagalan parsial** — pemicunya kegagalan parsial yang benar-benar sering,
+  yang hanya terlihat dari log/laporan pengguna. Catatan: kedua request (`GET /v1/leads/{id}` dan
+  `.../activities`) menuju backend yang sama, jadi kegagalan salah satu saja praktis hanya terjadi
+  pada jaringan yang sangat buruk — bukan skenario umum.
+- **Aksi WhatsApp/telepon dibatalkan tanpa pesan** — pemicunya kebingungan pengguna nyata.

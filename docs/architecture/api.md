@@ -4,6 +4,17 @@
 >
 > **Dikunci sejak bootstrap, bukan Phase 4.** Konvensi ini terbentuk secara de facto di Session 3 dan Session 5 — bila baru ditulis di Phase 4, ia hanya akan mendokumentasikan apapun yang kebetulan terbentuk. Begitu Next.js dan Flutter menempel, mengubahnya berarti memutus dua client sekaligus.
 
+> **Berkas ini bukan katalog rute** (diputuskan di issue #98). Isinya **konvensi** — envelope, error,
+> pagination, autentikasi, rate limit — plus satu bab per **jalur publik** yang menghadap klien di luar
+> kendali kita (API Publik Phase 4, Formulir Publik Phase 6). Daftar endpoint sebuah phase hidup di
+> `docs/phases/<NN>-<slug>/td.md` §8, dan kebenaran terakhirnya ada di `RegisterRoutes` masing-masing
+> paket (Aturan #30).
+>
+> Dicatat karena sudah **dua kali** sebuah TD meminta "tambahkan endpoint ke daftar endpoint" di berkas
+> yang tidak punya daftar itu — TD Phase 5 §15 (device-tokens, dilaporkan di
+> `docs/issues/073-tasks-fcm-notifications.md`), dan berpotensi terulang. TD berikutnya cukup menulis
+> daftarnya di §8-nya sendiri; yang masuk ke sini hanya **konvensi baru** atau **jalur publik baru**.
+
 ---
 
 ## Versioning
@@ -211,9 +222,43 @@ Idempotency-Key: <uuid dari client>
 | `X-RateLimit-Reset` | Unix timestamp saat reset |
 | `Retry-After` | Detik, hanya pada 429 |
 
-**Dikirim sejak versi pertama.** Menambahkannya nanti membingungkan integrator yang sudah jalan.
-
 Endpoint yang wajib dibatasi sejak Phase 1: login, kirim ulang verifikasi, lupa password, undangan (Aturan #34).
+
+### Dua kelas rate limit — headernya sengaja berbeda
+
+> **Koreksi (issue #98).** Bagian ini sebelumnya menyatakan keempat header di atas *"dikirim sejak
+> versi pertama"*. Itu **tidak pernah benar**: `POST /v1/auth/register` dan `/v1/auth/password/forgot`
+> dibatasi sejak Phase 1 tapi tidak pernah mengirim satu pun `X-RateLimit-*` — dibuktikan lewat request
+> sungguhan, bukan dari membaca kode. Yang salah adalah dokumen ini, bukan kodenya; alasannya di bawah.
+
+| Kelas | Endpoint | `X-RateLimit-*` | `Retry-After` |
+|---|---|---|---|
+| **Kredensial publik** — pemanggilnya terautentikasi & diketahui | `POST /v1/leads` (api_key, Phase 4) · `POST /v1/forms/{public_key}/submit` (Phase 6) | ✅ di **setiap** response, termasuk yang gagal | ✅ pada 429 |
+| **Anti-abuse auth** — pemanggilnya anonim | register · kirim ulang verifikasi · lupa password | ❌ | ❌ |
+| **Anti-abuse auth, backoff progresif** | login | ❌ | ✅ pada 429 |
+
+**Kenapa dibedakan.** Integrator yang memegang API key atau pemilik form yang memasang `public_key`
+adalah pihak yang **kita ingin** berperilaku baik — header itu memberi tahu mereka kapan harus
+melambat, dan itu tujuannya. Penyerang anonim yang menebak password atau membanjiri endpoint
+registrasi adalah pihak yang **tidak** kita bantu: memberi tahu sisa kuotanya sama saja menyerahkan
+oracle gratis untuk menyetel serangannya tepat di bawah ambang. Login tetap mengirim `Retry-After`
+karena pengguna sah yang salah ketik password berhak tahu kapan bisa mencoba lagi — dan angka itu
+tidak membocorkan sisa kuota siapa pun.
+
+**Untuk phase berikutnya:** kredensial baru yang menerima traffic dari luar (webhook Phase 7, dan
+seterusnya) masuk **kelas pertama** — `ratelimit.FixedWindow.Take` + `httpx.SetRateLimitHeaders`, bukan
+`Allow` tanpa header. Jangan menambah header ke kelas kedua.
+
+### Angka batasnya belum pernah diukur
+
+Seluruh angka default (`PUBLIC_API_RATE_LIMIT=60`, `FORM_SUBMIT_RATE_LIMIT_IP=20`,
+`FORM_SUBMIT_RATE_LIMIT_FORM=60`, dan batas endpoint auth) adalah **tebakan konservatif, bukan hasil
+pengukuran** — dinyatakan terbuka sejak Phase 4 (`docs/issues/047-public-lead-api.md`) dan Phase 6
+(`docs/issues/087-form-submit-anti-spam.md`).
+
+Karena itu semuanya **env-configurable**, dan peninjauannya **satu kali untuk semua** begitu ada
+traffic produksi nyata — bukan satu peninjauan per angka. Menambah kredensial baru di phase berikutnya
+berarti menambah satu angka ke daftar yang sama, bukan memulai keraguan baru yang terpisah.
 
 Header per-IP di atas hanya berarti sesuatu bila `TRUSTED_PROXIES` dikonfigurasi benar — tanpanya,
 `ClientIP()` bisa dipalsukan lewat `X-Forwarded-For` dan seluruh batas per-IP bisa dilewati satu

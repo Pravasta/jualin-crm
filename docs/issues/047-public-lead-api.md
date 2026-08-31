@@ -73,3 +73,19 @@ tuning**, yang menelusurinya menemukan Aturan #34 tidak pernah ditegakkan → **
 
 > Berkas ini bekerja sebagaimana mestinya. Poin yang ditunda dengan alasan salah tidak akan pernah
 > ketahuan bila tidak ada tempat yang memaksa membacanya lagi.
+
+**Ditinjau ketiga kalinya 31 Agustus 2026 di #98, sebelum Phase 7 dibuka.** Kedua poin tetap terbuka —
+tidak ada integrator produksi sungguhan sampai hari ini — tapi keduanya berubah bentuk karena Phase 6
+menambah kredensial ketiga:
+
+- **`PUBLIC_API_RATE_LIMIT=60`** sekarang bagian dari **satu peninjauan bersama** bersama kedua angka
+  `FORM_SUBMIT_RATE_LIMIT_*` (Phase 6), ditulis di `architecture/api.md` bagian *Angka batasnya belum
+  pernah diukur*. Tiga angka, satu pemicu, satu peninjauan — bukan tiga keraguan yang masing-masing
+  menunggu sendiri. Kredensial Phase 7 menambah angka ke daftar yang sama.
+- **Retensi `idempotency_key`** naik kepentingannya menjelang Phase 7, dan ini yang perlu dibaca
+  sebelum TD Webhook ditulis: **webhook masuk hampir pasti butuh deduplikasi** — pengiriman ganda
+  adalah perilaku normal platform pengirim, bukan kasus tepi. Godaannya adalah memakai ulang mekanisme
+  `idempotency_key` yang sudah ada. Boleh saja — tapi **jangan mewarisi keraguannya diam-diam**:
+  mekanisme itu belum pernah diuji di volume produksi, dan webhook justru jalur yang paling mungkin
+  membawa volume itu lebih dulu daripada API key. Kalau TD Phase 7 memakainya, sebutkan eksplisit
+  bahwa ia mewarisi poin terbuka ini; kalau memilih mekanisme lain, catat alasannya.
