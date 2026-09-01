@@ -48,6 +48,11 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleOwner, authz.ActionFormRead, true},
 		{tenant.RoleOwner, authz.ActionFormUpdate, true},
 		{tenant.RoleOwner, authz.ActionFormDelete, true},
+		{tenant.RoleOwner, authz.ActionWebhookCreate, true},
+		{tenant.RoleOwner, authz.ActionWebhookList, true},
+		{tenant.RoleOwner, authz.ActionWebhookRead, true},
+		{tenant.RoleOwner, authz.ActionWebhookUpdate, true},
+		{tenant.RoleOwner, authz.ActionWebhookDelete, true},
 
 		{tenant.RoleAdmin, authz.ActionMembershipList, true},
 		{tenant.RoleAdmin, authz.ActionMembershipUpdateRole, true},
@@ -82,6 +87,11 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleAdmin, authz.ActionFormRead, true},
 		{tenant.RoleAdmin, authz.ActionFormUpdate, true},
 		{tenant.RoleAdmin, authz.ActionFormDelete, true},
+		{tenant.RoleAdmin, authz.ActionWebhookCreate, true},
+		{tenant.RoleAdmin, authz.ActionWebhookList, true},
+		{tenant.RoleAdmin, authz.ActionWebhookRead, true},
+		{tenant.RoleAdmin, authz.ActionWebhookUpdate, true},
+		{tenant.RoleAdmin, authz.ActionWebhookDelete, true},
 
 		{tenant.RoleManager, authz.ActionMembershipList, true},
 		{tenant.RoleManager, authz.ActionMembershipUpdateRole, false},
@@ -116,6 +126,11 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleManager, authz.ActionFormRead, false},
 		{tenant.RoleManager, authz.ActionFormUpdate, false},
 		{tenant.RoleManager, authz.ActionFormDelete, false},
+		{tenant.RoleManager, authz.ActionWebhookCreate, false}, // Manager gets NO access at all — same shape as api_key.*/form.*
+		{tenant.RoleManager, authz.ActionWebhookList, false},
+		{tenant.RoleManager, authz.ActionWebhookRead, false},
+		{tenant.RoleManager, authz.ActionWebhookUpdate, false},
+		{tenant.RoleManager, authz.ActionWebhookDelete, false},
 
 		{tenant.RoleEmployee, authz.ActionMembershipList, false},
 		{tenant.RoleEmployee, authz.ActionMembershipUpdateRole, false},
@@ -150,6 +165,11 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleEmployee, authz.ActionFormRead, false},
 		{tenant.RoleEmployee, authz.ActionFormUpdate, false},
 		{tenant.RoleEmployee, authz.ActionFormDelete, false},
+		{tenant.RoleEmployee, authz.ActionWebhookCreate, false},
+		{tenant.RoleEmployee, authz.ActionWebhookList, false},
+		{tenant.RoleEmployee, authz.ActionWebhookRead, false},
+		{tenant.RoleEmployee, authz.ActionWebhookUpdate, false},
+		{tenant.RoleEmployee, authz.ActionWebhookDelete, false},
 	}
 
 	for _, c := range cases {
@@ -180,7 +200,9 @@ func TestRequire(t *testing.T) {
 // five ActionForm* constants with the exact same gap, found while
 // implementing #87 (this list, and TestRequire's per-role cases above,
 // had zero Form entries until now — #85 itself never touched this
-// file).
+// file). #100 (webhook) added its five ActionWebhook* here and to
+// TestRequire's per-role cases in the same PR that defined them — the
+// gap does not repeat a third time.
 var allActions = []authz.Action{
 	authz.ActionMembershipList, authz.ActionMembershipUpdateRole, authz.ActionMembershipDeactivate,
 	authz.ActionInvitationCreate, authz.ActionInvitationList, authz.ActionInvitationRevoke,
@@ -193,6 +215,7 @@ var allActions = []authz.Action{
 	authz.ActionAPIKeyCreate, authz.ActionAPIKeyList, authz.ActionAPIKeyRevoke,
 	authz.ActionDeviceTokenRegister, authz.ActionDeviceTokenDelete,
 	authz.ActionFormCreate, authz.ActionFormList, authz.ActionFormRead, authz.ActionFormUpdate, authz.ActionFormDelete,
+	authz.ActionWebhookCreate, authz.ActionWebhookList, authz.ActionWebhookRead, authz.ActionWebhookUpdate, authz.ActionWebhookDelete,
 }
 
 // TestRequire_APIKeyPrincipal_OnlyLeadCreateAllowed is issue #47's

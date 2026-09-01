@@ -256,6 +256,49 @@ func TestLoad_ProductionRejectsNoneCaptchaProvider(t *testing.T) {
 	}
 }
 
+// TestLoad_ProductionRejectsWebhookAllowPrivateTargets is issue #100's
+// acceptance criterion: a production process that will POST customer lead
+// data to a private or link-local address (SSRF) fails silently — same
+// shape as CAPTCHA_PROVIDER=none above.
+func TestLoad_ProductionRejectsWebhookAllowPrivateTargets(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
+	t.Setenv("TRUSTED_PROXIES", "none")
+	t.Setenv("MAIL_PROVIDER", "smtp")
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("PUSH_PROVIDER", "fcm")
+	t.Setenv("FCM_PROJECT_ID", "test-project")
+	t.Setenv("FCM_CREDENTIALS_FILE", "/tmp/fcm-creds.json")
+	t.Setenv("CAPTCHA_PROVIDER", "turnstile")
+	t.Setenv("TURNSTILE_SITE_KEY", "test-site-key")
+	t.Setenv("TURNSTILE_SECRET_KEY", "test-secret-key")
+	t.Setenv("WEBHOOK_ALLOW_PRIVATE_TARGETS", "true")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when APP_ENV=production and WEBHOOK_ALLOW_PRIVATE_TARGETS=true, got nil")
+	}
+	if !strings.Contains(err.Error(), "WEBHOOK_ALLOW_PRIVATE_TARGETS") {
+		t.Errorf("expected error to mention WEBHOOK_ALLOW_PRIVATE_TARGETS, got: %v", err)
+	}
+}
+
+func TestLoad_WebhookAllowPrivateTargets_DefaultFalse(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebhookAllowPrivateTargets {
+		t.Error("expected WebhookAllowPrivateTargets to default to false")
+	}
+}
+
 func TestLoad_TurnstileRequiresSiteKey(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("JWT_SECRET", validJWTSecret)
