@@ -125,6 +125,20 @@ const (
 	ActionFormRead   Action = "form.read"
 	ActionFormUpdate Action = "form.update"
 	ActionFormDelete Action = "form.delete"
+
+	// ActionWebhookCreate/List/Read/Update/Delete (Phase 7 #100) are
+	// Owner/Admin only — same shape and same reasoning as api_key.* and
+	// form.* above: a webhook endpoint is a credential that streams the
+	// organization's data OUT, so Manager and Employee get no access at
+	// all, not read-only. There is no separate "what the credential
+	// itself may do" question here (a webhook endpoint never calls back
+	// IN — it only receives deliveries), so no publicFormAllows-style
+	// map: these five are the whole surface.
+	ActionWebhookCreate Action = "webhook.create"
+	ActionWebhookList   Action = "webhook.list"
+	ActionWebhookRead   Action = "webhook.read"
+	ActionWebhookUpdate Action = "webhook.update"
+	ActionWebhookDelete Action = "webhook.delete"
 )
 
 // permissions mirrors docs/architecture/authorization.md's matrix
@@ -165,6 +179,11 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionFormRead:             true,
 		ActionFormUpdate:           true,
 		ActionFormDelete:           true,
+		ActionWebhookCreate:        true,
+		ActionWebhookList:          true,
+		ActionWebhookRead:          true,
+		ActionWebhookUpdate:        true,
+		ActionWebhookDelete:        true,
 	},
 	tenant.RoleAdmin: {
 		ActionMembershipList:       true,
@@ -200,6 +219,11 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionFormRead:             true,
 		ActionFormUpdate:           true,
 		ActionFormDelete:           true,
+		ActionWebhookCreate:        true,
+		ActionWebhookList:          true,
+		ActionWebhookRead:          true,
+		ActionWebhookUpdate:        true,
+		ActionWebhookDelete:        true,
 	},
 	tenant.RoleManager: {
 		ActionMembershipList: true,

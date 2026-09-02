@@ -141,6 +141,16 @@ type Config struct {
 	FormSubmitRateLimitIP   int `env:"FORM_SUBMIT_RATE_LIMIT_IP" envDefault:"20"`
 	FormSubmitRateLimitForm int `env:"FORM_SUBMIT_RATE_LIMIT_FORM" envDefault:"60"`
 
+	// WebhookAllowPrivateTargets relaxes safedial's SSRF guard so
+	// outbound webhooks can reach private/loopback/link-local addresses
+	// (Phase 7 #100, TD §3.4) — needed only for local development
+	// (http://localhost:9099 as a test receiver). Rejected outright when
+	// APP_ENV=production, same shape and same silent-failure reasoning as
+	// CAPTCHA_PROVIDER=none / PUSH_PROVIDER=none / MAIL_PROVIDER=log: a
+	// production process that will happily POST a customer's lead data to
+	// 169.254.169.254 is not a degraded mode, it's a hole.
+	WebhookAllowPrivateTargets bool `env:"WEBHOOK_ALLOW_PRIVATE_TARGETS" envDefault:"false"`
+
 	// TrustedProxies lists the IPs/CIDRs whose X-Forwarded-For/X-Real-IP
 	// header may be believed (Phase 4.5 TD §1). The literal "none" means
 	// no reverse proxy sits in front of this process, so the connection's
@@ -262,6 +272,12 @@ func (c *Config) validate() error {
 	}
 	if c.FormSubmitRateLimitForm <= 0 {
 		return fmt.Errorf("config invalid: FORM_SUBMIT_RATE_LIMIT_FORM must be positive, got %d", c.FormSubmitRateLimitForm)
+	}
+	// A production process that will POST customer lead data to a private
+	// or link-local address fails silently — no error, just SSRF (Phase 7
+	// TD §3.4). Same shape as CAPTCHA_PROVIDER=none above.
+	if c.AppEnv == "production" && c.WebhookAllowPrivateTargets {
+		return fmt.Errorf(`config invalid: WEBHOOK_ALLOW_PRIVATE_TARGETS must not be true when APP_ENV=production`)
 	}
 	if c.AppEnv == "production" && !c.CookieSecure {
 		return fmt.Errorf("config invalid: COOKIE_SECURE must be true when APP_ENV=production")

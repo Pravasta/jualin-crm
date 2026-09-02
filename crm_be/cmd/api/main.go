@@ -35,7 +35,9 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/mailer"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/push"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/ratelimit"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/safedial"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/task"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/webhook"
 )
 
 const readyPingTimeout = 2 * time.Second
@@ -195,6 +197,18 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	formSubmitKeyLimiter := ratelimit.NewFixedWindow(cfg.FormSubmitRateLimitForm, time.Minute)
 	form.NewHandler(formUsecase, formSubmitIPLimiter, formSubmitKeyLimiter, cfg.CaptchaProvider, cfg.TurnstileSiteKey).
 		RegisterRoutes(r, authMW)
+
+	// webhook — management CRUD only in #100 (principal user, Owner/Admin).
+	// The SSRF guard (safedial) validates every URL before it's stored;
+	// WEBHOOK_ALLOW_PRIVATE_TARGETS relaxes it for local dev and is
+	// rejected at boot in production (config.go). The worker that actually
+	// delivers is #102 — not started here yet.
+	webhookUsecase := webhook.NewUsecase(
+		newWebhookStore(pool),
+		safedial.NewValidator(cfg.WebhookAllowPrivateTargets),
+		log,
+	)
+	webhook.NewHandler(webhookUsecase).RegisterRoutes(r, authMW)
 
 	r.NoRoute(func(c *gin.Context) {
 		httpx.RespondError(c, http.StatusNotFound, "not_found", "Route tidak ditemukan.")

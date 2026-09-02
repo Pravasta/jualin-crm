@@ -74,6 +74,13 @@ services:
       # nowhere safe to live in this file; switching to `turnstile` is a
       # local .env override, never a docker-compose.yml default.
       CAPTCHA_PROVIDER: none
+      # Relax the outbound-webhook SSRF guard so a local receiver
+      # (http://localhost:PORT, http://host.docker.internal:PORT) can be
+      # registered for development and manual testing (issue #100, td.md
+      # §3.4). Rejected outright when APP_ENV=production — a production
+      # process that will POST lead data to a private address is a hole,
+      # not a degraded mode.
+      WEBHOOK_ALLOW_PRIVATE_TARGETS: "true"
     ports:
       - "8080:8080"
     depends_on:

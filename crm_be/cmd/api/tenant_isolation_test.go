@@ -197,6 +197,11 @@ func TestTenantIsolation_CrossOrgMutatingByID_Returns404(t *testing.T) {
 	// denial — same reasoning as apiKeyB above.
 	formB := seedIsolationForm(t, pool, orgB)
 
+	// Phase 7 (#100) — webhook endpoints and deliveries. Owner A holds
+	// every ActionWebhook*, so a 404 here is tenant scoping, not authz.
+	webhookEndpointB := seedIsolationWebhookEndpoint(t, pool, orgB)
+	webhookDeliveryB := seedIsolationWebhookDelivery(t, pool, orgB, webhookEndpointB)
+
 	cases := []isolationCase{
 		{
 			name:   "PATCH /v1/memberships/{id} on another org's membership",
@@ -283,25 +288,56 @@ func TestTenantIsolation_CrossOrgMutatingByID_Returns404(t *testing.T) {
 			method: http.MethodDelete,
 			path:   func(id uuid.UUID) string { return "/v1/forms/" + id.String() },
 		},
+		{
+			name:   "GET /v1/webhook-endpoints/{id} on another org's endpoint",
+			method: http.MethodGet,
+			path:   func(id uuid.UUID) string { return "/v1/webhook-endpoints/" + id.String() },
+		},
+		{
+			name:   "PATCH /v1/webhook-endpoints/{id} on another org's endpoint",
+			method: http.MethodPatch,
+			path:   func(id uuid.UUID) string { return "/v1/webhook-endpoints/" + id.String() },
+			body:   map[string]any{"description": "Hijacked"},
+		},
+		{
+			name:   "DELETE /v1/webhook-endpoints/{id} on another org's endpoint",
+			method: http.MethodDelete,
+			path:   func(id uuid.UUID) string { return "/v1/webhook-endpoints/" + id.String() },
+		},
+		{
+			name:   "GET /v1/webhook-endpoints/{id}/deliveries on another org's endpoint",
+			method: http.MethodGet,
+			path:   func(id uuid.UUID) string { return "/v1/webhook-endpoints/" + id.String() + "/deliveries" },
+		},
+		{
+			name:   "POST /v1/webhook-deliveries/{id}/retry on another org's delivery",
+			method: http.MethodPost,
+			path:   func(id uuid.UUID) string { return "/v1/webhook-deliveries/" + id.String() + "/retry" },
+		},
 	}
 
 	targetIDs := map[string]uuid.UUID{
-		"PATCH /v1/memberships/{id} on another org's membership":  targetMembershipB,
-		"DELETE /v1/memberships/{id} on another org's membership": targetMembershipB,
-		"DELETE /v1/invitations/{id} on another org's invitation": invB.ID,
-		"GET /v1/leads/{id} on another org's lead":                leadB,
-		"PATCH /v1/leads/{id} on another org's lead":              leadB,
-		"DELETE /v1/leads/{id} on another org's lead":             leadB,
-		"GET /v1/leads/{id}/activities on another org's lead":     leadB,
-		"PATCH /v1/tasks/{id} on another org's task":              taskB,
-		"DELETE /v1/tasks/{id} on another org's task":             taskB,
-		"GET /v1/customers/{id} on another org's customer":        customerB,
-		"PATCH /v1/customers/{id} on another org's customer":      customerB,
-		"DELETE /v1/customers/{id} on another org's customer":     customerB,
-		"DELETE /v1/api-keys/{id} on another org's api key":       apiKeyB,
-		"GET /v1/forms/{id} on another org's form":                formB,
-		"PATCH /v1/forms/{id} on another org's form":              formB,
-		"DELETE /v1/forms/{id} on another org's form":             formB,
+		"PATCH /v1/memberships/{id} on another org's membership":              targetMembershipB,
+		"DELETE /v1/memberships/{id} on another org's membership":             targetMembershipB,
+		"DELETE /v1/invitations/{id} on another org's invitation":             invB.ID,
+		"GET /v1/leads/{id} on another org's lead":                            leadB,
+		"PATCH /v1/leads/{id} on another org's lead":                          leadB,
+		"DELETE /v1/leads/{id} on another org's lead":                         leadB,
+		"GET /v1/leads/{id}/activities on another org's lead":                 leadB,
+		"PATCH /v1/tasks/{id} on another org's task":                          taskB,
+		"DELETE /v1/tasks/{id} on another org's task":                         taskB,
+		"GET /v1/customers/{id} on another org's customer":                    customerB,
+		"PATCH /v1/customers/{id} on another org's customer":                  customerB,
+		"DELETE /v1/customers/{id} on another org's customer":                 customerB,
+		"DELETE /v1/api-keys/{id} on another org's api key":                   apiKeyB,
+		"GET /v1/forms/{id} on another org's form":                            formB,
+		"PATCH /v1/forms/{id} on another org's form":                          formB,
+		"DELETE /v1/forms/{id} on another org's form":                         formB,
+		"GET /v1/webhook-endpoints/{id} on another org's endpoint":            webhookEndpointB,
+		"PATCH /v1/webhook-endpoints/{id} on another org's endpoint":          webhookEndpointB,
+		"DELETE /v1/webhook-endpoints/{id} on another org's endpoint":         webhookEndpointB,
+		"GET /v1/webhook-endpoints/{id}/deliveries on another org's endpoint": webhookEndpointB,
+		"POST /v1/webhook-deliveries/{id}/retry on another org's delivery":    webhookDeliveryB,
 	}
 
 	for _, tc := range cases {
@@ -431,6 +467,38 @@ func seedIsolationForm(t *testing.T, pool *pgxpool.Pool, org uuid.UUID) uuid.UUI
 	publicKey := "pk_isol_" + id.String()[:20]
 	if _, err := pool.Exec(ctx, q, id, org, publicKey); err != nil {
 		t.Fatalf("seed isolation form: %v", err)
+	}
+	return id
+}
+
+// seedIsolationWebhookEndpoint / seedIsolationWebhookDelivery insert
+// minimal rows directly via SQL — same approach as seedIsolationForm.
+// The retry route (POST /v1/webhook-deliveries/{id}/retry) only reaches
+// its 409-vs-404 branch for a delivery that actually exists in the
+// target org, so the delivery is seeded 'failed'; a cross-org caller
+// must still 404 before the status check.
+func seedIsolationWebhookEndpoint(t *testing.T, pool *pgxpool.Pool, org uuid.UUID) uuid.UUID {
+	t.Helper()
+	ctx := t.Context()
+	id := uuid.Must(uuid.NewV7())
+	const q = `
+		INSERT INTO webhook_endpoints (id, organization_id, url, secret_hash, secret_prefix, events)
+		VALUES ($1, $2, 'https://receiver.example.com/hook', $3, 'whsec_isolat', ARRAY['lead.created'])`
+	if _, err := pool.Exec(ctx, q, id, org, "isolation-test-hash-"+id.String()); err != nil {
+		t.Fatalf("seed isolation webhook endpoint: %v", err)
+	}
+	return id
+}
+
+func seedIsolationWebhookDelivery(t *testing.T, pool *pgxpool.Pool, org, endpointID uuid.UUID) uuid.UUID {
+	t.Helper()
+	ctx := t.Context()
+	id := uuid.Must(uuid.NewV7())
+	const q = `
+		INSERT INTO webhook_deliveries (id, organization_id, endpoint_id, event_type, payload, status)
+		VALUES ($1, $2, $3, 'lead.created', '{}'::jsonb, 'failed')`
+	if _, err := pool.Exec(ctx, q, id, org, endpointID); err != nil {
+		t.Fatalf("seed isolation webhook delivery: %v", err)
 	}
 	return id
 }
