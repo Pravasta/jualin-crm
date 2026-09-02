@@ -740,3 +740,73 @@ func TestLoad_SMTPDefaults(t *testing.T) {
 		t.Errorf("expected default SMTPTimeout=10s, got %s", cfg.SMTPTimeout)
 	}
 }
+
+// The webhook worker knobs (Phase 7 #102, TD §9). Validated even when
+// WEBHOOK_WORKER_ENABLED is false: a nonsense value should fail at the
+// boot that introduced it, not at the later one that turns the worker
+// back on.
+func TestLoad_WebhookWorkerDefaults(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.WebhookWorkerEnabled {
+		t.Error("expected the worker to be enabled by default")
+	}
+	if cfg.WebhookWorkerInterval != 10*time.Second {
+		t.Errorf("WebhookWorkerInterval = %s, want 10s", cfg.WebhookWorkerInterval)
+	}
+	if cfg.WebhookWorkerBatch != 20 {
+		t.Errorf("WebhookWorkerBatch = %d, want 20", cfg.WebhookWorkerBatch)
+	}
+	if cfg.WebhookDeliveryTimeout != 10*time.Second {
+		t.Errorf("WebhookDeliveryTimeout = %s, want 10s", cfg.WebhookDeliveryTimeout)
+	}
+	if cfg.WebhookMaxAttempts != 5 {
+		t.Errorf("WebhookMaxAttempts = %d, want 5", cfg.WebhookMaxAttempts)
+	}
+	if cfg.WebhookDeliveryRetentionDays != 30 {
+		t.Errorf("WebhookDeliveryRetentionDays = %d, want 30", cfg.WebhookDeliveryRetentionDays)
+	}
+}
+
+func TestLoad_WebhookWorkerRejectsNonsenseValues(t *testing.T) {
+	for _, tc := range []struct{ key, value, want string }{
+		{"WEBHOOK_WORKER_INTERVAL", "0s", "WEBHOOK_WORKER_INTERVAL"},
+		{"WEBHOOK_WORKER_INTERVAL", "-5s", "WEBHOOK_WORKER_INTERVAL"},
+		{"WEBHOOK_WORKER_BATCH", "0", "WEBHOOK_WORKER_BATCH"},
+		{"WEBHOOK_DELIVERY_TIMEOUT", "0s", "WEBHOOK_DELIVERY_TIMEOUT"},
+		{"WEBHOOK_MAX_ATTEMPTS", "0", "WEBHOOK_MAX_ATTEMPTS"},
+		{"WEBHOOK_DELIVERY_RETENTION_DAYS", "0", "WEBHOOK_DELIVERY_RETENTION_DAYS"},
+	} {
+		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://localhost/test")
+			t.Setenv("JWT_SECRET", validJWTSecret)
+			t.Setenv(tc.key, tc.value)
+
+			_, err := config.Load()
+			if err == nil {
+				t.Fatalf("expected %s=%s to be rejected", tc.key, tc.value)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("expected the error to name %s, got: %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// TestLoad_WebhookWorkerKnobsValidatedEvenWhenDisabled is the reason the
+// checks sit outside any `if enabled` branch.
+func TestLoad_WebhookWorkerKnobsValidatedEvenWhenDisabled(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("WEBHOOK_WORKER_ENABLED", "false")
+	t.Setenv("WEBHOOK_WORKER_BATCH", "0")
+
+	if _, err := config.Load(); err == nil {
+		t.Fatal("expected an invalid batch size to be rejected even with the worker disabled")
+	}
+}

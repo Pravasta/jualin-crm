@@ -168,6 +168,34 @@ type Config struct {
 	// consequence, not a bug (td.md §2).
 	WebhookSecretEncKey string `env:"WEBHOOK_SECRET_ENC_KEY,required"`
 
+	// Webhook worker knobs (Phase 7 #102, TD §9). The worker is a
+	// goroutine inside this binary, not a separate deployable — D2.
+	//
+	// WebhookWorkerEnabled false leaves the HTTP API fully functional and
+	// deliveries accumulating as pending: correct for an instance that
+	// should only serve traffic. It is NOT a production guard like
+	// WEBHOOK_ALLOW_PRIVATE_TARGETS — a fleet where every instance sets it
+	// false is a deployment mistake this process cannot detect alone.
+	//
+	// Interval, batch, and MaxAttempts are NOT measured numbers; they join
+	// the shared review in api.md's "Angka batasnya belum pernah diukur"
+	// (issue #98), not a separate open question each.
+	WebhookWorkerEnabled   bool          `env:"WEBHOOK_WORKER_ENABLED" envDefault:"true"`
+	WebhookWorkerInterval  time.Duration `env:"WEBHOOK_WORKER_INTERVAL" envDefault:"10s"`
+	WebhookWorkerBatch     int           `env:"WEBHOOK_WORKER_BATCH" envDefault:"20"`
+	WebhookDeliveryTimeout time.Duration `env:"WEBHOOK_DELIVERY_TIMEOUT" envDefault:"10s"`
+
+	// WebhookMaxAttempts is the number of RETRIES after the initial
+	// delivery, not the total number of sends — the default 5 means up to
+	// 6 HTTP calls, spaced by the five delays in webhook.retryDelays
+	// (1m, 5m, 30m, 2h, 6h). Setting it above 5 is allowed and defined:
+	// every retry past the table reuses the last delay (6h). Not bounded
+	// against that table here on purpose — internal/shared/config must not
+	// import a domain package to learn its length (ADR-011).
+	WebhookMaxAttempts int `env:"WEBHOOK_MAX_ATTEMPTS" envDefault:"5"`
+
+	WebhookDeliveryRetentionDays int `env:"WEBHOOK_DELIVERY_RETENTION_DAYS" envDefault:"30"`
+
 	// TrustedProxies lists the IPs/CIDRs whose X-Forwarded-For/X-Real-IP
 	// header may be believed (Phase 4.5 TD §1). The literal "none" means
 	// no reverse proxy sits in front of this process, so the connection's
@@ -301,6 +329,25 @@ func (c *Config) validate() error {
 	// TD §3.4). Same shape as CAPTCHA_PROVIDER=none above.
 	if c.AppEnv == "production" && c.WebhookAllowPrivateTargets {
 		return fmt.Errorf(`config invalid: WEBHOOK_ALLOW_PRIVATE_TARGETS must not be true when APP_ENV=production`)
+	}
+	// Worker knobs are only read when the worker runs, but they are
+	// validated unconditionally: a value that would be nonsense on the day
+	// someone flips WEBHOOK_WORKER_ENABLED back on should fail at the boot
+	// that introduced it, not at that later one (Rule #36).
+	if c.WebhookWorkerInterval <= 0 {
+		return fmt.Errorf("config invalid: WEBHOOK_WORKER_INTERVAL must be positive, got %s", c.WebhookWorkerInterval)
+	}
+	if c.WebhookWorkerBatch < 1 {
+		return fmt.Errorf("config invalid: WEBHOOK_WORKER_BATCH must be at least 1, got %d", c.WebhookWorkerBatch)
+	}
+	if c.WebhookDeliveryTimeout <= 0 {
+		return fmt.Errorf("config invalid: WEBHOOK_DELIVERY_TIMEOUT must be positive, got %s", c.WebhookDeliveryTimeout)
+	}
+	if c.WebhookMaxAttempts < 1 {
+		return fmt.Errorf("config invalid: WEBHOOK_MAX_ATTEMPTS must be at least 1, got %d", c.WebhookMaxAttempts)
+	}
+	if c.WebhookDeliveryRetentionDays < 1 {
+		return fmt.Errorf("config invalid: WEBHOOK_DELIVERY_RETENTION_DAYS must be at least 1, got %d", c.WebhookDeliveryRetentionDays)
 	}
 	if c.AppEnv == "production" && !c.CookieSecure {
 		return fmt.Errorf("config invalid: COOKIE_SECURE must be true when APP_ENV=production")

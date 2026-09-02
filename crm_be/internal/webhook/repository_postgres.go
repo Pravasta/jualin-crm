@@ -265,18 +265,38 @@ func (r *postgresDeliveryRepository) MarkForRetry(ctx context.Context, t tenant.
 // without leader election: Postgres guarantees two transactions never
 // lock the same row. Caller MUST run this inside a transaction; the
 // returned rows are already status='delivering'.
-func (r *postgresDeliveryRepository) ClaimDue(ctx context.Context, limit int) ([]*Delivery, error) {
+// ClaimDue takes ownership of up to `limit` due rows and returns them
+// with everything a send needs joined in.
+//
+// The whole claim is ONE statement, which is what makes it safe across
+// instances: PostgreSQL runs it in an implicit transaction, FOR UPDATE
+// SKIP LOCKED makes concurrent claimers step over each other's locked
+// rows instead of blocking, and the transaction is closed by the time the
+// function returns — so no HTTP ever happens inside it (Rule #32, TD §4.1).
+// No leader election, no advisory locks, no coordination of our own.
+//
+// The JOIN is what removes the gap between claiming and sending: looking
+// the endpoint up separately would leave a window in which it is edited or
+// soft-deleted, and the send would then use a URL or secret that no longer
+// matches the row it belongs to.
+func (r *postgresDeliveryRepository) ClaimDue(ctx context.Context, limit int) ([]*ClaimedDelivery, error) {
 	const q = `
-		UPDATE webhook_deliveries
-		SET status = 'delivering', delivering_since = now(), updated_at = now()
-		WHERE id IN (
-			SELECT id FROM webhook_deliveries
-			WHERE status = 'pending' AND next_attempt_at <= now()
-			ORDER BY next_attempt_at
-			LIMIT $1
-			FOR UPDATE SKIP LOCKED
+		WITH claimed AS (
+			UPDATE webhook_deliveries
+			SET status = 'delivering', delivering_since = now(), updated_at = now()
+			WHERE id IN (
+				SELECT id FROM webhook_deliveries
+				WHERE status = 'pending' AND next_attempt_at <= now()
+				ORDER BY next_attempt_at
+				LIMIT $1
+				FOR UPDATE SKIP LOCKED
+			)
+			RETURNING ` + deliveryColumns + `
 		)
-		RETURNING ` + deliveryColumns
+		SELECT c.*, ep.url, ep.secret_ciphertext
+		FROM claimed c
+		JOIN webhook_endpoints ep
+		  ON ep.id = c.endpoint_id AND ep.organization_id = c.organization_id`
 
 	rows, err := r.q.Query(ctx, q, limit)
 	if err != nil {
@@ -284,18 +304,63 @@ func (r *postgresDeliveryRepository) ClaimDue(ctx context.Context, limit int) ([
 	}
 	defer rows.Close()
 
-	var out []*Delivery
+	var out []*ClaimedDelivery
 	for rows.Next() {
-		d, err := scanDelivery(rows)
-		if err != nil {
+		var cd ClaimedDelivery
+		if err := scanClaimedDelivery(rows, &cd); err != nil {
 			return nil, fmt.Errorf("webhook: scan claimed delivery: %w", err)
 		}
-		out = append(out, d)
+		out = append(out, &cd)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("webhook: claim due: %w", err)
 	}
 	return out, nil
+}
+
+// MarkResult records the outcome of one attempt and clears the claim.
+//
+// The `status = 'delivering'` guard matters: between our HTTP call and
+// this write, the reaper (or another instance's reaper) may have decided
+// the row was abandoned and returned it to pending. Overwriting it then
+// would resurrect a result for a delivery someone else now owns. Zero rows
+// affected is reported as ErrDeliveryNotClaimed so the caller can log it
+// and move on — it is a lost race, not a failure.
+func (r *postgresDeliveryRepository) MarkResult(ctx context.Context, id uuid.UUID, res DeliveryResult) error {
+	const q = `
+		UPDATE webhook_deliveries
+		SET status = $2, attempt = $3, next_attempt_at = $4,
+		    response_status = $5, error = $6,
+		    delivering_since = NULL, updated_at = now()
+		WHERE id = $1 AND status = 'delivering'`
+
+	tag, err := r.q.Exec(ctx, q, id, res.Status, res.Attempt, res.NextAttemptAt, res.ResponseStatus, res.ErrorText)
+	if err != nil {
+		return fmt.Errorf("webhook: mark result: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrDeliveryNotClaimed
+	}
+	return nil
+}
+
+// Release hands a claimed row back without counting an attempt — used on
+// graceful shutdown for rows this worker claimed but never sent.
+//
+// Without it those rows would sit `delivering` until the reaper's
+// threshold expired, delaying every one of them by ten minutes on every
+// deploy. attempt and response_status are deliberately untouched: nothing
+// was tried, so nothing should be recorded.
+func (r *postgresDeliveryRepository) Release(ctx context.Context, id uuid.UUID) error {
+	const q = `
+		UPDATE webhook_deliveries
+		SET status = 'pending', delivering_since = NULL, next_attempt_at = now(), updated_at = now()
+		WHERE id = $1 AND status = 'delivering'`
+
+	if _, err := r.q.Exec(ctx, q, id); err != nil {
+		return fmt.Errorf("webhook: release: %w", err)
+	}
+	return nil
 }
 
 // Reap returns rows stuck in 'delivering' since before threshold to
@@ -338,6 +403,18 @@ func scanDelivery(row rowScanner) (*Delivery, error) {
 		return nil, err
 	}
 	return &d, nil
+}
+
+// scanClaimedDelivery mirrors scanDelivery's column order, then the two
+// endpoint columns the claim query joins on. Kept next to it so the two
+// stay in step when deliveryColumns changes.
+func scanClaimedDelivery(row rowScanner, cd *ClaimedDelivery) error {
+	d := &cd.Delivery
+	return row.Scan(
+		&d.ID, &d.OrganizationID, &d.EndpointID, &d.EventType, &d.Payload, &d.Status, &d.Attempt,
+		&d.NextAttemptAt, &d.ResponseStatus, &d.Error, &d.DeliveringSince, &d.CreatedAt, &d.UpdatedAt,
+		&cd.EndpointURL, &cd.EndpointSecretCiphertext,
+	)
 }
 
 func scanDeliveryWithTotal(row rowScanner) (*Delivery, int, error) {

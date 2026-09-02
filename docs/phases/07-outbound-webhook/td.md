@@ -299,6 +299,28 @@ Body respons **tidak disimpan** — hanya `response_status` dan `error` singkat.
 berisi apa saja, termasuk data sensitif mereka sendiri, dan kita tidak punya alasan menyimpannya
 (Aturan #26 semangatnya sama).
 
+### 4.4 Graceful shutdown — koreksi atas §13 (issue #102)
+
+Rencana awal di §13 menulis *"sisanya ditinggal `delivering` dan diambil reaper setelah restart"*. Itu
+benar tapi mahal: baris yang sudah diklaim namun **belum dicoba sama sekali** akan menunggu ambang
+reaper (10 menit) sebelum dijalankan lagi. Pada instance tunggal, setiap deploy menunda seluruh sisa
+batch selama 10 menit tanpa alasan.
+
+Yang diimplementasikan:
+
+```
+sinyal → HTTP server drain dulu (tidak ada lead baru masuk antrian)
+       → worker berhenti klaim
+       → pengiriman yang SEDANG berjalan diselesaikan (dibatasi WEBHOOK_DELIVERY_TIMEOUT)
+       → sisa batch yang BELUM dicoba → Release: kembali ke `pending`, attempt TIDAK bertambah
+       → Run() return; main menunggunya (dibatasi timeout + 5 detik)
+```
+
+`Release` sengaja tidak menyentuh `attempt` maupun `response_status`: tidak ada yang dicoba, jadi tidak
+ada yang perlu dicatat. Baris yang benar-benar sedang di udara saat batas waktu shutdown lewat **tetap**
+ditinggal `delivering` dan menjadi urusan reaper — di situ §13 yang asli tetap berlaku, dan memang harus:
+instance lain tidak boleh merebut pengiriman yang mungkin masih berjalan.
+
 ---
 
 ## 5. Alur pemicu (keputusan D3)
@@ -515,7 +537,7 @@ dari dialog.
 | **Endpoint lambat menahan worker** | `WEBHOOK_DELIVERY_TIMEOUT` 10 detik, batch terbatas. Satu endpoint lambat memperlambat batch-nya, tidak menghentikan antrian |
 | **Secret bocor lewat log** | Aturan #26. Secret tidak pernah masuk log, termasuk pada jalur gagal — diuji dengan mencari string secret di keluaran, bukan dipercaya dari baca kode (pola `TURNSTILE_SECRET_KEY` #87) |
 | **`webhook_deliveries` tumbuh tak terkendali** | Retensi §10. Dicatat sebagai tabel dengan pertumbuhan tercepat di produk |
-| **Worker menyulitkan graceful shutdown** | Worker berhenti pada sinyal yang sama dengan HTTP server (#1); pengiriman yang sedang berjalan diberi waktu selesai, sisanya ditinggal `delivering` dan diambil reaper setelah restart |
+| **Worker menyulitkan graceful shutdown** | Worker berhenti pada sinyal yang sama dengan HTTP server (#1); pengiriman yang sedang berjalan diberi waktu selesai, sisa batch yang **belum dicoba dikembalikan ke `pending`** — lihat §4.4 |
 
 ---
 

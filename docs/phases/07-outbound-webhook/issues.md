@@ -87,7 +87,12 @@ ganda). Lalu:
      keempat `authentication.md` yang masih kurang; `delivery_id` yang harus disuntikkan #102;
      rotasi kunci enkripsi; dan timestamp `+07:00` vs. Aturan #33 yang lebih luas dari Phase 7.
      Berisi juga **kontrak kabel untuk #102** — empat nilai yang kalau tidak dicocokkan persis akan
-     gagal diam-diam, bukan melempar error.
+     gagal diam-diam, bukan melempar error. **Keempatnya sudah dipenuhi dan dibuktikan di #102.**
+   - [`102-webhook-worker.md`](../../issues/102-webhook-worker.md) — **TD §4.1 masih menggambarkan
+     `SKIP LOCKED` seolah ia yang menjamin exactly-once**, padahal terbukti bukan (predikat status yang
+     menjamin; `SKIP LOCKED` menjamin liveness) — perlu diperbaiki supaya orang berikutnya tidak
+     menghapus predikat status. Plus: ambang reaper yang sengaja tidak configurable, biaya
+     `DisableKeepAlives` yang belum diukur, dan retensi malas yang kini ada di dua tempat.
    > Langkah ini ada di sini sejak phase dibuka — bukan retroaktif. Phase 5 dan Phase 6 melewatkannya
    > karena tidak pernah memuatnya, dan enam berkas menumpuk tanpa dibaca (#98). Preseden yang bekerja:
    > [`04-public-api/issues.md`](../04-public-api/issues.md) langkah 0.

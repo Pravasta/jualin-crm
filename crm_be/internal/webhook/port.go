@@ -46,9 +46,19 @@ type DeliveryRepository interface {
 	MarkForRetry(ctx context.Context, t tenant.Context, id uuid.UUID) (*Delivery, error)
 
 	// ClaimDue atomically moves up to `limit` due 'pending' rows to
-	// 'delivering' and returns them — FOR UPDATE SKIP LOCKED (TD §4.1).
-	// Not tenant-scoped (see interface doc).
-	ClaimDue(ctx context.Context, limit int) ([]*Delivery, error)
+	// 'delivering' and returns them with their endpoint's URL and sealed
+	// secret joined in — FOR UPDATE SKIP LOCKED (TD §4.1). Not
+	// tenant-scoped (see interface doc).
+	ClaimDue(ctx context.Context, limit int) ([]*ClaimedDelivery, error)
+
+	// MarkResult records one attempt's outcome and clears the claim.
+	// Returns ErrDeliveryNotClaimed if the row is no longer 'delivering'.
+	// Not tenant-scoped.
+	MarkResult(ctx context.Context, id uuid.UUID, res DeliveryResult) error
+
+	// Release returns a claimed-but-unsent row to the queue without
+	// counting an attempt — graceful shutdown only. Not tenant-scoped.
+	Release(ctx context.Context, id uuid.UUID) error
 
 	// Reap returns 'delivering' rows stuck past `threshold` to 'pending'
 	// (TD §4.2 — crash recovery). Not tenant-scoped.
