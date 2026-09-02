@@ -19,21 +19,30 @@ const validJWTSecret = "test-jwt-secret-at-least-32-bytes-long"
 // must never force rotating the other).
 const validFormTokenSecret = "test-form-token-secret-at-least-32-bytes"
 
-// TestMain sets FORM_TOKEN_SECRET (required, no default — same shape as
-// JWT_SECRET) for every test in this file, not just the ones that
-// exercise it directly. Without this, every EXISTING test below that
-// doesn't know FORM_TOKEN_SECRET exists would fail on it before ever
-// reaching whatever it actually means to test — env.Parse fails on the
-// FIRST missing required field in struct declaration order (verified
-// against caarlos0/env's source), and FormTokenSecret sits after
-// JWTSecret, so a test focused on, say, CORS validation would otherwise
-// get a FORM_TOKEN_SECRET error instead of the one it's asserting on.
+// validWebhookSecretEncKey is the third of these — a separate value for
+// the same reason validFormTokenSecret is separate from validJWTSecret.
+const validWebhookSecretEncKey = "test-webhook-secret-enc-key-32-bytes-min" // #nosec G101 -- test-only value, not a real credential
+
+// TestMain sets every required-with-no-default env var for every test in
+// this file, not just the ones that exercise them directly. Without this,
+// every EXISTING test below that doesn't know they exist would fail on
+// them before ever reaching whatever it actually means to test —
+// env.Parse fails on the FIRST missing required field in struct
+// declaration order (verified against caarlos0/env's source), so a test
+// focused on, say, CORS validation would otherwise get a
+// FORM_TOKEN_SECRET error instead of the one it's asserting on.
 // t.Setenv inside an individual test (TestLoad_MissingFormTokenSecret
 // etc.) correctly shadows this for that test's own duration only.
 func TestMain(m *testing.M) {
-	if err := os.Setenv("FORM_TOKEN_SECRET", validFormTokenSecret); err != nil {
-		fmt.Fprintln(os.Stderr, "failed to set FORM_TOKEN_SECRET:", err)
-		os.Exit(1)
+	required := map[string]string{
+		"FORM_TOKEN_SECRET":      validFormTokenSecret,
+		"WEBHOOK_SECRET_ENC_KEY": validWebhookSecretEncKey,
+	}
+	for k, v := range required {
+		if err := os.Setenv(k, v); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to set %s: %v\n", k, err)
+			os.Exit(1)
+		}
 	}
 	os.Exit(m.Run())
 }
@@ -211,6 +220,56 @@ func TestLoad_ShortFormTokenSecret(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "FORM_TOKEN_SECRET") {
 		t.Errorf("expected error to mention FORM_TOKEN_SECRET, got: %v", err)
+	}
+}
+
+// TestLoad_MissingWebhookSecretEncKey is Phase 7 #101's counterpart to
+// the two above. Deliberately NOT a production-only check, unlike
+// WEBHOOK_ALLOW_PRIVATE_TARGETS: without this key, creating a webhook
+// endpoint fails outright in every environment, so there is no
+// environment where booting without it is useful (migration 0009).
+func TestLoad_MissingWebhookSecretEncKey(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	unsetEnv(t, "WEBHOOK_SECRET_ENC_KEY")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when WEBHOOK_SECRET_ENC_KEY is missing, got nil")
+	}
+	if !strings.Contains(err.Error(), "WEBHOOK_SECRET_ENC_KEY") {
+		t.Errorf("expected error to mention WEBHOOK_SECRET_ENC_KEY, got: %v", err)
+	}
+}
+
+func TestLoad_ShortWebhookSecretEncKey(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("WEBHOOK_SECRET_ENC_KEY", "too-short")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for a WEBHOOK_SECRET_ENC_KEY shorter than 32 bytes, got nil")
+	}
+	if !strings.Contains(err.Error(), "WEBHOOK_SECRET_ENC_KEY") {
+		t.Errorf("expected error to mention WEBHOOK_SECRET_ENC_KEY, got: %v", err)
+	}
+}
+
+// TestLoad_WebhookSecretEncKeyAccepted proves the happy path actually
+// produces a usable key, not just a non-error — the value has to survive
+// into Config for crypter.New to receive it.
+func TestLoad_WebhookSecretEncKeyAccepted(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("WEBHOOK_SECRET_ENC_KEY", validWebhookSecretEncKey)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebhookSecretEncKey != validWebhookSecretEncKey {
+		t.Errorf("WebhookSecretEncKey = %q, want %q", cfg.WebhookSecretEncKey, validWebhookSecretEncKey)
 	}
 }
 

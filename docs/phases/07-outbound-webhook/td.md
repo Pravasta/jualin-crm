@@ -112,9 +112,53 @@ header         = X-Jualin-Signature: t=<timestamp>,v1=<signature hex>
 | Aspek | Ketentuan |
 |---|---|
 | Secret | 32 byte `crypto/rand` → base64url. Format `whsec_<43 karakter>` |
-| Penyimpanan | **SHA-256 hash**, sama seperti API key (Aturan #20). `secret_prefix` (8 karakter pertama) disimpan terpisah untuk ditampilkan di daftar |
+| Penyimpanan | **Terenkripsi AES-256-GCM** (`internal/shared/crypter`), kunci dari `WEBHOOK_SECRET_ENC_KEY`. **Bukan hash** — lihat §2.1. `secret_prefix` (8 karakter pertama) disimpan plaintext terpisah untuk ditampilkan di daftar |
 | Tampil | **Sekali**, saat endpoint dibuat (Aturan #21) |
 | Toleransi | 5 menit — dinyatakan di dokumentasi untuk penerima, bukan ditegakkan pengirim |
+
+### 2.1 Kenapa dienkripsi, bukan di-hash — penyimpangan tertulis dari Aturan #20
+
+Versi pertama TD ini menetapkan **SHA-256 hash, "sama seperti API key"**, dan `0008` mengimplementasikannya
+dengan setia. **Itu salah, dan salahnya fatal:** dengan kolom berbentuk hash, worker tidak akan pernah bisa
+menandatangani apa pun. Dikoreksi oleh migration `0009` (issue #101).
+
+Aturan #20 lahir untuk kredensial yang **kita verifikasi**. Tiga yang sudah ada semuanya begitu:
+
+| Kredensial | Siapa pegang rahasianya | Siapa memverifikasi | Butuh dibaca ulang? |
+|---|---|---|---|
+| `api_key` | integrator | **kita** | tidak → hash |
+| `public_key` form | halaman web | **kita** | tidak → hash |
+| `device_token` | perangkat | **kita** | tidak → hash |
+| **`whsec_`** | **kita** | **penerima** | **ya → enkripsi** |
+
+Untuk tiga yang pertama, pemegang mengirimkan rahasianya, kita meng-hash lalu membandingkan. Hash cukup,
+dan hash **lebih baik**: kebocoran database tidak menghasilkan kredensial yang bisa dipakai.
+
+Signing secret dipakai untuk **menghasilkan** bukti, bukan memeriksanya:
+
+```
+X-Jualin-Signature: t=<unix>,v1=HMAC-SHA256(secret, "<t>.<body>")
+                                            ↑ butuh secret ASLI sebagai kunci
+```
+
+SHA-256 searah. Tidak ada jalur apa pun yang bisa mengembalikan secret: bukan dari kolom, bukan dari
+`secret_prefix` (8 dari 49 karakter), bukan dari pelanggan (`createRequest` tidak punya field `secret`).
+
+**Yang dilepas, disadari:** "kebocoran database saja tidak cukup untuk memalsukan". Itu memang tidak bisa
+dipertahankan untuk kredensial yang harus kita pakai sendiri — bukan pilihan desain, melainkan sifat dari
+arah kepercayaan yang terbalik. Mitigasinya: kunci enkripsi hidup di **environment**, bukan di database,
+jadi dump database saja tidak cukup untuk memalsukan signature.
+
+**Yang tetap dijaga:** Aturan #21 (raw hanya tampil sekali) dan Aturan #26 (tidak pernah di-log) —
+keduanya tidak bergantung pada bentuk penyimpanan.
+
+**Konsekuensi operasional:** merotasi `WEBHOOK_SECRET_ENC_KEY` membuat **seluruh** secret tersimpan tidak
+bisa didekripsi; endpoint harus dibuat ulang. Belum ada mekanisme rotasi bertahap — kalau nanti dibutuhkan,
+bentuknya adalah kolom versi kunci, bukan perubahan skema ini.
+
+**Pelajarannya, dicatat:** komentar `0008` sudah menyebut arah kepercayaan yang terbalik dengan benar,
+lalu tetap memakai pola lama di kolom tepat di bawahnya. Mengenali sebuah kasus itu berbeda tidak otomatis
+mencegah penerapan pola default. Lihat `docs/issues/101-webhook-secret-storage.md`.
 
 **Kenapa timestamp ikut ditandatangani.** Kalau `t` berada di luar `signed_payload`, penyerang yang
 menangkap satu request sah bisa mengubah `t` ke waktu sekarang dan memutarnya ulang selamanya —

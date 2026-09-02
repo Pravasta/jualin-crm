@@ -159,3 +159,125 @@ mengembalikannya (Aturan #21), tapi HMAC signing payload menunggu #101.
 - Payload TD §5 memakai `leadJSON` yang **sama** dengan dashboard/API — jangan bentuk kedua.
 - `webhook_deliveries.payload` adalah `[]byte` di `Delivery` struct; `deliveryJSON` di handler
   meng-embed-nya sebagai `json.RawMessage` (degradasi ke `null` bila tidak valid).
+
+---
+
+## #101 — Signature HMAC + enqueue: pemicu dari lead
+
+PR: [#107](https://github.com/Pravasta/jualin-crm/pull/107) · branch `feat/101-webhook-signature-enqueue`
+
+Setelah issue ini, sebuah lead yang dibuat menghasilkan baris antrian yang menumpuk sebagai `pending`.
+**Belum ada satu pun request keluar** — itu #102.
+
+### Yang tidak direncanakan: `0008` menyimpan secret dalam bentuk yang mustahil dipakai
+
+Ditemukan saat membaca ulang TD §2 sebelum menulis `signature.go`, bukan lewat test — dan tidak ada test
+yang bisa menemukannya, karena seluruh #100 hijau justru **karena** belum ada pemanggil yang membutuhkan
+secret itu kembali.
+
+`0008` menyimpan signing secret sebagai SHA-256 hash, mengikuti `api_key` (Aturan #20). Tapi untuk webhook
+keluar, **kita** yang menandatangani:
+
+```
+X-Jualin-Signature: t=<unix>,v1=HMAC-SHA256(secret, "<t>.<body>")
+```
+
+HMAC butuh secret **asli** sebagai kunci. SHA-256 searah, dan tidak ada jalur lain: bukan dari
+`secret_prefix` (8 dari 49 karakter), bukan dari pelanggan (`createRequest` tidak punya field `secret`).
+Dibuktikan sebelum menulis kode apa pun — dua implementasi HMAC independen (Python `hmac`, OpenSSL)
+menunjukkan `HMAC(raw) ≠ HMAC(hash)`.
+
+Yang membuat ini layak dicatat bukan perbaikannya, tapi **cara ia lolos**: komentar `0008` sudah menyatakan
+dengan benar bahwa kredensial ini "yang PERTAMA dengan arah kepercayaan terbalik", lalu tetap menerapkan
+pola default di kolom tepat di bawahnya. Mengenali sebuah kasus itu berbeda tidak otomatis mencegah
+penerapan pola yang sudah dikenal.
+
+**Perbaikannya**, disetujui pemilik produk sebelum dikerjakan:
+
+- `migrations/0009_webhook_secret_encrypted.sql` — `secret_hash` → `secret_ciphertext bytea`. Baris yang
+  ada **dihapus**, bukan diberi pengisi kosong: endpoint yang secret-nya tidak bisa dipulihkan bukan
+  endpoint yang setengah bekerja, dan ciphertext kosong hanya memindahkan kegagalan dari migrasi (terlihat)
+  ke worker (senyap).
+- `internal/shared/crypter/` — AES-256-GCM, satu-satunya tempat di codebase yang **mengenkripsi**, bukan
+  meng-hash. GCM authenticated, jadi satu byte berubah → gagal, bukan plaintext yang berubah.
+- `WEBHOOK_SECRET_ENC_KEY` — required tanpa default, min 32 byte. **Bukan** cek production-only seperti
+  `WEBHOOK_ALLOW_PRIVATE_TARGETS`: tanpa kunci ini, membuat endpoint gagal total di environment mana pun,
+  jadi tidak ada environment di mana boot tanpanya berguna.
+
+Penyimpangan dari Aturan #20 ditulis di tiga tempat — `td.md` §2.1, komentar `0009`, dan
+`docs/issues/101-*.md` — **bukan** diselipkan ke `freeze.md` seolah aturannya memang begitu (Aturan #30).
+Keputusan apakah freeze perlu klausa baru diserahkan ke #104 lewat ADR, bukan diambil diam-diam di sini.
+
+Regresinya dijaga oleh test yang menguji properti yang benar: **"yang tersimpan bisa kembali menjadi
+secret yang ditampilkan"**, bukan "tidak tersimpan sebagai plaintext" — yang dulu juga dipenuhi hash.
+
+### Signature
+
+`Sign(secret, ts, body)` → `t=<unix>,v1=<hex>` atas `"<ts>.<body>"`.
+
+Vektornya **dihitung di luar Go** oleh dua implementasi yang sepakat (Python `hmac`, OpenSSL), lalu
+di-pin sebagai konstanta. Ini bukan formalitas: test yang menandatangani dengan `Sign` lalu memverifikasi
+dengan `Sign` tetap hijau meski konstruksinya salah dengan cara yang dibagi kedua sisi — menandatangani
+`"<body>.<ts>"`, atau menghilangkan pemisah. Bug seperti itu tak terlihat dari dalam dan fatal dari luar:
+tidak ada penerima yang mengikuti dokumentasi bisa mereproduksinya.
+
+`TestSign_TimestampIsActuallySigned` sengaja **tidak** membandingkan header utuh — `t` muncul apa adanya
+di keluaran, jadi perbandingan itu lolos trivial. Ia mengisolasi bagian `v1` dan membuktikan bagian itu
+ikut berubah. Kalau `t` hanya bersanding di luar signature, siapa pun yang menangkap satu request sah bisa
+menulis ulang `t` ke waktu sekarang dan memutarnya ulang selamanya.
+
+### Enqueue — kenapa `Enqueuer`, bukan `Usecase.Enqueue`
+
+Checklist issue menulis "`Usecase.Enqueue`". Itu tidak bisa dipenuhi apa adanya: method di `Usecase`
+membawa `Store`-nya sendiri, jadi ia akan **membuka transaksi sendiri** — persis satu-satunya hal yang
+tidak boleh terjadi di sini.
+
+`webhook.NewEnqueuer(q db.Querier)` terikat pada querier, bukan Store, sehingga `lead` memanggilnya di
+dalam transaksinya sendiri. Bentuk yang persis sama dengan `activity.NewRecorder(q)` (#21), untuk alasan
+yang sama (TD §5): lead yang commit tanpa baris pengiriman kehilangan event selamanya, dan baris
+pengiriman yang commit tanpa lead mengumumkan sesuatu yang tidak ada.
+
+Ini **tidak** melanggar Aturan #32. Yang dilarang aturan itu efek samping **eksternal** di dalam
+transaksi; menulis baris antrian adalah operasi database biasa. Justru pemisahan inilah yang membuat
+Aturan #32 bisa dipenuhi worker nanti tanpa kehilangan event.
+
+`Enqueue` mengembalikan `(int, error)` — jumlah baris yang ditulis. Nol adalah hasil **normal** (organisasi
+tanpa endpoint adalah kasus paling umum), bukan error.
+
+### Payload — satu bentuk lead, bukan dua
+
+`leadJSON` di `handler_http.go` dulu membangun `gin.H` inline. Dipindahkan ke `Lead.Fields()` di
+`entity.go`, dan `leadJSON` tinggal `gin.H(l.Fields())` — konversi gratis, `gin.H` adalah alias
+`map[string]any`. Alasannya: `usecase.go` butuh bentuk itu untuk membangun payload dan **tidak boleh
+mengimpor gin** (ADR-011).
+
+`TestUnit_Create_PayloadIsTheSameShapeAsTheAPI` membandingkan himpunan kunci di kedua arah, jadi menambah
+field ke salah satu tanpa yang lain akan gagal — bukan sekadar berkomentar bahwa keduanya "harus sama".
+
+`delivery_id` **tidak** ikut dalam snapshot yang disimpan, berbeda dari gambar di TD §5. Satu snapshot
+dipakai bersama semua endpoint yang melanggan, sedangkan `delivery_id` berbeda per baris — dan setiap
+baris sudah membawanya sebagai `id`-nya sendiri, stabil lintas percobaan (TD §4.2). Worker menyuntikkannya
+saat kirim. Dicatat sebagai kontrak kabel untuk #102 karena **gagal diam-diam**: tanpa penyuntikan itu,
+payload tetap valid JSON, hanya kehilangan satu-satunya alat deduplikasi yang kita janjikan.
+
+### Atomisitas dibuktikan dua lapis
+
+Fake membuktikan kabel Go-nya meneruskan error; Postgres sungguhan membuktikan barisnya benar-benar
+dibatalkan. Keduanya **dibuktikan bisa gagal**, bukan dipercaya karena hijau:
+
+- Menelan error enqueue di `Create` → `TestUnit_Create_EnqueueFailureAbortsTheLead` merah.
+- Mengganti predikat `is_active` dengan `true` di `Enqueuer` → `TestEnqueuer_SkipsEndpoints/inactive` merah.
+
+Keduanya dipulihkan; tidak ada yang di-commit dalam keadaan disabotase.
+
+### Verifikasi manual (crm_be sungguhan + Postgres)
+
+- Endpoint dibuat → `secret` tampil sekali; `GET` daftar & by-id tidak pernah membawanya lagi.
+- Lead dibuat → satu baris `pending`, payload persis bentuk TD §5, `occurred_at` UTC `Z`.
+- Status diubah `new → contacted` → `changes.status.{from,to}` benar, dan `data.lead.status` = `contacted`
+  sementara snapshot `lead.created` **tetap** `new` — properti "dibekukan saat di-enqueue" terbukti hidup.
+- **Rantai penuh**: ciphertext dibaca dari database → didekripsi → identik dengan secret yang ditampilkan
+  → dipakai menghasilkan `X-Jualin-Signature` yang sah. Ini persis yang mustahil dilakukan sebelum `0009`.
+- Endpoint dinonaktifkan → lead berikutnya **tidak** menambah baris.
+- `grep` secret di seluruh log server → nihil (Aturan #26).
+- `migrate up → down → up` bersih.

@@ -1,21 +1,22 @@
-// Package webhook implements outbound webhook delivery (Phase 7). This
-// issue (#100) covers management only — CRUD of webhook_endpoints as
-// principal user (Owner/Admin) — plus the pieces the later issues need
-// built ahead of their callers: generateSecret (the credential format,
-// same precedent as apikey.generate built in #46), backoff (pure, used
-// by the worker in #102), and the DeliveryRepository claim/reap/purge
-// methods (exercised by repository_test.go now, wired to the worker in
-// #102 — precedent form.FindByPublicKey built in #85).
+// Package webhook implements outbound webhook delivery (Phase 7).
 //
-// Signing a payload (signature.go), enqueuing a delivery, and the lead
-// trigger are #101. The worker loop and HTTP delivery are #102.
+// #100 built management — CRUD of webhook_endpoints as principal user
+// (Owner/Admin) — plus pieces their callers only arrive for later:
+// backoff (pure, used by the worker in #102) and the DeliveryRepository
+// claim/reap/purge methods (exercised by repository_test.go now, wired
+// to the worker in #102 — precedent form.FindByPublicKey built in #85).
+//
+// #101 added signature.go, Enqueue, and the lead trigger, and corrected
+// how the signing secret is stored: #100 hashed it, copying api_key,
+// which would have made signing impossible (migration 0009).
+//
+// The worker loop and outbound HTTP are #102. Nothing in this package
+// makes a network request yet.
 package webhook
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -45,10 +46,16 @@ const (
 )
 
 type Endpoint struct {
-	ID                    uuid.UUID
-	OrganizationID        uuid.UUID
-	URL                   string
-	SecretHash            string
+	ID             uuid.UUID
+	OrganizationID uuid.UUID
+	URL            string
+	// SecretCiphertext is the signing secret sealed with AES-256-GCM
+	// (internal/shared/crypter), NOT a hash — migration 0009 explains at
+	// length why this credential is the one that must be readable again.
+	// It never leaves this package except to the database: the handler
+	// serializes Endpoint without it, and the only reader is the worker
+	// (#102), which decrypts it to compute a signature and drops it.
+	SecretCiphertext      []byte
 	SecretPrefix          string
 	Events                []string
 	Description           string
@@ -91,8 +98,9 @@ type UpdateInput struct {
 
 const (
 	// secretRawBytes is 32 (256-bit) before base64url encoding — the same
-	// entropy as an API key secret (apikey.secretRawBytes) and for the
-	// same reason: the SHA-256 storage argument (Rule #20) rests on it.
+	// entropy as an API key secret (apikey.secretRawBytes). Here the
+	// reason is different from there: this value is an HMAC-SHA256 key,
+	// and 256 bits is that construction's full-strength key size.
 	secretRawBytes = 32
 	secretPrefix   = "whsec_"
 	// secretPrefixDisplayLen is how many characters of the encoded secret
@@ -101,12 +109,16 @@ const (
 	secretPrefixDisplayLen = 8
 )
 
-// generatedSecret is generateSecret's result. rawSecret is the only
-// field that must never be persisted (Rule #21) — the create handler
-// passes it to the HTTP response exactly once.
+// generatedSecret is generateSecret's result. rawSecret goes two places
+// and no third: to the HTTP response exactly once (Rule #21), and into
+// crypter.Encrypt on its way to secret_ciphertext. It is never logged and
+// never stored in plaintext.
+//
+// There is no hash field. Through #100 there was one, and it was the
+// defect migration 0009 corrects: a SHA-256 hash cannot serve as the HMAC
+// key the worker needs, so the product could never have signed anything.
 type generatedSecret struct {
 	rawSecret string
-	hash      string
 	prefix    string
 }
 
@@ -121,20 +133,10 @@ func generateSecret() (generatedSecret, error) {
 		return generatedSecret{}, fmt.Errorf("webhook: generate secret: %w", err)
 	}
 	encoded := base64.RawURLEncoding.EncodeToString(b)
-	raw := secretPrefix + encoded
 	return generatedSecret{
-		rawSecret: raw,
-		hash:      hashSecret(raw),
+		rawSecret: secretPrefix + encoded,
 		prefix:    secretPrefix + encoded[:secretPrefixDisplayLen],
 	}, nil
-}
-
-// hashSecret is SHA-256 hex — same as apikey.hashSecret. The secret is a
-// crypto/rand value, never a password: argon2id would be the wrong choice
-// here for the reason ADR-004 spells out for API keys.
-func hashSecret(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
 }
 
 // retryDelays is TD §5 / keputusan D5 verbatim: 5 attempts total, the

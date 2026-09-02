@@ -81,6 +81,13 @@ services:
       # process that will POST lead data to a private address is a hole,
       # not a degraded mode.
       WEBHOOK_ALLOW_PRIVATE_TARGETS: "true"
+      # Dev-only placeholder — same reasoning as JWT_SECRET and
+      # FORM_TOKEN_SECRET above. Required (no default) so a missing key
+      # fails boot loudly instead of letting endpoint creation fail one
+      # request at a time. Unlike those two this key is REVERSIBLE by
+      # design (migration 0009): the worker needs the original signing
+      # secret back to compute the HMAC proving a request came from us.
+      WEBHOOK_SECRET_ENC_KEY: development-only-webhook-enc-key-do-not-use-in-production
     ports:
       - "8080:8080"
     depends_on:

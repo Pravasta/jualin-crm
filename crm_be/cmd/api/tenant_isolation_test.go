@@ -45,6 +45,7 @@ import (
 
 const isolationJWTSecret = "isolation-test-jwt-secret-32-bytes-long"
 const isolationFormTokenSecret = "isolation-test-form-token-secret-32-bytes"
+const isolationWebhookSecretEncKey = "isolation-test-webhook-enc-key-32-bytes"
 
 func isolationTestConfig() *config.Config {
 	return &config.Config{
@@ -81,6 +82,11 @@ func isolationTestConfig() *config.Config {
 		// every submit-route request outright.
 		FormSubmitRateLimitIP:   100,
 		FormSubmitRateLimitForm: 100,
+		// Required, min 32 bytes (crypter.MinKeyLength) — same reasoning
+		// as FormTokenSecret above. A zero-value "" would make
+		// crypter.New fail and newRouter panic before any of this file's
+		// isolation cases got to run (Phase 7 #101, migration 0009).
+		WebhookSecretEncKey: isolationWebhookSecretEncKey,
 	}
 }
 
@@ -482,9 +488,11 @@ func seedIsolationWebhookEndpoint(t *testing.T, pool *pgxpool.Pool, org uuid.UUI
 	ctx := t.Context()
 	id := uuid.Must(uuid.NewV7())
 	const q = `
-		INSERT INTO webhook_endpoints (id, organization_id, url, secret_hash, secret_prefix, events)
+		INSERT INTO webhook_endpoints (id, organization_id, url, secret_ciphertext, secret_prefix, events)
 		VALUES ($1, $2, 'https://receiver.example.com/hook', $3, 'whsec_isolat', ARRAY['lead.created'])`
-	if _, err := pool.Exec(ctx, q, id, org, "isolation-test-hash-"+id.String()); err != nil {
+	// Opaque bytes, not a real ciphertext — nothing in these isolation
+	// cases decrypts it; they only ever assert on HTTP status codes.
+	if _, err := pool.Exec(ctx, q, id, org, []byte("isolation-test-sealed-"+id.String())); err != nil {
 		t.Fatalf("seed isolation webhook endpoint: %v", err)
 	}
 	return id

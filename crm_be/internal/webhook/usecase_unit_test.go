@@ -6,6 +6,7 @@ package webhook_test
 //	go test ./internal/webhook/... -run TestUnit
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/crypter"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/safedial"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
@@ -160,6 +162,19 @@ func (f *fakeURLValidator) ValidateURL(context.Context, string) error {
 	return nil
 }
 
+// testCrypter returns the REAL crypter, not a fake. Encrypt/Decrypt are
+// pure and already have their own exhaustive tests; a fake here would
+// only prove Usecase.Create calls something, not that what lands in
+// SecretCiphertext is actually recoverable — which is the whole point of
+// migration 0009.
+func testCrypter() webhook.SecretCrypter {
+	c, err := crypter.New("unit-test-webhook-enc-key-32-bytes-ok")
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
+
 func testUsecase(deny bool) (*webhook.Usecase, *fakeStore, *fakeAudit) {
 	audit := &fakeAudit{}
 	store := &fakeStore{repos: webhook.Repos{
@@ -167,7 +182,7 @@ func testUsecase(deny bool) (*webhook.Usecase, *fakeStore, *fakeAudit) {
 		Delivery: newFakeDeliveryRepo(),
 		Audit:    audit,
 	}}
-	u := webhook.NewUsecase(store, &fakeURLValidator{deny: deny}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	u := webhook.NewUsecase(store, &fakeURLValidator{deny: deny}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return u, store, audit
 }
 
@@ -190,11 +205,43 @@ func TestUnit_Create_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if secret == "" || e.SecretHash == "" || e.SecretHash == secret {
-		t.Errorf("secret handling wrong: secret=%q hash=%q", secret, e.SecretHash)
+	if secret == "" {
+		t.Fatal("Create returned an empty secret")
+	}
+	if len(e.SecretCiphertext) == 0 {
+		t.Fatal("SecretCiphertext is empty — nothing was sealed")
+	}
+	if bytes.Contains(e.SecretCiphertext, []byte(secret)) {
+		t.Error("SecretCiphertext contains the raw secret verbatim")
 	}
 	if len(audit.actions) != 1 || audit.actions[0] != "webhook_endpoint.created" {
 		t.Errorf("audit = %v, want [webhook_endpoint.created]", audit.actions)
+	}
+}
+
+// TestUnit_Create_SecretIsRecoverable is the regression test for the
+// defect migration 0009 corrects. Through #100 this column held a
+// SHA-256 hash, so the worker could never have obtained the HMAC key it
+// needs and no receiver could ever have verified a signature. The
+// property that has to hold is not "the secret is not stored in the
+// clear" — a hash satisfied that too — but "what we stored comes back
+// as exactly the secret the customer was shown once".
+func TestUnit_Create_SecretIsRecoverable(t *testing.T) {
+	u, _, _ := testUsecase(false)
+	e, secret, err := u.Create(context.Background(), ownerCtx(), webhook.CreateInput{
+		URL:    "https://example.com/hook",
+		Events: []string{"lead.created"},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	recovered, err := testCrypter().Decrypt(e.SecretCiphertext)
+	if err != nil {
+		t.Fatalf("stored ciphertext does not decrypt: %v", err)
+	}
+	if string(recovered) != secret {
+		t.Fatalf("recovered secret = %q, want the one shown to the customer %q", recovered, secret)
 	}
 }
 
@@ -255,7 +302,7 @@ func TestUnit_Update_RevalidatesURL(t *testing.T) {
 	// Flip the validator to deny, then try to point the URL somewhere new.
 	u2 := webhook.NewUsecase(&fakeStore{repos: webhook.Repos{
 		Endpoint: fakeRepoWith(e), Delivery: newFakeDeliveryRepo(), Audit: &fakeAudit{},
-	}}, &fakeURLValidator{deny: true}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}}, &fakeURLValidator{deny: true}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	newURL := "http://10.0.0.1/hook"
 	_, err = u2.Update(context.Background(), ctx, e.ID, webhook.UpdateInput{URL: &newURL})
@@ -273,7 +320,7 @@ func TestUnit_RetryDelivery_RejectsNonFailed(t *testing.T) {
 	dr.byID[id] = &webhook.Delivery{ID: id, OrganizationID: ctx.OrganizationID, Status: webhook.StatusSucceeded}
 	u := webhook.NewUsecase(&fakeStore{repos: webhook.Repos{
 		Endpoint: newFakeEndpointRepo(), Delivery: dr, Audit: audit,
-	}}, &fakeURLValidator{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}}, &fakeURLValidator{}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	_, err := u.RetryDelivery(context.Background(), ctx, id)
 	var derr *httpx.DomainError
@@ -289,7 +336,7 @@ func TestUnit_RetryDelivery_ResetsFailed(t *testing.T) {
 	dr.byID[id] = &webhook.Delivery{ID: id, OrganizationID: ctx.OrganizationID, Status: webhook.StatusFailed, Attempt: 5}
 	u := webhook.NewUsecase(&fakeStore{repos: webhook.Repos{
 		Endpoint: newFakeEndpointRepo(), Delivery: dr, Audit: &fakeAudit{},
-	}}, &fakeURLValidator{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}}, &fakeURLValidator{}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	d, err := u.RetryDelivery(context.Background(), ctx, id)
 	if err != nil {

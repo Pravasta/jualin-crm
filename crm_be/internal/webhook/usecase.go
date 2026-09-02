@@ -26,13 +26,14 @@ const deliveryHistoryPageSize = 20
 // the generic code (TD §7 — the detail is a network-mapping tool in a
 // customer's hands).
 type Usecase struct {
-	store  Store
-	urls   URLValidator
-	logger *slog.Logger
+	store   Store
+	urls    URLValidator
+	crypter SecretCrypter
+	logger  *slog.Logger
 }
 
-func NewUsecase(store Store, urls URLValidator, logger *slog.Logger) *Usecase {
-	return &Usecase{store: store, urls: urls, logger: logger}
+func NewUsecase(store Store, urls URLValidator, crypter SecretCrypter, logger *slog.Logger) *Usecase {
+	return &Usecase{store: store, urls: urls, crypter: crypter, logger: logger}
 }
 
 // CreateInput is Create's argument. Events must be non-empty and every
@@ -58,12 +59,19 @@ func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateInput) 
 	if err != nil {
 		return nil, "", fmt.Errorf("webhook: create: %w", err)
 	}
+	// Sealed, not hashed — the worker has to get this exact value back to
+	// sign with it (migration 0009). The error is wrapped without the
+	// plaintext anywhere near it (Rule #26).
+	sealed, err := u.crypter.Encrypt([]byte(sec.rawSecret))
+	if err != nil {
+		return nil, "", fmt.Errorf("webhook: create: seal secret: %w", err)
+	}
 
 	e := &Endpoint{
 		ID:                    uuid.Must(uuid.NewV7()),
 		OrganizationID:        t.OrganizationID,
 		URL:                   strings.TrimSpace(in.URL),
-		SecretHash:            sec.hash,
+		SecretCiphertext:      sealed,
 		SecretPrefix:          sec.prefix,
 		Events:                dedupeEvents(in.Events),
 		Description:           in.Description,
