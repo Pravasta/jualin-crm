@@ -133,9 +133,13 @@ func (f *fakeDeliveryRepo) MarkForRetry(_ context.Context, t tenant.Context, id 
 	return d, nil
 }
 
-func (f *fakeDeliveryRepo) ClaimDue(context.Context, int) ([]*webhook.Delivery, error) {
+func (f *fakeDeliveryRepo) ClaimDue(context.Context, int) ([]*webhook.ClaimedDelivery, error) {
 	return nil, nil
 }
+func (f *fakeDeliveryRepo) MarkResult(context.Context, uuid.UUID, webhook.DeliveryResult) error {
+	return nil
+}
+func (f *fakeDeliveryRepo) Release(context.Context, uuid.UUID) error      { return nil }
 func (f *fakeDeliveryRepo) Reap(context.Context, time.Time) (int, error)  { return 0, nil }
 func (f *fakeDeliveryRepo) Purge(context.Context, time.Time) (int, error) { return 0, nil }
 

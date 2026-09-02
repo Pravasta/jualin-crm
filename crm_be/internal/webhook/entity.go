@@ -85,6 +85,34 @@ type Delivery struct {
 	UpdatedAt       time.Time
 }
 
+// ClaimedDelivery is one row the worker has taken ownership of, carrying
+// everything a send needs so there is no second lookup between the claim
+// and the HTTP call — a lookup that could race with the endpoint being
+// edited or soft-deleted in between.
+//
+// EndpointSecretCiphertext lives HERE and not on Delivery on purpose.
+// Delivery is what the dashboard reads and handler_http serializes; a
+// signing secret, even sealed, has no business on a struct that gets
+// marshalled to a response. Only the worker ever sees this type.
+type ClaimedDelivery struct {
+	Delivery
+	EndpointURL              string
+	EndpointSecretCiphertext []byte
+}
+
+// DeliveryResult is what the worker writes back after one attempt.
+//
+// ErrorText is deliberately short and OURS — never the receiver's response
+// body. Their body may contain anything, including their own customers'
+// data, and we have no reason to store it (TD §4.3, Rule #26's spirit).
+type DeliveryResult struct {
+	Status         string
+	Attempt        int
+	NextAttemptAt  time.Time
+	ResponseStatus *int
+	ErrorText      *string
+}
+
 // UpdateInput is Repository.Update's argument — nil means "leave
 // unchanged", same convention form.UpdateInput / customer.UpdateInput
 // use. IsActive is *bool so "deactivate" (false) is distinguishable from
@@ -153,15 +181,22 @@ var retryDelays = [5]time.Duration{
 	6 * time.Hour,
 }
 
-// MaxAttempts is the number of delivery attempts before a delivery is
-// marked failed permanently.
+// MaxAttempts is the number of RETRIES after the initial delivery — not
+// the total number of sends. The default therefore means up to 6 HTTP
+// calls: one immediate, then five spaced by every delay in retryDelays.
+//
+// prd.md D5 says "5 percobaan" alongside a list of five delays, which only
+// adds up under this reading: five attempts would leave the 6h delay
+// unreachable. Resolved with the product owner and D5's wording corrected
+// rather than left ambiguous (docs/issues/102).
 const MaxAttempts = len(retryDelays)
 
-// backoff returns how long to wait before the given attempt number
-// (1-indexed: attempt 1 is the first retry, scheduled retryDelays[0]
-// after the initial send). attempt <= 0 or beyond the table returns the
-// last delay — callers should check attempt < MaxAttempts before
-// scheduling another retry at all.
+// backoff returns how long to wait before the given RETRY number
+// (1-indexed: backoff(1) is the wait after the initial send fails,
+// backoff(MaxAttempts) the wait before the last retry). attempt <= 0 or
+// beyond the table returns the nearest end — a caller should check
+// attempt <= MaxAttempts before scheduling another retry at all, since
+// past that the delivery is finished, not merely slower.
 func backoff(attempt int) time.Duration {
 	if attempt < 1 {
 		return retryDelays[0]

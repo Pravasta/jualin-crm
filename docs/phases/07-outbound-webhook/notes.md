@@ -281,3 +281,119 @@ Keduanya dipulihkan; tidak ada yang di-commit dalam keadaan disabotase.
 - Endpoint dinonaktifkan → lead berikutnya **tidak** menambah baris.
 - `grep` secret di seluruh log server → nihil (Aturan #26).
 - `migrate up → down → up` bersih.
+
+---
+
+## #102 — Worker: klaim, kirim, retry, reaper, retensi
+
+PR: [#108](https://github.com/Pravasta/jualin-crm/pull/108) · branch `feat/102-webhook-worker`
+
+Infrastruktur async pertama di produk ini. Setelah issue ini, sebuah lead yang dibuat benar-benar
+sampai ke server pelanggan, ditandatangani, dan bisa diverifikasi dari sisi mereka.
+
+### Empat cacat ditemukan saat mereview rencana sendiri, sebelum menulis kode
+
+Rencana awal sempat dinyatakan siap. Membacanya ulang sebagai reviewer — bukan sebagai penulisnya —
+menemukan empat hal, satu di antaranya lubang keamanan. Semuanya ditemukan **tanpa** test, karena
+tidak satu pun akan ditangkap test yang belum ditulis.
+
+**1. Keep-alive melewati daftar tolak SSRF.** Rencananya menaruh cek deny-list di `DialContext`.
+Tapi `http.Transport` hanya memanggilnya saat butuh koneksi **baru** — pengiriman kedua ke endpoint
+yang sama memakai koneksi pool dan tidak pernah dicek lagi. Jendela DNS rebinding justru terbuka untuk
+kasus paling umum: endpoint yang sering menerima event. TD §3.2 mensyaratkan validasi **tiap kirim**,
+dan rencana itu tidak memenuhinya.
+
+Diperbaiki dengan `DisableKeepAlives: true` — satu koneksi per pengiriman, deny-list dievaluasi setiap
+kali. Dijaga `TestHTTPClient_NeverReusesConnections`, yang **menghitung koneksi yang diterima server**:
+satu-satunya cara mengamati ini dari luar, karena status code-nya identik di kedua keadaan. Dibuktikan
+bisa gagal — mengembalikan keep-alive membuat 3 request jadi 1 koneksi, dan test merah.
+
+Pelajaran yang layak dibawa: menaruh pemeriksaan keamanan di sebuah hook tidak berarti apa-apa sebelum
+memastikan hook itu dipanggil setiap kali. Pertanyaannya bukan "apakah ceknya benar" tapi **"apa yang
+membuat ini berjalan pada request kedua?"**
+
+**2. Kegagalan `Decrypt` tanpa perlakuan.** Rotasi `WEBHOOK_SECRET_ENC_KEY` membuat setiap secret tak
+bisa didekripsi. Tanpa penanganan khusus jalur itu jatuh ke "transport error" dan seluruh antrian
+berputar retry 6 jam sekali selamanya menuju kegagalan yang sama. Sekarang `failed` permanen.
+
+**3. Hanya IP pertama yang di-dial.** Begitu resolusi diambil alih dari `net/http`, keandalan yang
+biasanya gratis jadi tanggung jawab kita: host dengan beberapa A record gagal total kalau yang pertama
+mati. Diperbaiki dengan iterasi seluruh alamat tervalidasi.
+
+**4. D5 ambigu, dan bedanya besar.** *"5 percobaan"* di sebelah daftar **lima** jeda tidak konsisten —
+lima percobaan hanya punya empat celah, jadi jeda `6j` mustahil terpakai. Dua bacaan yang sama-sama
+cocok dengan acceptance criteria, tapi jendela retry totalnya 2j36m vs 8j36m. Itu keputusan produk yang
+terlihat pelanggan, bukan detail implementasi, jadi **ditanyakan, bukan dipilih diam-diam**. Keputusan:
+5 percobaan ulang setelah kiriman pertama (6 panggilan HTTP). Teks D5 diperbarui.
+
+### Temuan yang membalik anggapan TD: apa yang sebenarnya menjamin exactly-once
+
+TD §4.1 menyiratkan `FOR UPDATE SKIP LOCKED` yang membuat banyak instance aman. Saat menguji apakah
+test konkurensi benar-benar bisa gagal, ternyata **tidak**: menghapus `SKIP LOCKED` tidak membuatnya
+merah.
+
+Sebabnya, tanpa klausa itu transaksi tidak melewati baris terkunci melainkan **memblokir**; saat kunci
+lepas, PostgreSQL mengevaluasi ulang subquery terhadap versi baris terbaru — yang kini `delivering` dan
+tidak lagi cocok `WHERE status = 'pending'`. Korektnes tetap terjaga, oleh predikat status.
+
+Pembagian sebenarnya:
+
+- **`WHERE status = 'pending'` + row lock → exactly-once**
+- **`SKIP LOCKED` → liveness**: claimer tidak antre di belakang claimer lain
+
+Keduanya kini diuji **terpisah**, dan yang kedua lewat test yang menahan kunci di transaksi lain lalu
+memanggil `ClaimDue` dengan deadline pendek — tanpa `SKIP LOCKED` panggilan itu menggantung sampai
+deadline lewat, dan test merah. Sebelumnya klaim di komentar test-ku sendiri salah; diperbaiki di sana,
+dan dicatat di `docs/issues/102` supaya teks TD §4.1 ikut diperbaiki di #104. Ini penting bukan demi
+ketelitian: orang berikutnya yang percaya `SKIP LOCKED` sudah cukup bisa menghapus predikat status dan
+memecah jaminan yang sebenarnya.
+
+### Graceful shutdown melampaui minimum TD §13 — dan TD-nya ikut dikoreksi
+
+§13 aslinya menulis sisa batch *"ditinggal `delivering` dan diambil reaper setelah restart"*. Benar,
+tapi mahal: baris yang sudah diklaim namun **belum dicoba sama sekali** menunggu ambang reaper 10 menit.
+Pada instance tunggal, setiap deploy menunda sisa batch 10 menit tanpa alasan.
+
+`Release` mengembalikannya ke `pending` tanpa menambah `attempt` — tidak ada yang dicoba, jadi tidak ada
+yang perlu dicatat. Yang benar-benar sedang di udara saat batas waktu lewat **tetap** ditinggal
+`delivering`: instance lain tidak boleh merebut pengiriman yang mungkin masih berjalan, dan di situ §13
+yang asli tetap berlaku. `td.md` diperbarui (§4.4 baru + baris §13) di PR yang sama — bukan cuma dicatat
+di notes, karena kalau tidak, dokumennya jadi salah.
+
+### Yang lain
+
+- **`ClaimDue` mengambil URL + secret lewat JOIN**, bukan lookup terpisah. Lookup kedua meninggalkan
+  jendela di mana endpoint diedit atau dihapus antara klaim dan kirim. `ClaimedDelivery` adalah tipe
+  terpisah dari `Delivery` supaya `secret_ciphertext` **tidak pernah** ada di struct yang di-serialize
+  handler.
+- **`http.ErrUseLastResponse`**, bukan error, dari `CheckRedirect`: `3xx` sampai ke pemetaan status
+  sebagai respons biasa, jadi satu jalur untuk semua kode, bukan cabang khusus.
+- **`MarkResult` dijaga `WHERE status = 'delivering'`** — kalau reaper sudah merebut baris ini, hasil
+  kita dibuang, bukan menimpa milik pemilik barunya.
+- **Urutan shutdown**: HTTP drain dulu (tidak ada lead baru masuk antrian), baru worker berhenti.
+  Sempat ditulis `defer onDrained()`, yang membuatnya jalan setelah log `"shutdown complete"` dan
+  dilewati sama sekali pada `os.Exit(1)`; diganti pemanggilan eksplisit.
+
+### Verifikasi manual — penerima sungguhan, bukan log pengirim
+
+Kriteria #1 hanya bisa dibuktikan oleh server penerima yang mencatat apa yang diterima. Ditulis satu
+penerima kecil yang memverifikasi signature memakai **skema terdokumentasi, bukan kode kita** —
+`hmac.New(sha256, secret)` atas `"<t>.<body>"`, disusun dari `td.md` §2.
+
+```
+[ok]       signature cocok=true (umur 0s) len(body)=716
+           body: {"delivery_id":"01a062da-…","data":{"lead":{…}},"event":"lead.created",…}
+[500]      → pending, attempt 1, next_attempt_at 55 detik lagi (backoff 1m)
+[400]      → failed, attempt 0, tidak pernah diulang
+[redirect] → failed, response_status 302, error "redirect not followed"
+             0 request ke 169.254.169.254 di seluruh log
+[status]   → changes {"status":{"from":"new","to":"contacted"}}
+SIGTERM    → "webhook worker stopped" → 0 baris tertinggal 'delivering'
+```
+
+`umur 0s` di **setiap** retry membuktikan timestamp ditandatangani ulang saat kirim, bukan saat
+enqueue — retry enam jam kemudian tetap berada dalam toleransi 5 menit penerima.
+
+`go test -race ./...` bersih (satu data race ditemukan di test sendiri: `srv.Config.ConnState` diset
+setelah `httptest.NewServer` mulai melayani — diperbaiki dengan `NewUnstartedServer`).
+`golangci-lint run` 0 issues.

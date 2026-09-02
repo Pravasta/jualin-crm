@@ -69,6 +69,23 @@ func main() {
 
 	router := newRouter(log, pool, cfg)
 
+	// The webhook worker is a goroutine in this same binary (Phase 7 #102,
+	// keputusan D2) — no second deployable, no broker. It is started AFTER
+	// the router is built so a construction failure there still fails boot
+	// before anything is running, and stopped by the same signal the HTTP
+	// server is (TD §13).
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	workerDone := make(chan struct{})
+	if worker := newWebhookWorker(cfg, pool, log); worker != nil {
+		go func() {
+			defer close(workerDone)
+			worker.Run(workerCtx)
+		}()
+	} else {
+		log.Info("webhook worker disabled", "reason", "WEBHOOK_WORKER_ENABLED=false")
+		close(workerDone)
+	}
+
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler:      router,
@@ -84,7 +101,56 @@ func main() {
 		}
 	}()
 
-	waitForShutdown(srv, log, cfg.HTTPShutdownTimeout)
+	waitForShutdown(srv, log, cfg.HTTPShutdownTimeout, func() {
+		stopWorker()
+		// Bounded: the worker finishes the delivery it is mid-way through
+		// (each is capped by WEBHOOK_DELIVERY_TIMEOUT) and hands the rest
+		// of its batch back to the queue. Waiting is the point — an
+		// abandoned goroutine is exactly what #102's acceptance criterion
+		// forbids — but waiting forever would turn one stuck receiver into
+		// a deploy that never completes.
+		select {
+		case <-workerDone:
+		case <-time.After(cfg.WebhookDeliveryTimeout + 5*time.Second):
+			log.Warn("webhook worker did not stop in time; leaving in-flight deliveries to the reaper")
+		}
+	})
+}
+
+// newWebhookWorker returns nil when WEBHOOK_WORKER_ENABLED is false —
+// correct for an instance that should only serve HTTP while another drains
+// the queue. It builds its own crypter and validator rather than sharing
+// newRouter's: both are cheap, stateless, and derived from the same
+// config, and threading them out of newRouter would change a signature
+// eight test call sites depend on for no gain.
+func newWebhookWorker(cfg *config.Config, pool *pgxpool.Pool, log *slog.Logger) *webhook.Worker {
+	if !cfg.WebhookWorkerEnabled {
+		return nil
+	}
+
+	// Same panic convention as newPushSender: config.Load already enforced
+	// the key length, so reaching this error means a Config that real
+	// config loading would have rejected (Rule #36).
+	cr, err := crypter.New(cfg.WebhookSecretEncKey)
+	if err != nil {
+		panic(fmt.Sprintf("webhook worker: failed to construct crypter from WEBHOOK_SECRET_ENC_KEY: %v", err))
+	}
+
+	validator := safedial.NewValidator(cfg.WebhookAllowPrivateTargets)
+
+	return webhook.NewWorker(
+		webhook.NewDeliveryRepository(pool),
+		validator.HTTPClient(cfg.WebhookDeliveryTimeout),
+		cr,
+		webhook.WorkerConfig{
+			Interval:        cfg.WebhookWorkerInterval,
+			Batch:           cfg.WebhookWorkerBatch,
+			DeliveryTimeout: cfg.WebhookDeliveryTimeout,
+			MaxAttempts:     cfg.WebhookMaxAttempts,
+			RetentionDays:   cfg.WebhookDeliveryRetentionDays,
+		},
+		log,
+	)
 }
 
 func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.Engine {
@@ -329,7 +395,11 @@ func newCaptchaVerifier(cfg *config.Config) captcha.Verifier {
 	}
 }
 
-func waitForShutdown(srv *http.Server, log *slog.Logger, timeout time.Duration) {
+// waitForShutdown blocks until SIGINT/SIGTERM, drains the HTTP server,
+// then runs onDrained. The order matters: the HTTP server stops accepting
+// first so no new lead can enqueue a delivery, and only then is the worker
+// asked to stop (Phase 7 #102).
+func waitForShutdown(srv *http.Server, log *slog.Logger, timeout time.Duration, onDrained func()) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	<-ctx.Done()
@@ -342,6 +412,13 @@ func waitForShutdown(srv *http.Server, log *slog.Logger, timeout time.Duration) 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("graceful shutdown failed", "err", err)
 		os.Exit(1)
+	}
+
+	// After the server has drained, not deferred: a deferred call would
+	// run after "shutdown complete" is logged, and would be skipped
+	// entirely by the os.Exit above.
+	if onDrained != nil {
+		onDrained()
 	}
 
 	log.Info("shutdown complete")

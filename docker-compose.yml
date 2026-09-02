@@ -88,6 +88,16 @@ services:
       # design (migration 0009): the worker needs the original signing
       # secret back to compute the HMAC proving a request came from us.
       WEBHOOK_SECRET_ENC_KEY: development-only-webhook-enc-key-do-not-use-in-production
+      # The delivery worker runs here so `docker compose up` exercises the
+      # whole path, not just enqueueing (issue #102). Defaults match
+      # .env.example; a shorter interval than production would be a local
+      # .env override, never a default here.
+      WEBHOOK_WORKER_ENABLED: "true"
+      WEBHOOK_WORKER_INTERVAL: 10s
+      WEBHOOK_WORKER_BATCH: 20
+      WEBHOOK_DELIVERY_TIMEOUT: 10s
+      WEBHOOK_MAX_ATTEMPTS: 5
+      WEBHOOK_DELIVERY_RETENTION_DAYS: 30
     ports:
       - "8080:8080"
     depends_on:
