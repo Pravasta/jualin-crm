@@ -80,6 +80,14 @@ ganda). Lalu:
 0. **Cek `docs/issues/*` milik Phase 7** — checklist deviasi/keputusan dari #100–#104 yang perlu
    ditinjau ulang sebelum phase benar-benar ditutup. Tiap poin terbuka **diputuskan atau dinyatakan
    ulang dengan pemicu eksplisit**, bukan dilewati.
+
+   Yang sudah ada:
+   - [`101-webhook-signature-enqueue.md`](../../issues/101-webhook-signature-enqueue.md) — penyimpangan
+     Aturan #20 (`whsec_` dienkripsi, bukan di-hash) yang **belum tercermin di `freeze.md`**; baris
+     keempat `authentication.md` yang masih kurang; `delivery_id` yang harus disuntikkan #102;
+     rotasi kunci enkripsi; dan timestamp `+07:00` vs. Aturan #33 yang lebih luas dari Phase 7.
+     Berisi juga **kontrak kabel untuk #102** — empat nilai yang kalau tidak dicocokkan persis akan
+     gagal diam-diam, bukan melempar error.
    > Langkah ini ada di sini sejak phase dibuka — bukan retroaktif. Phase 5 dan Phase 6 melewatkannya
    > karena tidak pernah memuatnya, dan enam berkas menumpuk tanpa dibaca (#98). Preseden yang bekerja:
    > [`04-public-api/issues.md`](../04-public-api/issues.md) langkah 0.

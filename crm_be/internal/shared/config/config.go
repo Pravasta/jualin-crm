@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v11"
+
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/crypter"
 )
 
 var validAppEnvs = []string{"development", "production"}
@@ -151,6 +153,21 @@ type Config struct {
 	// 169.254.169.254 is not a degraded mode, it's a hole.
 	WebhookAllowPrivateTargets bool `env:"WEBHOOK_ALLOW_PRIVATE_TARGETS" envDefault:"false"`
 
+	// WebhookSecretEncKey is the AES-256-GCM key protecting webhook
+	// signing secrets at rest (Phase 7 #101, migration 0009). A THIRD
+	// independent secret alongside JWTSecret and FormTokenSecret, for the
+	// same reason those two are separate from each other: rotating one
+	// must never force rotating the others, and these three protect
+	// unrelated things with unrelated lifetimes.
+	//
+	// Required with no default, and unlike WebhookAllowPrivateTargets
+	// this is NOT a production-only check — an empty key doesn't degrade
+	// webhooks, it makes creating an endpoint fail outright, so there is
+	// no environment where booting without it is useful. Rotating it
+	// makes every stored secret undecryptable; that's a documented
+	// consequence, not a bug (td.md §2).
+	WebhookSecretEncKey string `env:"WEBHOOK_SECRET_ENC_KEY,required"`
+
 	// TrustedProxies lists the IPs/CIDRs whose X-Forwarded-For/X-Real-IP
 	// header may be believed (Phase 4.5 TD §1). The literal "none" means
 	// no reverse proxy sits in front of this process, so the connection's
@@ -245,6 +262,12 @@ func (c *Config) validate() error {
 	}
 	if len(c.FormTokenSecret) < minFormTokenSecretLength {
 		return fmt.Errorf("config invalid: FORM_TOKEN_SECRET must be at least %d bytes, got %d", minFormTokenSecretLength, len(c.FormTokenSecret))
+	}
+	// crypter.MinKeyLength rather than a fourth local constant — the
+	// floor belongs to the thing that consumes the key, and duplicating
+	// it here is how the two drift apart later.
+	if len(c.WebhookSecretEncKey) < crypter.MinKeyLength {
+		return fmt.Errorf("config invalid: WEBHOOK_SECRET_ENC_KEY must be at least %d bytes, got %d", crypter.MinKeyLength, len(c.WebhookSecretEncKey))
 	}
 	if !slices.Contains(validCaptchaProviders, c.CaptchaProvider) {
 		return fmt.Errorf("config invalid: CAPTCHA_PROVIDER must be one of %v, got %q", validCaptchaProviders, c.CaptchaProvider)

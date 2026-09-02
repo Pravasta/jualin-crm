@@ -29,6 +29,7 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authn"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/captcha"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/config"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/crypter"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/logger"
@@ -198,14 +199,25 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	form.NewHandler(formUsecase, formSubmitIPLimiter, formSubmitKeyLimiter, cfg.CaptchaProvider, cfg.TurnstileSiteKey).
 		RegisterRoutes(r, authMW)
 
-	// webhook — management CRUD only in #100 (principal user, Owner/Admin).
-	// The SSRF guard (safedial) validates every URL before it's stored;
+	// webhook — management CRUD (#100) plus enqueue (#101). The SSRF guard
+	// (safedial) validates every URL before it's stored;
 	// WEBHOOK_ALLOW_PRIVATE_TARGETS relaxes it for local dev and is
 	// rejected at boot in production (config.go). The worker that actually
 	// delivers is #102 — not started here yet.
+	//
+	// The crypter seals signing secrets at rest (migration 0009). Panics
+	// rather than degrading, same convention as newPushSender above and
+	// for the same Rule #36 reason: config.Load already enforces the key's
+	// minimum length, so reaching this error means the process was handed
+	// a Config that real config loading would have rejected.
+	webhookCrypter, err := crypter.New(cfg.WebhookSecretEncKey)
+	if err != nil {
+		panic(fmt.Sprintf("webhook: failed to construct crypter from WEBHOOK_SECRET_ENC_KEY: %v", err))
+	}
 	webhookUsecase := webhook.NewUsecase(
 		newWebhookStore(pool),
 		safedial.NewValidator(cfg.WebhookAllowPrivateTargets),
+		webhookCrypter,
 		log,
 	)
 	webhook.NewHandler(webhookUsecase).RegisterRoutes(r, authMW)

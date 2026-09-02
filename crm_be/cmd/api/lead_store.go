@@ -10,6 +10,7 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/lead"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/notification"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/webhook"
 )
 
 // leadStore is the composition root's implementation of lead.Store —
@@ -58,5 +59,11 @@ func leadReposFor(q db.Querier, push lead.PushSender) lead.Repos {
 		Activity:     activity.NewRecorder(q),
 		Notification: notification.NewNotifier(q),
 		Push:         push,
+		// Built from q, exactly like Activity and unlike Push: the
+		// deliveries a lead event produces must commit with that lead or
+		// not at all (Phase 7 #101, TD §5). *webhook.Enqueuer satisfies
+		// lead.WebhookEnqueuer structurally — this file is the only place
+		// that knows both packages exist (ADR-011).
+		Webhook: webhook.NewEnqueuer(q),
 	}
 }

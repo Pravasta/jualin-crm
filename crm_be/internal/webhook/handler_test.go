@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,7 +69,7 @@ func newTestRouter(t *testing.T, allowPrivate bool) (*gin.Engine, *pgxpool.Pool)
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	pool := dbtest.NewPool(t)
-	u := webhook.NewUsecase(&testStore{pool: pool}, safedial.NewValidator(allowPrivate), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	u := webhook.NewUsecase(&testStore{pool: pool}, safedial.NewValidator(allowPrivate), testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	r := gin.New()
 	webhook.NewHandler(u).RegisterRoutes(r, authn.Middleware(testClaimsParser{}))
@@ -182,7 +183,8 @@ func TestHandler_AllRoutes_ManagerAndEmployeeForbidden(t *testing.T) {
 // TestHandler_Create_SecretShownOnceNeverAgain is Rule #21 at the HTTP
 // level: the create response carries the raw whsec_ secret; every
 // subsequent read (GET list, GET by id) never does, and the DATABASE
-// only ever holds the hash.
+// holds only sealed bytes — which, unlike the hash #100 stored, still
+// decrypt back to exactly the secret that was shown (migration 0009).
 func TestHandler_Create_SecretShownOnceNeverAgain(t *testing.T) {
 	r, pool := newTestRouter(t, true)
 	ctx := context.Background()
@@ -199,16 +201,28 @@ func TestHandler_Create_SecretShownOnceNeverAgain(t *testing.T) {
 	}
 	epID := data["id"].(string)
 
-	// The database stores only a hash — never the raw secret.
-	var storedHash, storedPrefix string
-	if err := pool.QueryRow(ctx, `SELECT secret_hash, secret_prefix FROM webhook_endpoints WHERE id = $1`, epID).Scan(&storedHash, &storedPrefix); err != nil {
+	// The column holds sealed bytes — never the raw secret, and never
+	// anything an operator reading the table could sign with.
+	var storedCiphertext []byte
+	var storedPrefix string
+	if err := pool.QueryRow(ctx, `SELECT secret_ciphertext, secret_prefix FROM webhook_endpoints WHERE id = $1`, epID).Scan(&storedCiphertext, &storedPrefix); err != nil {
 		t.Fatalf("read stored secret: %v", err)
 	}
-	if storedHash == secret {
-		t.Error("database stored the raw secret, not a hash")
+	if bytes.Contains(storedCiphertext, []byte(secret)) {
+		t.Error("database stored the raw secret verbatim")
 	}
-	if len(storedHash) != 64 {
-		t.Errorf("stored hash is not 64 hex chars: %q", storedHash)
+	// ...but it must still come back, which is what separates this from
+	// the hash #100 stored (migration 0009). Proven end to end here:
+	// through the real HTTP handler, into real Postgres, back out.
+	recovered, err := testCrypter().Decrypt(storedCiphertext)
+	if err != nil {
+		t.Fatalf("stored ciphertext does not decrypt: %v", err)
+	}
+	if string(recovered) != secret {
+		t.Fatalf("recovered secret = %q, want the one shown once %q", recovered, secret)
+	}
+	if !strings.HasPrefix(secret, storedPrefix) {
+		t.Errorf("secret_prefix %q is not a prefix of the issued secret", storedPrefix)
 	}
 
 	// GET by id and GET list never carry a secret field.

@@ -185,22 +185,46 @@ func (f *fakeNotificationSender) Notify(_ context.Context, _ tenant.Context, rec
 	return nil
 }
 
+// fakeWebhookEnqueuer records what lead handed to the outbound-webhook
+// queue. It deliberately keeps the raw payload bytes rather than a parsed
+// struct — the assertions are about the exact JSON a receiver would get.
+type fakeWebhookEnqueuer struct {
+	calls []enqueuedEvent
+	err   error
+}
+
+type enqueuedEvent struct {
+	event   string
+	payload []byte
+}
+
+func (f *fakeWebhookEnqueuer) Enqueue(_ context.Context, _ tenant.Context, eventType string, payload []byte) (int, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+	f.calls = append(f.calls, enqueuedEvent{event: eventType, payload: payload})
+	return len(f.calls), nil
+}
+
 type fakeStore struct {
 	repo         *fakeLeadRepo
 	repos        lead.Repos
 	activity     *fakeActivityRecorder
 	notification *fakeNotificationSender
+	webhook      *fakeWebhookEnqueuer
 }
 
 func newFakeStore() *fakeStore {
 	repo := newFakeLeadRepo()
 	rec := &fakeActivityRecorder{}
 	notif := &fakeNotificationSender{}
+	hook := &fakeWebhookEnqueuer{}
 	return &fakeStore{
 		repo:         repo,
-		repos:        lead.Repos{Lead: repo, Activity: rec, Notification: notif},
+		repos:        lead.Repos{Lead: repo, Activity: rec, Notification: notif, Webhook: hook},
 		activity:     rec,
 		notification: notif,
+		webhook:      hook,
 	}
 }
 

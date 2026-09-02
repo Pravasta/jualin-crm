@@ -35,6 +35,11 @@ func testConfig() *config.Config {
 		FormTokenSecret:         "router-test-form-token-secret-32-bytes",
 		FormSubmitRateLimitIP:   100,
 		FormSubmitRateLimitForm: 100,
+		// Zero value "" would make crypter.New fail and newRouter panic
+		// (Phase 7 #101) — same reasoning as PushProvider/CaptchaProvider
+		// above: this struct is built directly, bypassing the envDefault
+		// and the minimum-length check real config.Load() applies.
+		WebhookSecretEncKey: "router-test-webhook-enc-key-32-bytes-ok",
 	}
 }
 

@@ -79,6 +79,20 @@ type Store interface {
 	Repos() Repos
 }
 
+// SecretCrypter is the consumer-declared interface for sealing signing
+// secrets at rest — *crypter.Crypter satisfies it structurally. Declared
+// here with primitives only, like URLValidator below, so this package
+// never learns which cipher is behind it.
+//
+// Decrypt has no caller in #101: Create seals, and only the worker (#102)
+// ever needs the plaintext back. It is declared now anyway because the
+// pair is the interface — a Crypter that can only encrypt would be a
+// write-only column, which is exactly the mistake migration 0009 fixes.
+type SecretCrypter interface {
+	Encrypt(plaintext []byte) ([]byte, error)
+	Decrypt(sealed []byte) ([]byte, error)
+}
+
 // URLValidator is the consumer-declared interface for the SSRF guard —
 // *safedial.Validator satisfies it structurally. Declared here with a
 // primitive-only signature so internal/webhook never has to know how the

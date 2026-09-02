@@ -1,6 +1,7 @@
 package webhook_test
 
 import (
+	"bytes"
 	"context"
 	"strconv"
 	"strings"
@@ -22,13 +23,13 @@ func tctx(org uuid.UUID) tenant.Context {
 
 func newTestEndpoint() *webhook.Endpoint {
 	return &webhook.Endpoint{
-		ID:           uuid.Must(uuid.NewV7()),
-		URL:          "https://example.com/hook",
-		SecretHash:   strings.Repeat("a", 64),
-		SecretPrefix: "whsec_" + strings.Repeat("b", 8), // #nosec G101 -- test fixture, not a real credential
-		Events:       []string{webhook.EventLeadCreated},
-		Description:  "",
-		IsActive:     true,
+		ID:               uuid.Must(uuid.NewV7()),
+		URL:              "https://example.com/hook",
+		SecretCiphertext: []byte("sealed-secret-not-a-real-ciphertext"),
+		SecretPrefix:     "whsec_" + strings.Repeat("b", 8), // #nosec G101 -- test fixture, not a real credential
+		Events:           []string{webhook.EventLeadCreated},
+		Description:      "",
+		IsActive:         true,
 	}
 }
 
@@ -53,7 +54,7 @@ func TestRepository_Create_FindByID_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find by id: %v", err)
 	}
-	if found.URL != e.URL || found.SecretHash != e.SecretHash || !found.IsActive {
+	if found.URL != e.URL || !bytes.Equal(found.SecretCiphertext, e.SecretCiphertext) || !found.IsActive {
 		t.Errorf("round-trip mismatch: %+v", found)
 	}
 	if len(found.Events) != 2 || found.Events[0] != webhook.EventLeadCreated || found.Events[1] != webhook.EventLeadStatusChanged {

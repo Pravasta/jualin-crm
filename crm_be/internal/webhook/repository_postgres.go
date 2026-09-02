@@ -31,17 +31,17 @@ func NewDeliveryRepository(q db.Querier) DeliveryRepository {
 	return &postgresDeliveryRepository{q: q}
 }
 
-const endpointColumns = `id, organization_id, url, secret_hash, secret_prefix, events, description, is_active, created_by_membership_id, created_at, updated_at, deleted_at`
+const endpointColumns = `id, organization_id, url, secret_ciphertext, secret_prefix, events, description, is_active, created_by_membership_id, created_at, updated_at, deleted_at`
 
 func (r *postgresRepository) Create(ctx context.Context, t tenant.Context, e *Endpoint) error {
 	const q = `
 		INSERT INTO webhook_endpoints
-			(id, organization_id, url, secret_hash, secret_prefix, events, description, is_active, created_by_membership_id)
+			(id, organization_id, url, secret_ciphertext, secret_prefix, events, description, is_active, created_by_membership_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING created_at, updated_at`
 
 	err := r.q.QueryRow(ctx, q,
-		e.ID, t.OrganizationID, e.URL, e.SecretHash, e.SecretPrefix, e.Events, e.Description, e.IsActive, e.CreatedByMembershipID,
+		e.ID, t.OrganizationID, e.URL, e.SecretCiphertext, e.SecretPrefix, e.Events, e.Description, e.IsActive, e.CreatedByMembershipID,
 	).Scan(&e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("webhook: create endpoint: %w", err)
@@ -159,7 +159,7 @@ type rowScanner interface {
 func scanEndpoint(row rowScanner) (*Endpoint, error) {
 	var e Endpoint
 	err := row.Scan(
-		&e.ID, &e.OrganizationID, &e.URL, &e.SecretHash, &e.SecretPrefix, &e.Events,
+		&e.ID, &e.OrganizationID, &e.URL, &e.SecretCiphertext, &e.SecretPrefix, &e.Events,
 		&e.Description, &e.IsActive, &e.CreatedByMembershipID, &e.CreatedAt, &e.UpdatedAt, &e.DeletedAt,
 	)
 	if err != nil {

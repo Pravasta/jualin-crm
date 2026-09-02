@@ -337,27 +337,16 @@ func respondLeadError(c *gin.Context, err error) {
 	httpx.WriteError(c, err)
 }
 
+// leadJSON is the ONE lead shape this product emits. The dashboard API
+// returns it, and outbound webhooks embed it verbatim under data.lead
+// (Phase 7 #101, TD §5) — deliberately not a second shape that would have
+// to be kept in step with this one forever.
+//
+// It delegates to Lead.Fields so the map can be built from usecase.go,
+// which must not import gin (ADR-011). gin.H is a map[string]any alias,
+// so this conversion is free.
 func leadJSON(l *Lead) gin.H {
-	return gin.H{
-		"id":                        l.ID,
-		"lead_number":               l.LeadNumber,
-		"name":                      l.Name,
-		"email":                     l.Email,
-		"phone":                     l.Phone,
-		"phone_e164":                l.PhoneE164,
-		"company":                   l.Company,
-		"notes":                     l.Notes,
-		"status":                    l.Status,
-		"lost_reason":               l.LostReason,
-		"source":                    l.Source,
-		"source_api_key_id":         l.SourceAPIKeyID,
-		"source_form_id":            l.SourceFormID,
-		"assigned_to_membership_id": l.AssignedToMembershipID,
-		"version":                   l.Version,
-		"created_by_membership_id":  l.CreatedByMembershipID,
-		"created_at":                l.CreatedAt,
-		"updated_at":                l.UpdatedAt,
-	}
+	return gin.H(l.Fields())
 }
 
 func splitCSV(s string) []string {

@@ -29,11 +29,11 @@ func TestGenerateSecret_Format(t *testing.T) {
 		if !strings.HasPrefix(s.rawSecret, s.prefix) {
 			t.Errorf("prefix %q is not a prefix of rawSecret %q", s.prefix, s.rawSecret)
 		}
-		if s.hash == s.rawSecret || len(s.hash) != 64 {
-			t.Errorf("hash %q looks wrong (want 64 hex chars, not the raw secret)", s.hash)
-		}
-		if hashSecret(s.rawSecret) != s.hash {
-			t.Error("hash does not match hashSecret(rawSecret)")
+		// The prefix must stay useless on its own — it is stored in
+		// plaintext and shown in the endpoint list, so it must never be
+		// enough of the secret to forge a signature with.
+		if len(s.prefix) >= len(s.rawSecret) {
+			t.Errorf("prefix %q is not shorter than the secret it describes", s.prefix)
 		}
 		if seen[s.rawSecret] {
 			t.Fatalf("generateSecret produced a duplicate: %q", s.rawSecret)

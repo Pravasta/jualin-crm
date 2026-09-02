@@ -201,3 +201,39 @@ type VersionConflictError struct {
 }
 
 func (e *VersionConflictError) Error() string { return "version conflict" }
+
+// Fields is the canonical serialized shape of a lead — snake_case keys,
+// exactly the payload the dashboard API returns (handler_http.go's
+// leadJSON wraps this) and exactly what an outbound webhook carries under
+// data.lead (Phase 7 #101, TD §5).
+//
+// It lives in entity.go rather than handler_http.go because usecase.go
+// needs it to build webhook payloads and must not import gin (ADR-011).
+// map[string]any, not a struct with json tags, so the HTTP layer can keep
+// handing it to gin unchanged.
+//
+// One shape, one place. A webhook that shipped its own lead
+// representation would drift from the API's the first time a field was
+// added to one and not the other.
+func (l *Lead) Fields() map[string]any {
+	return map[string]any{
+		"id":                        l.ID,
+		"lead_number":               l.LeadNumber,
+		"name":                      l.Name,
+		"email":                     l.Email,
+		"phone":                     l.Phone,
+		"phone_e164":                l.PhoneE164,
+		"company":                   l.Company,
+		"notes":                     l.Notes,
+		"status":                    l.Status,
+		"lost_reason":               l.LostReason,
+		"source":                    l.Source,
+		"source_api_key_id":         l.SourceAPIKeyID,
+		"source_form_id":            l.SourceFormID,
+		"assigned_to_membership_id": l.AssignedToMembershipID,
+		"version":                   l.Version,
+		"created_by_membership_id":  l.CreatedByMembershipID,
+		"created_at":                l.CreatedAt,
+		"updated_at":                l.UpdatedAt,
+	}
+}

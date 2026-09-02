@@ -139,7 +139,15 @@ func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateLeadInp
 		// itself (TD §10) — a lead that exists without this activity,
 		// or an activity for a lead that got rolled back, are both
 		// worse than neither existing.
-		return r.Activity.Record(ctx, t, c.ID, "lead_created", repoIn.CreatedByMembershipID, nil)
+		if err := r.Activity.Record(ctx, t, c.ID, "lead_created", repoIn.CreatedByMembershipID, nil); err != nil {
+			return err
+		}
+		// Same transaction, same reasoning, one step further out (Phase 7
+		// #101, TD §5): the deliveries that announce this lead commit with
+		// it or not at all. Writing queue rows is a database write, so
+		// this belongs inside — Rule #32 forbids the HTTP call, which
+		// happens later in the worker, never here.
+		return enqueueWebhook(ctx, r, t, eventLeadCreated, c, nil)
 	})
 	if txErr != nil {
 		if errors.Is(txErr, ErrIdempotencyKeyExists) {
@@ -296,8 +304,17 @@ func (u *Usecase) UpdateStatus(ctx context.Context, t tenant.Context, id uuid.UU
 		}
 		updated = result
 
-		return r.Activity.Record(ctx, t, id, "status_changed", t.MembershipID, map[string]any{
+		if err := r.Activity.Record(ctx, t, id, "status_changed", t.MembershipID, map[string]any{
 			"from": fromStatus, "to": in.Status,
+		}); err != nil {
+			return err
+		}
+		// changes.status reuses the activity metadata shape verbatim
+		// (TD §5) rather than inventing a third representation of "this
+		// went from X to Y" — the map above and this one are the same two
+		// keys on purpose.
+		return enqueueWebhook(ctx, r, t, eventLeadStatusChanged, result, map[string]any{
+			"status": map[string]any{"from": fromStatus, "to": in.Status},
 		})
 	})
 	if conflict {

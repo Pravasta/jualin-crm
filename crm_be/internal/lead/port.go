@@ -47,6 +47,27 @@ type ActivityRecorder interface {
 	Record(ctx context.Context, t tenant.Context, leadID uuid.UUID, activityType string, actorMembershipID *uuid.UUID, metadata map[string]any) error
 }
 
+// WebhookEnqueuer is declared locally per ADR-011 — lead needs only to
+// hand an already-serialized event body to whatever queues outbound
+// webhooks, not internal/webhook's Endpoint or Delivery types. Satisfied
+// by webhook.NewEnqueuer's return value at the composition root, the same
+// bridging pattern as ActivityRecorder above, and internal/lead never
+// imports internal/webhook (Phase 7 #101, TD §5).
+//
+// Primitives only, deliberately: eventType is a string rather than a
+// webhook.EventType, and payload is []byte rather than a struct. A typed
+// event constant would have to live somewhere both packages can see,
+// which is the import this interface exists to avoid. The cost is that a
+// typo in the event name is caught by tests rather than the compiler —
+// accepted, and the reason lead_test asserts the exact strings.
+//
+// Part of Repos, not a NewUsecase parameter, because unlike PushSender it
+// MUST run inside the caller's transaction (TD §5): the composition root
+// builds it from the same querier as the rest of Repos.
+type WebhookEnqueuer interface {
+	Enqueue(ctx context.Context, t tenant.Context, eventType string, payload []byte) (int, error)
+}
+
 // NotificationSender is declared locally per ADR-011, same shape as
 // notification.Notifier — lead needs only to send a notification, not
 // notification's full domain type. Satisfied by notification.NewNotifier's
@@ -77,11 +98,18 @@ type PushSender interface {
 // Push was added in Phase 5 #68 — deliberately optional (nil is a valid
 // zero value here, checked by the one caller that reads it) since it's
 // consulted OUTSIDE any transaction, unlike the other three fields.
+// Webhook was added in Phase 7 #101. Like Activity — and unlike Push — it
+// participates in the transaction, so it is built from the same querier.
+// nil is tolerated by the one caller (enqueueWebhook), which keeps the
+// ~20 existing NewUsecase call sites in this package's tests working
+// without each having to supply a webhook dependency they never exercise;
+// the tests that DO care supply a fake.
 type Repos struct {
 	Lead         Repository
 	Activity     ActivityRecorder
 	Notification NotificationSender
 	Push         PushSender
+	Webhook      WebhookEnqueuer
 }
 
 // Store is the Unit of Work Usecase depends on — same shape as every
