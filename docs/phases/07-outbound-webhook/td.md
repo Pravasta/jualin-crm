@@ -258,10 +258,29 @@ WHERE id = ANY($1);
 **Transaksi ditutup sebelum HTTP apa pun terjadi** (Aturan #32). Baris sudah bertanda `delivering`, jadi
 instance lain tidak akan mengambilnya.
 
-`SKIP LOCKED` yang membuat banyak instance aman **tanpa leader election** — Postgres yang menjamin dua
-transaksi tidak mengunci baris yang sama, bukan koordinasi buatan kita. Ini yang memenuhi kriteria #12,
-dan ia **wajib diuji di bawah konkurensi nyata** (§12), bukan diasumsikan benar karena klausanya
-tertulis.
+> **Koreksi (issue #102, dicatat di #104).** Versi pertama bagian ini menulis *"`SKIP LOCKED` yang
+> membuat banyak instance aman tanpa leader election"* — seolah satu klausa itulah yang menjamin
+> exactly-once. **Itu keliru**, dan terbukti saat menguji apakah test konkurensi benar-benar bisa
+> gagal: menghapus `SKIP LOCKED` **tidak** membuatnya merah. Tanpa klausa itu transaksi tidak melewati
+> baris terkunci melainkan **memblokir**; saat kunci lepas, PostgreSQL mengevaluasi ulang subquery
+> terhadap versi baris terbaru — yang kini `delivering` dan tidak lagi cocok `WHERE status =
+> 'pending'`. Korektnes tetap terjaga.
+>
+> Pembagian yang sebenarnya:
+>
+> - **`WHERE status = 'pending'` + row lock → exactly-once.** Ini yang memenuhi kriteria #12.
+> - **`SKIP LOCKED` → liveness.** Claimer tidak antre di belakang claimer lain — penting untuk
+>   throughput banyak instance, tapi bukan penjamin korektnes.
+>
+> Keduanya diuji **terpisah** (`worker_concurrency_test.go`): satu membuktikan tiap baris diklaim
+> tepat sekali di bawah N goroutine paralel; satu lagi menahan kunci di transaksi lain lalu memanggil
+> `ClaimDue` berdeadline pendek — tanpa `SKIP LOCKED` panggilan itu menggantung sampai deadline lewat.
+>
+> **Jangan hapus predikat `WHERE status = 'pending'`** dengan anggapan `SKIP LOCKED` sudah cukup — itu
+> memecah jaminan yang sebenarnya. Detail: `docs/phases/07-outbound-webhook/notes.md`'s `## #102`.
+
+`SKIP LOCKED` tetap dipakai, dan kriteria #12 **wajib diuji di bawah konkurensi nyata** (§12), bukan
+diasumsikan benar karena klausanya tertulis.
 
 ### 4.2 Reaper — baris `delivering` yang menggantung
 
@@ -420,10 +439,12 @@ Owner/Admin penuh; Manager dan Employee **tidak punya akses sama sekali** — sa
 (#46) dan `form` (#85), dan untuk alasan yang sama: endpoint webhook adalah kredensial yang mengalirkan
 data organization ke luar.
 
-Empat `Action` baru: `webhook.create`, `webhook.list`, `webhook.read`, `webhook.update`,
-`webhook.delete`. Ditambahkan ke tabel per-role di `authz_test.go` **dan** ke `allActions` — celah yang
-sama sudah terjadi dua kali (`ActionAPIKey*` di #46, `ActionForm*` di #85, keduanya di-backfill
-belakangan). Jangan ketiga kalinya.
+**Lima** `Action` baru: `webhook.create`, `webhook.list`, `webhook.read`, `webhook.update`,
+`webhook.delete` (teks ini sempat menulis "Empat" di sebelah daftar lima — dikoreksi saat #104
+menutup phase, mengikuti kode `internal/shared/authz/authz.go` yang selalu lima). Ditambahkan ke
+tabel per-role di `authz_test.go` **dan** ke `allActions` — celah yang sama sudah terjadi dua kali
+(`ActionAPIKey*` di #46, `ActionForm*` di #85, keduanya di-backfill belakangan). Tidak terulang
+ketiga kalinya (#100).
 
 Principal `api_key` dan `public_form` **tidak** mendapat satu pun dari kelimanya — deny-by-absence di
 `apiKeyScopeFor`/`publicFormAllows` menanganinya otomatis, dan tabel-atas-seluruh-`Action` yang sudah

@@ -162,6 +162,13 @@ export function WebhookEditor({ endpointId }: { endpointId: string }) {
             <span className="font-mono">{endpoint.secret_prefix}…</span>
           </p>
         </div>
+        <Button
+          variant="outline"
+          className="shrink-0"
+          onClick={() => router.push("/connect/webhook/docs")}
+        >
+          Dokumentasi verifikasi
+        </Button>
       </div>
 
       <section className="mb-6 rounded-lg border border-border bg-background p-4">

@@ -81,18 +81,19 @@ ganda). Lalu:
    ditinjau ulang sebelum phase benar-benar ditutup. Tiap poin terbuka **diputuskan atau dinyatakan
    ulang dengan pemicu eksplisit**, bukan dilewati.
 
-   Yang sudah ada:
+   **Ditinjau di #104 (3 September 2026):**
    - [`101-webhook-signature-enqueue.md`](../../issues/101-webhook-signature-enqueue.md) — penyimpangan
-     Aturan #20 (`whsec_` dienkripsi, bukan di-hash) yang **belum tercermin di `freeze.md`**; baris
-     keempat `authentication.md` yang masih kurang; `delivery_id` yang harus disuntikkan #102;
-     rotasi kunci enkripsi; dan timestamp `+07:00` vs. Aturan #33 yang lebih luas dari Phase 7.
-     Berisi juga **kontrak kabel untuk #102** — empat nilai yang kalau tidak dicocokkan persis akan
-     gagal diam-diam, bukan melempar error. **Keempatnya sudah dipenuhi dan dibuktikan di #102.**
-   - [`102-webhook-worker.md`](../../issues/102-webhook-worker.md) — **TD §4.1 masih menggambarkan
-     `SKIP LOCKED` seolah ia yang menjamin exactly-once**, padahal terbukti bukan (predikat status yang
-     menjamin; `SKIP LOCKED` menjamin liveness) — perlu diperbaiki supaya orang berikutnya tidak
-     menghapus predikat status. Plus: ambang reaper yang sengaja tidak configurable, biaya
-     `DisableKeepAlives` yang belum diukur, dan retensi malas yang kini ada di dua tempat.
+     Aturan #20 (`whsec_` dienkripsi, bukan di-hash) **diputuskan lewat
+     [ADR-013](../../decisions/ADR-013-signing-secret-storage.md)**; baris keempat `authentication.md`
+     **ditambahkan**; `delivery_id` + tiga kontrak kabel lain **dipenuhi & dibuktikan di #102**. Masih
+     terbuka dengan pemicu eksplisit: rotasi `WEBHOOK_SECRET_ENC_KEY` (→ sebelum pelanggan produksi),
+     `timestamp +07:00` vs Aturan #33 (→ perubahan API lintas klien berikutnya — bukan kerja Phase 7).
+   - [`102-webhook-worker.md`](../../issues/102-webhook-worker.md) — **TD §4.1 diperbaiki** (blok
+     koreksi: predikat status yang menjamin exactly-once, `SKIP LOCKED` menjamin liveness); §8 "Empat
+     `Action`" → "Lima". Masih terbuka dengan pemicu: ambang reaper (→ endpoint sah butuh >10 menit),
+     `DisableKeepAlives` + retensi malas (→ traffic produksi, bareng `docs/issues/047`).
+   - **`100` dan `103` tidak punya berkas** — `notes.md` keduanya menyatakan tidak ada penyimpangan
+     berarti; berkas kosong dilarang (skill `jualin-issue-log`).
    > Langkah ini ada di sini sejak phase dibuka — bukan retroaktif. Phase 5 dan Phase 6 melewatkannya
    > karena tidak pernah memuatnya, dan enam berkas menumpuk tanpa dibaca (#98). Preseden yang bekerja:
    > [`04-public-api/issues.md`](../04-public-api/issues.md) langkah 0.

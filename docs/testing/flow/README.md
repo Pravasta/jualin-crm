@@ -31,12 +31,14 @@ dashboard sebagai gantinya. Phase 0–5 sudah selesai (`docs/STATUS.md`); pandua
 | 6 | [`06-checklist-akhir.md`](./06-checklist-akhir.md) | Rekap satu halaman — centang semua sebelum bilang "beres" |
 | 7 | [`07-mobile-android.md`](./07-mobile-android.md) | Login+biometric, mode pesawat, telepon/WhatsApp dengan auto-Activity, ubah status, catatan, Tugas Saya, push+deeplink (3 keadaan), kehilangan akses, uninstall — **butuh HP Android fisik** |
 | 8 | [`08-formulir-embed.md`](./08-formulir-embed.md) | Buat & kelola formulir dari dashboard, ubah label, allowlist domain, **tempel snippet ke halaman HTML kosong lalu isi dari browser** → lead masuk, domain di luar allowlist ditolak, gerbang role, nonaktifkan (Phase 6) |
+| 9 | [`09-webhook.md`](./09-webhook.md) | Daftarkan endpoint dari dashboard, **jalankan server penerima lokal**, buat lead → request sungguhan sampai, **verifikasi signature dari sisi penerima dengan contoh dari halaman docs**, payload diubah satu byte → ditolak, endpoint mati → retry + kirim ulang manual, URL privat ditolak (SSRF), gerbang role (Phase 7) |
 
 Kerjakan berurutan — setiap berkas mengasumsikan data dari berkas sebelumnya masih ada (org yang sama,
 lead yang sama, dst). `07` dikerjakan setelah `03` (butuh lead untuk ditugaskan) dan `02` (butuh
 employee aktif) — sebelum `06` (rekap akhir). `08` (Phase 6, di luar kalimat inti MVP) butuh sesi
 Owner dan satu Employee aktif (`01` + `02`); ia **tidak** bergantung pada `07`, jadi bisa dikerjakan
-tanpa HP Android.
+tanpa HP Android. `09` (Phase 7, di luar kalimat inti MVP) butuh `01`–`03` dan satu server penerima
+lokal (`python3`); **tidak** bergantung pada `07` maupun `08`.
 
 ## Yang perlu disiapkan dulu
 
