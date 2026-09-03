@@ -543,21 +543,21 @@ urutan `README.md` bertambah baris 9; `06-checklist-akhir.md` bertambah bagian 9
 ### Review 14 acceptance criteria PRD
 
 Dicek satu per satu terhadap bukti nyata di `notes.md` #100–#103 dan test yang disebutkan — bukan
-diasumsikan dari ingatan. AC #1 dan #2 (butuh server penerima sungguhan + stack jalan) ditandai
-**langkah manusia berikutnya** lewat `09-webhook.md`, sesuai keputusan pemilik produk 3 Sep 2026 —
-tidak diklaim sudah dijalankan di sesi #104.
+diasumsikan dari ingatan. AC #1 dan #2 (butuh server penerima sungguhan + stack jalan) awalnya
+ditandai **langkah manusia berikutnya** lewat `09-webhook.md`; verifikasi itu **kemudian dijalankan**
+pada sesi browser 3 September 2026 — lihat bagian *Verifikasi manual dijalankan* di bawah tabel.
 
 | # | Kriteria | Bukti | Status |
 |---|---|---|---|
-| 1 | URL dari dashboard → lead → request sampai, diverifikasi dari server penerima nyata | #102 verifikasi manual (`signature cocok=true` atas byte diterima, penerima memverifikasi dengan skema terdokumentasi); prosedur re-verifikasi di `09-webhook.md` §9.3 | ✅ kode + **langkah manusia** untuk re-verifikasi |
-| 2 | Payload signature bisa diverifikasi penerima; secret ditampilkan sekali | #101 rantai penuh ciphertext→decrypt→sign; #103 dialog reveal sekali + `@ts-expect-error` di `webhooks.test.ts`; #104 `webhook-docs.test.ts` `verifyAsDocumented` lulus terhadap vektor `signature.go`; `09-webhook.md` §9.2/§9.4 | ✅ kode + **langkah manusia** |
-| 3 | Signature menolak payload diubah satu byte, dan replay di luar toleransi | `signature_test.go` (body 1 byte, `t` diubah); `webhook-docs.test.ts` (tamper ditolak, `t` digeser ditolak); toleransi 5 menit didokumentasikan ke penerima (`Sign` doc comment, halaman docs); `09-webhook.md` §9.5 | ✅ |
-| 4 | URL privat/loopback/link-local ditolak saat disimpan **dan** saat dikirim (DNS berubah) | `safedial/denylist_test.go` (~35 alamat, IPv4+IPv6, `::ffff:` mapped), `validator_test.go` (resolve DNS nyata); #100 manual curl SSRF semua `400`; #102 saat kirim: "transport error ... denied range" + 0 request ke `169.254.169.254`, dan denied-range di-retry (bisa jadi DNS sementara); `09-webhook.md` §9.8 | ✅ |
+| 1 | URL dari dashboard → lead → request sampai, diverifikasi dari server penerima nyata | #102 verifikasi manual + **sesi browser 3 Sep 2026**: lead #6 → `receiver.py` `[OK] signature_valid=True`, HTTP 200 (`09-webhook.md` §9.3) | ✅ |
+| 2 | Payload signature bisa diverifikasi penerima; secret ditampilkan sekali | #101 rantai penuh ciphertext→decrypt→sign; #103 dialog reveal sekali + `@ts-expect-error`; #104 `webhook-docs.test.ts` `verifyAsDocumented` lulus terhadap vektor `signature.go`; **sesi browser**: contoh Python halaman docs = `receiver.py`, memvalidasi kiriman nyata (§9.4) | ✅ |
+| 3 | Signature menolak payload diubah satu byte, dan replay di luar toleransi | `signature_test.go` (body 1 byte, `t` diubah); `webhook-docs.test.ts` (tamper ditolak, `t` digeser ditolak); toleransi 5 menit didokumentasikan ke penerima (`Sign` doc comment, halaman docs). §9.5 (tamper manual di `receiver.py`) dilewati di sesi browser — dikunci dua test di atas | ✅ (test) |
+| 4 | URL privat/loopback/link-local ditolak saat disimpan **dan** saat dikirim (DNS berubah) | `safedial/denylist_test.go` (~35 alamat, IPv4+IPv6, `::ffff:` mapped), `validator_test.go` (resolve DNS nyata); #100 manual curl SSRF semua `400`; #102 saat kirim: "transport error ... denied range" + 0 request ke `169.254.169.254`. **Sesi browser tidak menguji ini** — butuh `WEBHOOK_ALLOW_PRIVATE_TARGETS=false` (mematikan receiver lokal) | ✅ (test + #100) |
 | 5 | Redirect tidak pernah diikuti | `worker_test.go` `3xx`→`failed`; #102 manual "[redirect] → failed, response_status 302, redirect not followed, 0 request ke 169.254.169.254"; `CheckRedirect` mengembalikan `http.ErrUseLastResponse` (satu jalur, bukan cabang khusus) | ✅ |
 | 6 | `5xx` dicoba ulang dengan jeda menaik; setelah percobaan terakhir → gagal permanen | `entity_test.go` `backoff()` terhadap jadwal persis D5; `worker_test.go` `5xx`→retry dengan `next_attempt_at` sesuai backoff, percobaan ke-6 → `failed`; #102 manual "[500] → pending, attempt 1, next 55 detik"; `retryOrFail` cek `next > MaxAttempts` | ✅ |
 | 7 | `4xx` tidak dicoba ulang kecuali `429` | `worker_test.go` `4xx`→`failed` tanpa retry, `429`→retry; switch di `deliver()` | ✅ |
 | 8 | Pengiriman tidak pernah di dalam transaksi database pemicunya (Aturan #32) | `enqueuer.go` terikat `db.Querier` (bukan `Store`), menulis baris antrian **di dalam** tx `lead`; HTTP terjadi di worker, **di luar** tx; `internal/lead` atomicity test (fake + rollback Postgres sungguhan `repository_atomicity_test.go`) | ✅ |
-| 9 | Membuat lead tetap berhasil walau endpoint webhook mati total | Pengiriman HTTP terjadi asinkron di worker, tak pernah menyentuh jalur `lead.Create`; endpoint mati → baris `pending` menumpuk lalu `failed`, lead sudah lama commit; `09-webhook.md` §9.7 (endpoint mati, ubah status → lead tetap berubah, riwayat menunjukkan Gagal) | ✅ desain; **langkah manusia** untuk konfirmasi visual |
+| 9 | Membuat lead tetap berhasil walau endpoint webhook mati total | Pengiriman HTTP asinkron di worker, tak pernah menyentuh jalur `lead.Create`; **sesi browser**: `receiver.py` dimatikan → ubah status lead **tetap berhasil** (badge & riwayat lead berubah), pengiriman ke endpoint mati jadi `Menunggu`/`Gagal` terpisah (§9.7) | ✅ |
 | 10 | Owner melihat riwayat per endpoint: waktu, status, kode respons, percobaan ke-N | #103 `delivery-history.tsx` (kolom Waktu/Event/Status+HTTP N/Percobaan ke-N), diverifikasi visual di #103; `handler_test.go` list deliveries berpaginasi; `09-webhook.md` §9.3/§9.7 | ✅ |
 | 11 | Kirim ulang manual untuk pengiriman gagal, hasilnya di riwayat yang sama | #103 tombol "Kirim ulang" (hanya baris `failed`) + refetch; `handler_test.go` retry `200` lalu retry kedua `409`; #103 visual "Gagal ke-5 → Menunggu ke-1 di tabel yang sama"; `09-webhook.md` §9.7 | ✅ |
 | 12 | Dua instance bersamaan tidak mengirim ganda — dibuktikan di bawah konkurensi nyata | `worker_concurrency_test.go` — N goroutine paralel terhadap Postgres sungguhan, tiap baris diklaim **tepat sekali**; **dibuktikan bisa gagal** dan pembagian exactly-once/liveness diuji terpisah (#102, TD §4.1 diperbaiki #104) | ✅ |
@@ -586,3 +586,23 @@ tanpa itu halaman docs tidak bisa ditemukan tanpa mengetik URL, sama seperti #49
 `npm run typecheck && lint (0/0) && test (140, +19 dari `webhook-docs.test.ts`) && build` bersih.
 Sisi Go tidak disentuh (perubahan hanya `.md`); `go build ./...` + `go test ./...` dijalankan tetap
 sebagai konfirmasi — bersih, `internal/webhook` termasuk.
+
+### Verifikasi manual dijalankan — sesi browser 3 September 2026 (setelah merge #110)
+
+Pemilik produk menjalankan `09-webhook.md` terhadap `docker compose` + `crm_dashboard` + `receiver.py`
+lokal, didampingi Claude lewat browser automation. Hasil:
+
+| AC / langkah | Hasil |
+|---|---|
+| §9.1 kartu Webhook aktif | ✅ tiga kartu aktif, tak ada "belum tersedia"/"terkunci paket" |
+| §9.2 secret sekali + penjaga | ✅ Escape & klik-backdrop tertahan; "Selesai" nonaktif sampai checkbox; daftar + DB hanya `secret_prefix` + `secret_ciphertext` 77 byte (12 nonce + 49 plaintext + 16 tag GCM), bukan raw |
+| **AC #1** (§9.3) | ✅ lead #6 → worker kirim → `receiver.py`: `[OK] signature_valid=True within_tolerance=True`, HTTP 200; riwayat dashboard "Berhasil HTTP 200" dengan jam. Diverifikasi **dari sisi penerima**, bukan log pengirim |
+| **AC #2** (§9.4) | ✅ contoh Python di `/connect/webhook/docs` = konstruksi `receiver.py` persis (`hmac.new(secret, f"{t}.".encode()+raw, sha256)`), yang sudah memvalidasi kiriman nyata. §9.5 (tamper 1 byte) dilewati manual — dikunci `webhook-docs.test.ts` + `signature_test.go` |
+| §9.6 `lead.status_changed` | ✅ `changes.status:{from:"new",to:"contacted"}`, `data.lead.status="contacted"`, `version:2`; snapshot `lead.created` **tetap** `status:"new"`, `version:1` — dibekukan saat event. `occurred_at`/`created_at` `Z` (org timezone UTC — item `+07:00` `docs/issues/101` bergantung timezone, tak tereproduksi di sini) |
+| **AC #6, #10, #11** (§9.7) | ✅ receiver dimatikan → `Menunggu` + `transport error: dial "host.docker.internal": ... network is unreachable` + `Percobaan ke-1`, `next_attempt_at` +1m (backoff pertama). Baris dipaksa `failed` lewat SQL (menunggu 8j tak praktis; ladder retry sudah di `worker_test.go`), lalu **"Kirim ulang"** → `Menunggu` → `Berhasil HTTP 200` di **baris & `delivery_id` yang sama** (`01a06812-…`, id tak berubah — dedup handle stabil). Retry non-`failed` → `409 delivery_not_retryable` (tombol hanya muncul untuk `failed`; `handler_test.go`) |
+| §9.9 gerbang role (Manager) | ✅ `/connect/webhook`, `/webhook/:id`, `/webhook/docs` → "…tidak tersedia untuk role Anda"; **nol** panggilan `/v1/webhook-endpoints` (hanya `/v1/me` + notifikasi/metrics dari layout) |
+| §9.8 SSRF saat disimpan | ⏭️ **tidak dijalankan** — butuh `WEBHOOK_ALLOW_PRIVATE_TARGETS=false` + restart api, yang mematikan receiver `host.docker.internal` (§9.2–§9.7 tak bisa bersamaan). Dikunci `internal/shared/safedial/denylist_test.go` (~35 alamat) + `curl` #100. **Bug di `09-webhook.md`** yang ditulis #104: setup meminta flag `true` lalu §9.8 mengharap penolakan — kontradiksi. Diperbaiki di PR follow-up ini (§9.8 jadi bagian terpisah dengan syarat env sendiri) |
+
+Dengan ini seluruh 14 AC PRD terkonfirmasi: 12 dari test + verifikasi #100–#103, dan #1/#2/#6/#10/#11
+plus gerbang role dari sesi browser di atas. Endpoint uji di-soft-delete setelah selesai; `receiver.py`
+(berkas sementara) dihapus dari root repo.
