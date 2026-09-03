@@ -18,10 +18,15 @@ interface ChannelCard {
   status: "active" | "unavailable";
 }
 
-// Webhook says "belum tersedia" — NOT "terkunci oleh paket". It simply
-// doesn't exist yet (Phase 7); the locked-by-plan state is Phase 8
-// (ADR-012 §4). Claiming it's locked now would be a lie about a
-// capability the product doesn't have at all.
+// All three channels are live as of Phase 7 (#103). The locked-by-plan
+// state is Phase 8 (ADR-012 §4) and does not exist yet — a card must
+// never claim to be locked by a plan the product cannot enforce.
+//
+// Webhook is the only OUTBOUND one: the other two bring leads in, this
+// one sends events out. Its description said "Terima event dari platform
+// lain" while it was still a placeholder, which described inbound webhook
+// — Phase 7.5, a different feature entirely. Corrected here rather than
+// left to read as a promise the screen does not keep.
 const CHANNELS: ChannelCard[] = [
   {
     icon: KeyRound,
@@ -40,8 +45,10 @@ const CHANNELS: ChannelCard[] = [
   {
     icon: Webhook,
     title: "Webhook",
-    description: "Terima event dari platform lain secara real-time.",
-    status: "unavailable",
+    description:
+      "Kirim event ke sistem Anda sendiri begitu lead masuk atau statusnya berubah — tanpa perlu menanyakannya berulang kali.",
+    href: "/connect/webhook",
+    status: "active",
   },
 ];
 

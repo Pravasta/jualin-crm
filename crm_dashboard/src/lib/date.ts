@@ -22,6 +22,20 @@ export function formatDateID(iso: string): string {
   });
 }
 
+// Webhook deliveries (#103) happen seconds apart and retry hours later,
+// so the date alone cannot distinguish two rows — and "which attempt was
+// this, and when" is the entire question the history screen answers.
+// Renders as "17 Agu 2026, 14.32" in id-ID.
+export function formatDateTimeID(iso: string): string {
+  return new Date(iso).toLocaleString("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 // api_keys.last_used_at is throttled server-side to at most once every 5
 // minutes (crm_be TD phase 4 §10) — rendering it as an exact timestamp
 // would imply a precision the value doesn't actually have. `now` is a
