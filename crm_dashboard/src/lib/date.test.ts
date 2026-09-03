@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { dateInputToEndOfDayUTC, dateInputToStartOfDayUTC, formatApproximateID, formatDateID } from "./date";
+import {
+  dateInputToEndOfDayUTC,
+  dateInputToStartOfDayUTC,
+  formatApproximateID,
+  formatDateID,
+  formatDateTimeID,
+} from "./date";
 
 describe("dateInputToStartOfDayUTC / dateInputToEndOfDayUTC", () => {
   it("anchors the FROM bound to the start of the day and TO to the end", () => {
@@ -46,5 +52,21 @@ describe("formatApproximateID", () => {
     // the client-side guarantee that matches — no exact clock time ever
     // appears in the label.
     expect(formatApproximateID("2026-08-28T11:30:00Z", NOW)).not.toMatch(/\d{1,2}:\d{2}/);
+  });
+});
+
+describe("formatDateTimeID", () => {
+  // Deliveries are seconds apart and retries land hours later, so the
+  // time of day is the part that distinguishes two rows (#103).
+  it("includes the time, not just the date", () => {
+    const formatted = formatDateTimeID("2026-08-17T07:32:00.000Z");
+    expect(formatted).toContain("2026");
+    expect(formatted).toMatch(/\d{2}[.:]\d{2}/);
+  });
+
+  it("renders a different string for two times on the same day", () => {
+    const morning = formatDateTimeID("2026-08-17T01:00:00.000Z");
+    const evening = formatDateTimeID("2026-08-17T15:00:00.000Z");
+    expect(morning).not.toEqual(evening);
   });
 });

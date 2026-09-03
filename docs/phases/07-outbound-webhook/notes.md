@@ -397,3 +397,76 @@ enqueue — retry enam jam kemudian tetap berada dalam toleransi 5 menit penerim
 `go test -race ./...` bersih (satu data race ditemukan di test sendiri: `srv.Config.ConnState` diset
 setelah `httptest.NewServer` mulai melayani — diperbaiki dengan `NewUnstartedServer`).
 `golangci-lint run` 0 issues.
+
+---
+
+## #103 — Dashboard: /connect/webhook
+
+PR: [#109](https://github.com/Pravasta/jualin-crm/pull/109) · branch `feat/103-dashboard-webhook`
+
+Issue pertama Phase 7 yang menyentuh `crm_dashboard`, bukan Go. Setelah ini, seluruh siklus webhook
+bisa dilakukan Owner/Admin **tanpa `curl`**: daftar endpoint, buat (dengan secret tampil sekali), ubah
+event/URL, nonaktifkan, lihat riwayat pengiriman, kirim ulang yang gagal.
+
+### `lib/webhooks.ts` — bentuk terverifikasi terhadap handler Go, bukan diasumsikan
+
+`WebhookEndpoint` vs `CreatedWebhookEndpoint`: `secret` **hanya** ada di tipe kedua, dan hanya
+`createWebhookEndpoint` mengembalikannya. Merender secret dari daftar adalah **type error**, bukan bug
+runtime — pola `CreatedAPIKey` (#48). Dijaga `@ts-expect-error` di `webhooks.test.ts`: kalau baris itu
+berhenti error, tipe daftar sudah menumbuhkan field yang membiarkan layar daftar merender kredensial.
+
+`WEBHOOK_EVENTS` union (`lead.created`, `lead.status_changed`) — bukan `string`. Test membandingkannya
+persis dengan `webhook.KnownEvents` di Go: tidak ada yang menghubungkan dua bahasa saat kompilasi, jadi
+rename di salah satu sisi gagal di test, bukan sebagai langganan yang diam-diam mati.
+
+`isWebhookUrlNotAllowed(err)` — `webhook_url_not_allowed` adalah 400 **polos**, bukan `validation_failed`,
+jadi tidak ada `details[]` untuk menaruhnya di bawah field. Helper ini (bentuk `isLeadAlreadyConverted`)
+dipakai dialog buat **dan** editor untuk mengarahkan pesan ke bawah field URL. Tinggal di `lib/`, bukan
+di salah satu komponen, supaya keduanya tidak menyimpang. Pesannya selalu apa adanya dari backend —
+kevaguannya (`"URL webhook tidak diizinkan."`) adalah keputusan keamanan TD §7, bukan celah untuk diisi.
+
+### `canCloseCreateDialog` — penjaga tutup dialog ditarik keluar jadi fungsi murni
+
+Tahap reveal adalah **satu-satunya** tempat di produk yang menampilkan kredensial yang tak bisa
+dipulihkan. Penjaga tutupnya (`step !== "reveal" || confirmedSaved`) ditarik ke `lib/webhooks.ts`
+bukan dibiarkan inline di JSX — karena cara lain membuktikannya adalah browser, dan codebase ini
+sengaja menaruh test visual di luar cakupan (TD phase 3 §9). Alasan yang sama menaruh `canManageWebhooks`
+dan `lib/nav.ts` di berkasnya sendiri. Diuji 3 kasus; komponen memanggilnya di `onOpenChange` — satu
+titik yang dilewati X, Escape, dan klik backdrop.
+
+### Kartu Webhook di `/connect` — deskripsinya diperbaiki, bukan cuma diaktifkan
+
+Selama masih placeholder, deskripsinya berbunyi *"Terima event dari platform lain secara real-time"* —
+itu **inbound** webhook (Phase 7.5), fitur yang sama sekali berbeda. Diganti jadi *"Kirim event ke
+sistem Anda sendiri…"*. Kartu berhenti berbunyi *"belum tersedia"* — bukan *"terkunci oleh paket"*,
+yang lahir di Phase 8 (ADR-012 §4) dan tidak ada sekarang.
+
+### `formatDateTimeID` baru di `lib/date.ts`
+
+Riwayat pengiriman butuh **jam**, bukan cuma tanggal: pengiriman berjarak detik dan retry-nya berjam
+kemudian, jadi tanggal saja tidak membedakan dua baris. `formatDateID` yang ada tetap dipakai di
+tempat lain.
+
+### Verifikasi visual terhadap `crm_be` sungguhan (browser)
+
+- Kartu Webhook aktif di `/connect`, `href="/connect/webhook"`, teks "belum tersedia" nihil
+- Daftar: URL, `secret_prefix…`, badge event, status Aktif/Nonaktif, tanggal, "Kelola"
+- Dialog buat: dua event pre-checked; URL privat/tak-teresolusi → **"URL webhook tidak diizinkan."
+  muncul di bawah field URL**, bukan banner
+- **Penjaga secret**: Escape tertahan, klik backdrop tertahan, tidak ada tombol X di tahap reveal,
+  "Selesai" nonaktif sampai checkbox dicentang, lalu tutup + daftar refresh
+- Editor: pengaturan (URL, event, keterangan, Aktif dengan penjelasan), riwayat, blok Hapus endpoint
+  (border merah, mengarahkan ke "nonaktifkan saja")
+- Riwayat: Waktu / Event / Status (Gagal merah + detail error apa adanya, mis.
+  `transport error: webhook url not allowed: 169.254.169.254 is in a denied range`) / Percobaan ke-N
+- **Kirim ulang**: `Gagal ke-5` → klik → `Menunggu ke-1` dengan detail error baru, di tabel yang sama
+- **Kirim ulang pada baris non-`failed` → 409**: diverifikasi lewat API (`delivery_not_retryable`,
+  *"Hanya pengiriman yang gagal yang bisa dikirim ulang."*), **bukan** visual — tombolnya hanya muncul
+  untuk baris `failed`, jadi 409 hanya terjadi pada balapan worker antara render dan klik. Kode
+  menanganinya: `retryWebhookDelivery` melempar, `DeliveryHistory` menangkap dan merender
+  `setRetryError({ id, message })` inline per baris, bukan tombol yang diam
+- **Manager**: `/connect/webhook` **dan** `/connect/webhook/:id` sama-sama menampilkan "Pengelolaan
+  webhook tidak tersedia untuk role Anda." — **nol** panggilan `/v1/webhook-endpoints` di Network
+  (hanya `/v1/me` + notifikasi/metrics dari layout)
+
+`npm run typecheck && lint && test (121) && build` bersih.
