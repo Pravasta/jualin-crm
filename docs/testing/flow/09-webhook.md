@@ -24,6 +24,14 @@ docker compose exec api printenv WEBHOOK_ALLOW_PRIVATE_TARGETS   # harus: true
 Kalau `false`, set di `docker-compose.yml` service `api`, lalu `docker compose up -d api`.
 `WEBHOOK_SECRET_ENC_KEY` juga harus terisi (default `.env` sudah) — tanpanya membuat endpoint gagal.
 
+> **§9.8 (uji SSRF) adalah pengecualian.** Flag `true` di atas **mematikan daftar tolak IP** —
+> itu memang gunanya (izinkan target privat saat dev). Jadi §9.8 dijalankan **terpisah**, di akhir,
+> dengan `WEBHOOK_ALLOW_PRIVATE_TARGETS=false` dan `docker compose up -d api` — dan pada mode itu
+> receiver `host.docker.internal` ikut ditolak, jadi §9.2–§9.7 tidak bisa jalan bersamaan.
+> Kalau tidak ingin menukar env dua kali, §9.8 cukup diverifikasi lewat test otomatis
+> (`internal/shared/safedial/denylist_test.go`, ~35 alamat) — tandai di checklist sebagai
+> "diverifikasi lewat test, bukan manual".
+
 **2. Server penerima.** Simpan ini sebagai `receiver.py` dan jalankan `python3 receiver.py` di
 terminal terpisah. Ia mendengarkan di `:9099`, mencatat setiap kiriman, dan memverifikasi signature
 **memakai skema terdokumentasi** — bukan kode Jualin:
@@ -189,15 +197,28 @@ lama **tetap** `new` di riwayat — payload dibekukan saat event terjadi.
 2. Ubah status lead lagi (**Dihubungi → Penawaran**).
 3. Tunggu ±1 menit, buka **Riwayat pengiriman** endpoint.
 
-**Hasil yang diharapkan:** baris terbaru **Gagal** (atau **Menunggu** dengan Percobaan `ke-1`/`ke-2`),
-dengan detail error apa adanya (`connection refused` / `transport error: ...`). Percobaan bertambah
-setiap retry dengan jeda menaik (1m, 5m, …). Setelah 5 percobaan ulang → **Gagal** permanen.
+**Hasil yang diharapkan:** baris terbaru **Menunggu** dengan Percobaan `ke-1`, detail error apa adanya
+(`transport error: dial "host.docker.internal": ... network is unreachable` / `connection refused`),
+`next_attempt_at` ≈ +1 menit (backoff pertama). Percobaan bertambah tiap retry dengan jeda menaik
+(1m → 5m → 30m → 2j → 6j). Setelah 5 percobaan ulang → **Gagal** permanen.
 
-4. Jalankan ulang `receiver.py`. Pada baris yang **Gagal**, klik **Kirim ulang**.
+> Menunggu 8 jam untuk melihat status **Gagal** permanen tidak praktis. Untuk menguji tombol
+> **Kirim ulang** (yang hanya muncul pada baris `failed`), paksa satu baris ke `failed` lewat SQL —
+> ini sah, mekanik retry+backoff sudah terbukti di langkah 3 dan di `internal/webhook/worker_test.go`:
+>
+> ```sql
+> UPDATE webhook_deliveries SET status='failed', attempt=5, response_status=NULL,
+>   error='transport error: connection refused (retries habis)'
+> WHERE id='<id baris yang Menunggu>';
+> ```
 
-**Hasil yang diharapkan:** baris berpindah ke **Menunggu** lalu **Berhasil** dalam satu interval —
-**di tabel yang sama**, bukan baris baru. `receiver.py` mencatat kirimannya, `delivery_id` **sama**
-dengan percobaan yang gagal (dedup handle stabil).
+4. Jalankan ulang `receiver.py`. Refresh halaman — baris kini **Gagal** (merah) dengan tombol
+   **Kirim ulang**. Klik.
+
+**Hasil yang diharapkan:** baris berpindah ke **Menunggu** lalu **Berhasil HTTP 200** dalam satu
+interval — **di baris yang sama**, bukan baris baru. `receiver.py` mencatat kirimannya, dan
+`delivery_id`-nya **sama** dengan percobaan yang gagal (cek DB: `id` baris tidak berubah — dedup
+handle stabil lintas percobaan).
 
 5. Klik **Kirim ulang** lagi pada baris yang kini **Berhasil** — *(kalau tombolnya masih terlihat
    sebelum refresh)* atau lewat API:
@@ -208,6 +229,17 @@ curl -s -X POST http://localhost:8080/v1/webhook-deliveries/<id>/retry -b "$COOK
 ```
 
 ## 9.8 SSRF — URL privat ditolak saat disimpan  ← **AC #4**
+
+> **Butuh `WEBHOOK_ALLOW_PRIVATE_TARGETS=false`.** Dengan flag `true` (mode receiver di atas), daftar
+> tolak IP dimatikan dan URL privat **diterima** — itu perilaku yang benar. Jalankan bagian ini
+> terpisah:
+>
+> ```bash
+> # set WEBHOOK_ALLOW_PRIVATE_TARGETS=false di docker-compose.yml service api
+> docker compose up -d api
+> ```
+>
+> Selesai §9.8, kembalikan ke `true` bila masih ingin menjalankan §9.2–§9.7.
 
 Coba tambah endpoint dengan tiap URL berikut:
 
@@ -221,6 +253,10 @@ Coba tambah endpoint dengan tiap URL berikut:
 
 Pesannya **tidak** membedakan alasan — itu keputusan keamanan (pesan spesifik = alat memetakan
 jaringan internal kita).
+
+**Alternatif tanpa menukar env:** AC #4 juga ditegakkan oleh `internal/shared/safedial/denylist_test.go`
+(tabel ~35 alamat di tiap rentang, IPv4 + IPv6 + `::ffff:` mapped) dan verifikasi `curl` di issue #100.
+Kalau §9.8 dilewati manual, tandai di checklist "diverifikasi lewat test otomatis".
 
 ## 9.9 Gerbang role — Manager/Employee tidak punya akses
 
