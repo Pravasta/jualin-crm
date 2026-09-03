@@ -650,9 +650,11 @@ Setiap aturan ditulis agar bisa diperiksa — bila sebuah aturan tidak bisa dive
 
 ## Keamanan
 
+> ⚠️ **Aturan #20 diberi klausa pengecualian oleh [ADR-013](../decisions/ADR-013-signing-secret-storage.md).** Aturannya apa adanya tetap berlaku untuk kredensial yang **kita verifikasi** (API key, `public_key`, refresh token). Kredensial yang **kita pakai untuk menghasilkan bukti** dengan arah kepercayaan terbalik — sejauh ini hanya signing secret webhook `whsec_` (Phase 7) — disimpan terenkripsi reversibel, kunci di environment, hanya bila tidak ada alternatif hash yang bisa memenuhi fungsinya. Detail & batas di ADR-013 dan `authentication.md`.
+
 | # | Aturan |
 |---|---|
-| 20 | Password: **argon2id**. API key: **SHA-256** + `subtle.ConstantTimeCompare`. Alasan perbedaannya di `ADR-004`. |
+| 20 | Password: **argon2id**. API key: **SHA-256** + `subtle.ConstantTimeCompare`. Alasan perbedaannya di `ADR-004`. Pengecualian untuk kredensial arah-terbalik: `ADR-013`. |
 | 21 | Raw secret (API key, token undangan, token reset) hanya ditampilkan **sekali**; database menyimpan hash. |
 | 22 | Refresh token opaque, disimpan di DB, dirotasi, dengan deteksi penggunaan ulang per `family_id`. |
 | 23 | API key **tidak pernah** hadir di sisi klien. Embedded form memakai `public_key` yang hanya bisa submit. |

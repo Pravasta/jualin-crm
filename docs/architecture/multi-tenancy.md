@@ -122,6 +122,47 @@ kredensial, melainkan daftar kemampuan tertutup (`authz.publicFormAllows`) plus 
 
 ---
 
+## Pengecualian jenis baru — sebuah **index** yang sengaja tidak berawalan `organization_id` (Phase 7, issue #100)
+
+Empat pengecualian di atas semuanya menyangkut **Lapis 2** — constraint `UNIQUE` yang melintasi
+organization, dan repository method yang tidak menerima `tenant.Context`. Yang berikut ini kelas yang
+**berbeda**: ia menyangkut **Aturan #16** (*"Index tenant-aware selalu berawalan `organization_id`"*),
+bukan Lapis 2, dan yang dikecualikan adalah **index**, bukan constraint unik. Karena itu ia ditulis
+sebagai pengecualian jenis baru, bukan disambung ke daftar di atas (`docs/phases/07-outbound-webhook/td.md` §1.2).
+
+```sql
+-- Riwayat per endpoint, dibaca dashboard — TETAP berawalan organization_id (Aturan #16 apa adanya).
+CREATE INDEX ix_webhook_deliveries_org ON webhook_deliveries
+    (organization_id, endpoint_id, created_at DESC);
+
+-- Antrian worker. SENGAJA TIDAK berawalan organization_id.
+CREATE INDEX ix_webhook_deliveries_claim ON webhook_deliveries (next_attempt_at)
+    WHERE status = 'pending';
+```
+
+`webhook_deliveries` dipakai **dua cara**: sebagai riwayat (dibaca dari jalur tenant-scoped) dan
+sebagai antrian (diambil worker). Index riwayatnya berawalan `organization_id` seperti biasa. Index
+antriannya tidak, dan itu bukan kelalaian:
+
+> Worker mengambil kerja **lintas seluruh organization** — ia infrastruktur, bukan pemanggil
+> tenant-scoped. `organization_id` adalah **hasil** dari baris yang terambil, bukan input untuk
+> mencarinya. Query klaim predikatnya hanya `status` dan `next_attempt_at`; mengawali index dengan
+> `organization_id` membuatnya tidak terpakai sama sekali oleh query itu.
+
+Bentuknya sekelas alasan tiga pengecualian repository di atas (`api_keys.key_id`,
+`forms.public_key`, `refresh_tokens.token_hash`) — organization adalah keluaran lookup, bukan
+masukan. Perbedaannya: di sini yang dikecualikan **index**, dan pemakainya (`repository_postgres.go`'s
+`ClaimDue`/`Reap`/`Purge`) memang **tidak** menerima `tenant.Context`, sesuai TD §1.2 dan pola
+`worker` sebagai infrastruktur. `EXPLAIN` di `internal/webhook/repository_test.go` membuktikan query
+klaim benar-benar memakai `ix_webhook_deliveries_claim`, bukan seq scan.
+
+Ini **tidak** melemahkan isolasi tenant: setiap baris `webhook_deliveries` tetap membawa
+`organization_id` dan `UNIQUE (id, organization_id)` (Aturan #1, #2), dan setiap jalur yang
+menyajikan riwayat ke dashboard tetap di-scope ke `t.OrganizationID`. Yang dikecualikan hanya jalur
+**worker internal** yang memang harus melihat seluruh antrian.
+
+---
+
 ## Lapis 3 — Row Level Security (ditunda)
 
 RLS PostgreSQL dengan `SET LOCAL app.current_org_id` + policy per tabel.

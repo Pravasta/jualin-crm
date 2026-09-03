@@ -470,3 +470,119 @@ tempat lain.
   (hanya `/v1/me` + notifikasi/metrics dari layout)
 
 `npm run typecheck && lint && test (121) && build` bersih.
+
+---
+
+## #104 — Dokumentasi verifikasi + penutup Phase 7
+
+PR: [#110](https://github.com/Pravasta/jualin-crm/pull/110) · branch `feat/104-webhook-docs-and-phase7-close`
+
+Penutup phase. Tidak menyentuh Go — halaman docs baru di `crm_dashboard`, satu ADR, empat dokumen
+arsitektur, satu berkas testing flow, dan review 14 AC PRD terhadap bukti yang sudah ada.
+
+### `/connect/webhook/docs` — halaman menghadap-penerima
+
+Pola `/connect/api/docs` (#49), tapi dengan satu perbedaan yang menentukan: **contoh di halaman ini
+benar-benar bisa dijalankan apa adanya.** Contoh `curl` di #49 butuh secret kami tertanam untuk
+memanggil kami — halaman statis tidak bisa memegangnya (Aturan #21), jadi ia hanya menampilkan bentuk
+dengan placeholder. Contoh **verifikasi** signature tidak butuh secret kami sama sekali: penerima
+menempelkan secret yang **ia** simpan saat membuat endpoint, dan kodenya jalan. Itu yang membuat
+AC #2 ("contoh disalin, dijalankan, benar-benar memvalidasi") jujur, bukan aspiratif.
+
+`lib/webhook-docs.ts` memegang tiga contoh (Node/PHP/Python) sebagai konstanta string, satu builder
+konsep. `webhook-docs.test.ts` (19 test) mengunci konstruksi yang benar dengan cara yang sama seperti
+`signature_test.go`: sebuah fungsi `verifyAsDocumented` yang mengikuti langkah yang **dicetak halaman**
+(HMAC atas `"<t>.<body mentah>"`, banding hex) diuji terhadap vektor yang ditandatangani cara
+`signature.go` menandatangani — kalau contohnya menulis `"<body>.<t>"` atau body yang di-marshal
+ulang, test merah. Plus: payload diubah satu byte → ditolak; `t` digeser → ditolak (membuktikan
+timestamp benar-benar di dalam input HMAC); tidak ada contoh yang menyematkan secret yang terlihat
+asli.
+
+Tautan "Dokumentasi verifikasi" ditambahkan di `webhooks-screen.tsx` (di bawah deskripsi) dan
+`webhook-editor.tsx` (tombol di header). Kartu `/connect` sudah aktif sejak #103 — tidak disentuh.
+
+### ADR-013 — penyimpangan Aturan #20 diformalkan
+
+Keputusan pemilik produk (3 Sep 2026): **lewat ADR baru**, bukan pengecualian ber-scope-phase.
+[ADR-013](../../decisions/ADR-013-signing-secret-storage.md) menambah klausa bertingkat batas ke
+Aturan #20 — kredensial yang **kita** pakai untuk menghasilkan bukti (arah kepercayaan terbalik)
+disimpan terenkripsi reversibel dengan kunci di environment, **hanya bila** tidak ada alternatif hash
+yang bisa memenuhi fungsinya. Isi Aturan #20 di `freeze.md` tidak diubah — hanya anotasi `> ⚠️`
+penunjuk ke ADR-013 (mekanisme sama seperti ADR-011 terhadap Aturan #8). Batasnya tegas: inbound
+webhook (Phase 7.5) kembali ke hash — pengirim yang memegang rahasianya, kita yang memverifikasi.
+
+### Dokumen arsitektur (TD §15)
+
+- **`api.md`** — bab baru *Webhook Keluar* (bentuk payload, signature, retry, at-least-once, SSRF
+  ringkas, tabel endpoint, retensi); dua error code ke katalog (`webhook_url_not_allowed`,
+  `delivery_not_retryable`); angka retry/interval/batch + biaya `DisableKeepAlives` yang belum diukur
+  masuk daftar *Angka batasnya belum pernah diukur* yang sudah ada. Satu parentetis lama ("kredensial
+  baru ... webhook Phase 7 ... masuk kelas rate limit pertama") diperbaiki jadi "webhook **inbound**
+  Phase 7.5" — outbound tidak menerima traffic, jadi tidak menambah kelas rate limit apa pun.
+- **`authentication.md`** — bagian *Signing secret webhook (`whsec_`)*, baris keempat kredensial dan
+  yang pertama dengan arah kepercayaan terbalik: tabel banding lawan tiga kredensial masuk,
+  penyimpanan terenkripsi (→ ADR-013), tampil sekali, tak pernah di-log, konsekuensi rotasi kunci.
+- **`authorization.md`** — *Matriks (Phase 7)*: lima `Action` `webhook.*`, Owner/Admin saja.
+- **`multi-tenancy.md`** — pengecualian **jenis baru**, seksi terpisah: sebuah **index**
+  (`ix_webhook_deliveries_claim`) sengaja tidak berawalan `organization_id`. Ini Aturan **#16**
+  (index), bukan Aturan #2 (composite FK) seperti empat pengecualian sebelumnya — worker infrastruktur
+  lintas-org, `organization_id` adalah hasil klaim.
+- **`td.md` §4.1** — blok koreksi: `WHERE status='pending'` + row lock yang menjamin exactly-once,
+  `SKIP LOCKED` = liveness. Kewajiban dari `docs/issues/102`. **`td.md` §8** — "Empat `Action`" di
+  sebelah daftar lima diperbaiki jadi "Lima".
+
+### `docs/testing/flow/09-webhook.md` (baru)
+
+Prosedur manusia: `receiver.py` stdlib yang memverifikasi signature dengan skema terdokumentasi →
+daftarkan endpoint → buat lead → request sampai (AC #1) → contoh dari halaman docs memvalidasi
+(AC #2) → payload diubah satu byte → ditolak (AC #2) → status change dengan `changes` → endpoint mati
+→ retry + kirim ulang manual (AC #6/#10/#11) → SSRF URL privat ditolak (AC #4) → gerbang role. Tabel
+urutan `README.md` bertambah baris 9; `06-checklist-akhir.md` bertambah bagian 9; baris usang di
+`08-formulir-embed.md` ("kartu Webhook Belum tersedia") diperbaiki.
+
+### Review 14 acceptance criteria PRD
+
+Dicek satu per satu terhadap bukti nyata di `notes.md` #100–#103 dan test yang disebutkan — bukan
+diasumsikan dari ingatan. AC #1 dan #2 (butuh server penerima sungguhan + stack jalan) ditandai
+**langkah manusia berikutnya** lewat `09-webhook.md`, sesuai keputusan pemilik produk 3 Sep 2026 —
+tidak diklaim sudah dijalankan di sesi #104.
+
+| # | Kriteria | Bukti | Status |
+|---|---|---|---|
+| 1 | URL dari dashboard → lead → request sampai, diverifikasi dari server penerima nyata | #102 verifikasi manual (`signature cocok=true` atas byte diterima, penerima memverifikasi dengan skema terdokumentasi); prosedur re-verifikasi di `09-webhook.md` §9.3 | ✅ kode + **langkah manusia** untuk re-verifikasi |
+| 2 | Payload signature bisa diverifikasi penerima; secret ditampilkan sekali | #101 rantai penuh ciphertext→decrypt→sign; #103 dialog reveal sekali + `@ts-expect-error` di `webhooks.test.ts`; #104 `webhook-docs.test.ts` `verifyAsDocumented` lulus terhadap vektor `signature.go`; `09-webhook.md` §9.2/§9.4 | ✅ kode + **langkah manusia** |
+| 3 | Signature menolak payload diubah satu byte, dan replay di luar toleransi | `signature_test.go` (body 1 byte, `t` diubah); `webhook-docs.test.ts` (tamper ditolak, `t` digeser ditolak); toleransi 5 menit didokumentasikan ke penerima (`Sign` doc comment, halaman docs); `09-webhook.md` §9.5 | ✅ |
+| 4 | URL privat/loopback/link-local ditolak saat disimpan **dan** saat dikirim (DNS berubah) | `safedial/denylist_test.go` (~35 alamat, IPv4+IPv6, `::ffff:` mapped), `validator_test.go` (resolve DNS nyata); #100 manual curl SSRF semua `400`; #102 saat kirim: "transport error ... denied range" + 0 request ke `169.254.169.254`, dan denied-range di-retry (bisa jadi DNS sementara); `09-webhook.md` §9.8 | ✅ |
+| 5 | Redirect tidak pernah diikuti | `worker_test.go` `3xx`→`failed`; #102 manual "[redirect] → failed, response_status 302, redirect not followed, 0 request ke 169.254.169.254"; `CheckRedirect` mengembalikan `http.ErrUseLastResponse` (satu jalur, bukan cabang khusus) | ✅ |
+| 6 | `5xx` dicoba ulang dengan jeda menaik; setelah percobaan terakhir → gagal permanen | `entity_test.go` `backoff()` terhadap jadwal persis D5; `worker_test.go` `5xx`→retry dengan `next_attempt_at` sesuai backoff, percobaan ke-6 → `failed`; #102 manual "[500] → pending, attempt 1, next 55 detik"; `retryOrFail` cek `next > MaxAttempts` | ✅ |
+| 7 | `4xx` tidak dicoba ulang kecuali `429` | `worker_test.go` `4xx`→`failed` tanpa retry, `429`→retry; switch di `deliver()` | ✅ |
+| 8 | Pengiriman tidak pernah di dalam transaksi database pemicunya (Aturan #32) | `enqueuer.go` terikat `db.Querier` (bukan `Store`), menulis baris antrian **di dalam** tx `lead`; HTTP terjadi di worker, **di luar** tx; `internal/lead` atomicity test (fake + rollback Postgres sungguhan `repository_atomicity_test.go`) | ✅ |
+| 9 | Membuat lead tetap berhasil walau endpoint webhook mati total | Pengiriman HTTP terjadi asinkron di worker, tak pernah menyentuh jalur `lead.Create`; endpoint mati → baris `pending` menumpuk lalu `failed`, lead sudah lama commit; `09-webhook.md` §9.7 (endpoint mati, ubah status → lead tetap berubah, riwayat menunjukkan Gagal) | ✅ desain; **langkah manusia** untuk konfirmasi visual |
+| 10 | Owner melihat riwayat per endpoint: waktu, status, kode respons, percobaan ke-N | #103 `delivery-history.tsx` (kolom Waktu/Event/Status+HTTP N/Percobaan ke-N), diverifikasi visual di #103; `handler_test.go` list deliveries berpaginasi; `09-webhook.md` §9.3/§9.7 | ✅ |
+| 11 | Kirim ulang manual untuk pengiriman gagal, hasilnya di riwayat yang sama | #103 tombol "Kirim ulang" (hanya baris `failed`) + refetch; `handler_test.go` retry `200` lalu retry kedua `409`; #103 visual "Gagal ke-5 → Menunggu ke-1 di tabel yang sama"; `09-webhook.md` §9.7 | ✅ |
+| 12 | Dua instance bersamaan tidak mengirim ganda — dibuktikan di bawah konkurensi nyata | `worker_concurrency_test.go` — N goroutine paralel terhadap Postgres sungguhan, tiap baris diklaim **tepat sekali**; **dibuktikan bisa gagal** dan pembagian exactly-once/liveness diuji terpisah (#102, TD §4.1 diperbaiki #104) | ✅ |
+| 13 | Endpoint org lain tidak terlihat/disunting — harness isolasi tenant + terbukti bisa gagal | `tenant_isolation_test.go` +5 kasus (#100: `GET/PATCH/DELETE /v1/webhook-endpoints/:id`, `…/deliveries`, `POST …/retry`) → semua `404` lintas org; **dibuktikan bisa gagal** (predikat `organization_id` dihapus dari `FindByID` → 3 subtest bocor `200`, dikembalikan); gerbang role UI di `09-webhook.md` §9.9 | ✅ |
+| 14 | `webhook_deliveries` punya retensi tertulis — tidak tumbuh selamanya | PRD D8 + `td.md` §10 + `api.md` bab *Webhook Keluar → Retensi* (baru #104); `WEBHOOK_DELIVERY_RETENTION_DAYS=30`; `repository_test.go` `Purge` tidak pernah menghapus `pending`; throttle 1×/jam dari worker loop. **Poin terbuka diwarisi sadar**: pola retensi malas belum diuji di volume produksi (`docs/issues/047`, `102`) — pemicu peninjauan tercatat | ✅ |
+
+### `docs/issues/` Phase 7 — ditinjau
+
+- `101-*.md` dan `102-*.md` diperbarui: poin selesai dicentang dengan cara penyelesaiannya, poin
+  terbuka dinyatakan ulang dengan **pemicu eksplisit** (rotasi kunci enkripsi → sebelum pelanggan
+  produksi; `timestamp +07:00` vs Aturan #33 → perubahan API lintas klien berikutnya; ambang reaper →
+  endpoint sah butuh >10 menit; `DisableKeepAlives` & retensi malas → traffic produksi, bareng #047).
+- **`100-*.md` dan `103-*.md` sengaja tidak dibuat** — `notes.md` keduanya menyatakan "tidak ada
+  penyimpangan berarti" / verifikasi bersih; skill `jualin-issue-log` melarang berkas kosong demi
+  kelengkapan.
+
+### Menyimpang dari TD
+
+Tidak ada penyimpangan. Halaman docs mengikuti bentuk `/connect/api/docs` (#49) yang TD §2 dan §15
+sebut. Satu tambahan di luar checklist issue: tombol "Dokumentasi verifikasi" di dua layar webhook —
+tanpa itu halaman docs tidak bisa ditemukan tanpa mengetik URL, sama seperti #49 menautkan dari
+`/connect/api`.
+
+### Cek
+
+`npm run typecheck && lint (0/0) && test (140, +19 dari `webhook-docs.test.ts`) && build` bersih.
+Sisi Go tidak disentuh (perubahan hanya `.md`); `go build ./...` + `go test ./...` dijalankan tetap
+sebagai konfirmasi — bersih, `internal/webhook` termasuk.

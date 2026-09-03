@@ -3,6 +3,8 @@
 > Checklist ringkas, **bukan** catatan status. Status pekerjaan tetap hidup di GitHub Issues (ADR-008) —
 > berkas ini mengumpulkan poin yang perlu **dicek ulang saat #104** menutup Phase 7. Detail lengkap ada
 > di `docs/phases/07-outbound-webhook/notes.md` bagian `## #102`.
+>
+> **Ditinjau di #104 (3 September 2026).** Status tiap poin di bawah.
 
 ## Deviasi dari TD / ADR
 
@@ -20,30 +22,31 @@
 
 ## Keputusan yang perlu dicek ulang
 
-- [ ] **`SKIP LOCKED` ternyata bukan yang menjamin exactly-once.** TD §4.1 menyiratkan ia yang membuat
-      banyak instance aman. Dibuktikan sebaliknya saat menulis test: menghapus `SKIP LOCKED` **tidak**
-      membuat test exactly-once merah — tanpa klausa itu transaksi saling memblokir, lalu PostgreSQL
-      mengevaluasi ulang subquery terhadap versi baris terbaru yang sudah `delivering` dan tidak lagi
-      cocok `WHERE status = 'pending'`.
+- [x] **`SKIP LOCKED` ternyata bukan yang menjamin exactly-once — TD §4.1 diperbaiki di #104.**
+      Pembagian yang benar: **`WHERE status = 'pending'` + row lock → exactly-once**; **`SKIP LOCKED` →
+      liveness**. TD §4.1 kini memuat blok koreksi eksplisit dengan peringatan "jangan hapus predikat
+      status dengan anggapan `SKIP LOCKED` sudah cukup", dan menunjuk ke `notes.md` `## #102`. Kedua
+      properti diuji terpisah di `worker_concurrency_test.go`.
 
-      Pembagian yang sebenarnya: **predikat status + row lock → exactly-once**; **`SKIP LOCKED` →
-      liveness** (claimer tidak antre di belakang claimer lain). Keduanya kini diuji terpisah. Teks
-      TD §4.1 masih menggambarkannya seolah satu klausa mengerjakan keduanya — perlu diperbaiki di #104
-      supaya orang berikutnya tidak menghapus predikat status dengan anggapan `SKIP LOCKED` sudah cukup.
-
-- [ ] **Ambang reaper 10 menit sengaja tidak bisa dikonfigurasi.** Ia bukan tuning knob melainkan
-      margin keselamatan, dan hanya benar selama jauh di atas `WEBHOOK_DELIVERY_TIMEOUT`. Mengeksposnya
-      mengundang penyetelan di bawah nilai itu, yang membuat reaper satu instance merebut pengiriman
-      instance lain yang masih berjalan — dan setiap pengiriman terkirim dua kali. Ditinjau ulang kalau
-      pernah ada endpoint yang sah butuh lebih dari 10 menit.
+- [ ] **Ambang reaper 10 menit sengaja tidak bisa dikonfigurasi.** Margin keselamatan, bukan tuning
+      knob — hanya benar selama jauh di atas `WEBHOOK_DELIVERY_TIMEOUT` (10s). Mengeksposnya mengundang
+      penyetelan di bawah nilai itu → reaper satu instance merebut pengiriman instance lain → setiap
+      pengiriman terkirim dua kali. **Pemicu peninjauan: bila pernah ada endpoint sah yang butuh lebih
+      dari 10 menit untuk merespons** (belum pernah terjadi; `WEBHOOK_DELIVERY_TIMEOUT` default 10s
+      menutupnya jauh sebelum itu). Tetap `const reapThreshold` di `worker.go`.
 
 - [ ] **`DisableKeepAlives` membebani setiap pengiriman dengan satu handshake.** Wajib demi keamanan
-      (lihat bagian bug di bawah), tapi belum pernah diukur di volume nyata. Kalau nanti jadi masalah,
-      jalan keluarnya **bukan** menyalakan kembali keep-alive, melainkan memindahkan cek deny-list ke
-      tempat yang tetap dievaluasi per-request. Masuk daftar bersama angka lain di `api.md`.
+      (daftar tolak SSRF hanya dievaluasi ulang tiap kirim bila tiap kirim membuka koneksi baru), belum
+      pernah diukur di volume nyata. **Dimasukkan ke daftar bersama di `api.md` bagian *Angka batasnya
+      belum pernah diukur*** (#104) — pemicunya sama: traffic produksi nyata. Jalan keluarnya bila jadi
+      masalah **bukan** menyalakan kembali keep-alive, melainkan memindahkan cek deny-list ke tempat
+      yang tetap dievaluasi per-request.
 
 - [ ] **Retensi malas belum pernah diuji di volume produksi** — sama seperti `idempotency_key` (#47).
-      Sekarang polanya ada di dua tempat; kalau bermasalah, bermasalah di keduanya.
+      Polanya kini ada di dua tempat; kalau bermasalah, bermasalah di keduanya. **Pemicu: traffic
+      produksi nyata**, ditinjau **satu kali bersama** retensi `idempotency_key` (`docs/issues/047`),
+      bukan peninjauan terpisah. Dicatat di `api.md` bagian *Webhook Keluar → Retensi* dan
+      `td.md` §10.
 
 ## Kontrak kabel dari #101 — dipenuhi
 

@@ -107,7 +107,7 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 
 ## 8 — Formulir Embed (Phase 6)
 
-- [ ] Menu **Connect** → kartu Formulir aktif; kartu Webhook "Belum tersedia" (bukan "terkunci paket")
+- [ ] Menu **Connect** → ketiga kartu (API, Formulir, Webhook) aktif; tidak ada yang "terkunci paket"
 - [ ] Buat formulir dari dashboard — enam field terisi label Indonesia default
 - [ ] Ubah label field & aktifkan/nonaktifkan; "wajib" ikut mengaktifkan field, label kosong menolak simpan
 - [ ] Allowlist: `localhost` tanpa skema ditolak; `http://localhost:9099` diterima
@@ -119,6 +119,20 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 - [ ] Varian tanpa script tetap bekerja (tinggi tetap); varian JSX memakai `style={{ border: 0 }}`
 - [ ] Employee di `/connect/form` (dan `/connect/form/{id}` langsung): pesan "tidak tersedia untuk role Anda", **nol** panggilan `/v1/forms`
 - [ ] Nonaktifkan formulir → hilang dari daftar, iframe jadi `404`, lead yang sudah masuk tetap ada
+
+## 9 — Webhook Keluar (Phase 7)
+
+- [ ] Kartu **Webhook** di `/connect` aktif, deskripsi "Kirim event ke sistem Anda sendiri…", bukan "terkunci paket"
+- [ ] Daftarkan endpoint ke server penerima lokal — secret `whsec_` tampil **sekali**, "Selesai" nonaktif sampai dicentang
+- [ ] `GET /v1/webhook-endpoints` **tidak** membawa field `secret` (hanya `secret_prefix`)
+- [ ] **Buat lead → request sungguhan sampai ke penerima, signature valid dari sisi penerima** (AC #1)
+- [ ] **Contoh verifikasi dari `/connect/webhook/docs` (Node/PHP/Python) benar-benar memvalidasi** (AC #2)
+- [ ] **Payload diubah satu byte → contoh yang sama menolak** (AC #2)
+- [ ] Ubah status lead → `lead.status_changed` dengan `changes.status.{from,to}`; snapshot `lead.created` tetap status lama
+- [ ] Endpoint mati → riwayat menampilkan Gagal + alasan + Percobaan ke-N dengan jeda menaik
+- [ ] **Kirim ulang** baris gagal → pindah ke Menunggu/Berhasil di tabel yang sama, `delivery_id` sama; kirim ulang non-`failed` → `409 delivery_not_retryable`
+- [ ] URL `169.254.169.254` / `127.0.0.1` / `10.x` / `ftp://` → ditolak "URL webhook tidak diizinkan." di bawah field; `https://example.com` diterima (AC #4)
+- [ ] Manager/Employee di `/connect/webhook`, `/connect/webhook/{id}`, `/connect/webhook/docs`: "tidak tersedia untuk role Anda", **nol** panggilan `/v1/webhook-endpoints`
 
 ## Kalau semua tercentang
 

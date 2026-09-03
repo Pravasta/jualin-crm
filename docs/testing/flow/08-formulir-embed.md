@@ -22,9 +22,9 @@ sebagai `file://`.
 
 1. Login sebagai `owner@test.local`. Klik menu **Connect** di sidebar.
 
-**Hasil yang diharapkan:** tiga kartu kanal — **API** (aktif), **Formulir** (aktif), **Webhook**
-(bertanda *"Belum tersedia"*, redup, tidak bisa diklik). Webhook **tidak** berbunyi "terkunci oleh
-paket" — ia memang belum ada (Phase 7).
+**Hasil yang diharapkan:** tiga kartu kanal — **API**, **Formulir**, dan **Webhook**, ketiganya
+aktif dan bisa diklik sejak Phase 7 (#103). Tidak ada yang berbunyi *"terkunci oleh paket"* — keadaan
+itu baru lahir di Phase 8. Webhook diuji terpisah di [`09-webhook.md`](./09-webhook.md).
 
 2. Klik kartu **Formulir**.
 

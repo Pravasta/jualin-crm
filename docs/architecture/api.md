@@ -134,6 +134,8 @@ Bertambah seiring fitur. Setiap kode baru dicatat di sini.
 | 403 | `origin_not_allowed` | Header `Origin` di luar `forms.allowed_origins` — termasuk saat header itu tidak dikirim sama sekali, dan saat allowlist-nya sendiri kosong (issue #87) |
 | 400 | `form_token_invalid` | Token time-trap salah tanda tangan, terlalu cepat (<2 detik), kedaluwarsa (>30 menit), atau untuk `form_id` lain — keempatnya pesan yang sama (issue #87) |
 | 400 | `captcha_failed` | Turnstile menolak, token tidak dikirim, atau verifikasi ke Cloudflare sendiri gagal — ketiganya jalur yang sama, gagal tertutup (issue #87) |
+| 400 | `webhook_url_not_allowed` | URL webhook menunjuk alamat privat/loopback/link-local, skema bukan `http(s)`, atau DNS tidak bisa diresolusi — **satu kode untuk semua alasan**, membedakannya memberi pelanggan alat memetakan jaringan internal kita (issue #100) |
+| 409 | `delivery_not_retryable` | `POST /v1/webhook-deliveries/:id/retry` dipanggil untuk pengiriman yang statusnya bukan `failed` (issue #100) |
 
 > `invalid_activity_type` dan `membership_has_open_leads` seharusnya masuk katalog ini saat issue #21
 > dan #22 selesai ("setiap kode baru dicatat di sini") — luput saat itu, ditambahkan di sini saat
@@ -245,9 +247,14 @@ oracle gratis untuk menyetel serangannya tepat di bawah ambang. Login tetap meng
 karena pengguna sah yang salah ketik password berhak tahu kapan bisa mencoba lagi — dan angka itu
 tidak membocorkan sisa kuota siapa pun.
 
-**Untuk phase berikutnya:** kredensial baru yang menerima traffic dari luar (webhook Phase 7, dan
-seterusnya) masuk **kelas pertama** — `ratelimit.FixedWindow.Take` + `httpx.SetRateLimitHeaders`, bukan
-`Allow` tanpa header. Jangan menambah header ke kelas kedua.
+**Untuk phase berikutnya:** kredensial baru yang menerima traffic dari luar (webhook **inbound** Phase
+7.5, dan seterusnya) masuk **kelas pertama** — `ratelimit.FixedWindow.Take` +
+`httpx.SetRateLimitHeaders`, bukan `Allow` tanpa header. Jangan menambah header ke kelas kedua.
+
+> Webhook **keluar** (Phase 7) tidak menambah kelas rate limit apa pun: di sana **kita** yang
+> memanggil, bukan yang dipanggil, jadi tidak ada endpoint baru yang menerima traffic. Yang membatasi
+> pengiriman keluar adalah kebijakan retry dan batch worker (lihat *Webhook Keluar* di bawah), bukan
+> `ratelimit`.
 
 ### Angka batasnya belum pernah diukur
 
@@ -255,6 +262,19 @@ Seluruh angka default (`PUBLIC_API_RATE_LIMIT=60`, `FORM_SUBMIT_RATE_LIMIT_IP=20
 `FORM_SUBMIT_RATE_LIMIT_FORM=60`, dan batas endpoint auth) adalah **tebakan konservatif, bukan hasil
 pengukuran** — dinyatakan terbuka sejak Phase 4 (`docs/issues/047-public-lead-api.md`) dan Phase 6
 (`docs/issues/087-form-submit-anti-spam.md`).
+
+**Phase 7 menambah angka ke daftar yang sama**, bukan keraguan baru yang terpisah
+(`docs/issues/102-webhook-worker.md`):
+
+- `WEBHOOK_MAX_ATTEMPTS=5` (percobaan ulang setelah kiriman pertama), `WEBHOOK_WORKER_INTERVAL=10s`,
+  `WEBHOOK_WORKER_BATCH=20`, `WEBHOOK_DELIVERY_TIMEOUT=10s`, `WEBHOOK_DELIVERY_RETENTION_DAYS=30`, dan
+  jeda backoff `1m → 5m → 30m → 2j → 6j` — semuanya default konservatif. Bentuknya (`4xx` tidak
+  diulang, `5xx` diulang) **bukan** tebakan; angkanya iya.
+- **Biaya `DisableKeepAlives: true` pada worker HTTP client belum diukur.** Ia wajib demi keamanan —
+  daftar tolak SSRF hanya dievaluasi ulang tiap kirim bila tiap kirim membuka koneksi baru
+  (`docs/issues/102`) — tapi membebani setiap pengiriman dengan satu handshake TLS. Kalau ini jadi
+  masalah di volume nyata, jalan keluarnya **bukan** menyalakan kembali keep-alive, melainkan
+  memindahkan cek deny-list ke tempat yang tetap dievaluasi per-request.
 
 Karena itu semuanya **env-configurable**, dan peninjauannya **satu kali untuk semua** begitu ada
 traffic produksi nyata — bukan satu peninjauan per angka. Menambah kredensial baru di phase berikutnya
@@ -422,3 +442,116 @@ lengkapnya (CSP, `frame-ancestors` per-form, `X-Frame-Options` yang sengaja tida
 `html/template`, auto-resize D8) ada di
 [`docs/phases/06-connect-form/td.md`](../phases/06-connect-form/td.md) §7 dan
 [`notes.md`](../phases/06-connect-form/notes.md)'s `## #88`.
+
+---
+
+## Webhook Keluar (Phase 7, issue #100–#104)
+
+Phase pertama di mana **kita yang memanggil**. Semua bagian di atas menerima request dan memutuskan
+menolaknya; di sini pelanggan memberi kita URL dan **server kita** yang meneleponnya saat sesuatu
+terjadi di Jualin. Konsekuensi keamanannya terbalik arah — lihat *Pertahanan SSRF* di bawah.
+
+Ini **bukan endpoint API**: tidak ada envelope `{data, meta}` di sisi kiriman, karena yang menerima
+adalah server pelanggan, bukan kita. Dokumentasi menghadap-penerima (bentuk payload + contoh
+verifikasi signature Node/PHP/Python yang langsung bisa dijalankan) ada di dashboard,
+`/connect/webhook/docs`, mengikuti preseden `/connect/api/docs` (#49). Bagian ini adalah ringkasan
+kontrak; halaman itu adalah sumber lengkapnya.
+
+### Event
+
+Dua, dikunci `webhook.KnownEvents`: `lead.created` dan `lead.status_changed`. Event ketiga kelak =
+satu pemanggil baru, bukan mekanisme baru (keputusan D3).
+
+### Bentuk payload
+
+`POST` dengan body JSON. Payload adalah **snapshot yang dibekukan saat event terjadi** (bukan
+dibangun ulang saat kirim), sehingga tiga perubahan status dalam lima menit menghasilkan tiga
+kiriman berisi tiga keadaan berbeda.
+
+```json
+{
+  "delivery_id": "0192f0a1-…",
+  "event": "lead.created",
+  "occurred_at": "2026-09-03T04:21:07.531933Z",
+  "organization_id": "0192e0b3-…",
+  "data": { "lead": { "…": "bentuk leadJSON yang sama dengan API dashboard" } }
+}
+```
+
+- `data.lead` memakai **`leadJSON` yang sama** dengan API dashboard — satu bentuk lead di seluruh
+  produk, bukan bentuk kedua (`internal/lead/entity.go`'s `Lead.Fields`).
+- `lead.status_changed` menambahkan `"changes": {"status": {"from": "new", "to": "contacted"}}` —
+  bentuk yang sama dengan `activities.metadata` untuk `status_changed` (#21), bukan bentuk ketiga.
+- `delivery_id` stabil lintas percobaan ulang untuk satu kiriman; ia disuntikkan worker saat kirim
+  (`= webhook_deliveries.id`), bukan bagian dari snapshot yang disimpan.
+
+### Signature — `X-Jualin-Signature`
+
+```
+signed_payload = "<t>" + "." + <body mentah, byte demi byte>
+header         = X-Jualin-Signature: t=<unix detik>,v1=<hex HMAC-SHA256(secret, signed_payload)>
+```
+
+Secret per endpoint (`whsec_…`), ditampilkan **sekali** saat dibuat, disimpan **terenkripsi**
+([ADR-013](../decisions/ADR-013-signing-secret-storage.md), `authentication.md` bagian *Signing
+secret webhook*). `t` **ikut ditandatangani** — kalau tidak, request yang tertangkap bisa diputar
+ulang selamanya dengan menulis ulang `t`. Toleransi replay 5 menit adalah **penerima yang
+menegakkannya**; pengirim tidak. Retry berjam kemudian ditandatangani dengan waktu saat dikirim,
+bukan saat di-enqueue, jadi ia tetap berada dalam jendela toleransinya sendiri.
+
+Header lain: `Content-Type: application/json`, `User-Agent: Jualin-Webhook/1`.
+
+### Kebijakan retry
+
+| Respons penerima | Perlakuan |
+|---|---|
+| `2xx` | `succeeded` |
+| `429` | Dicoba ulang |
+| `4xx` lain | `failed` **permanen** — "permintaanmu salah" tidak berubah dengan diulang (D5) |
+| `3xx` | `failed` permanen — redirect **tidak pernah** diikuti (pertahanan SSRF) |
+| `5xx`, timeout, DNS gagal, koneksi ditolak | Dicoba ulang sampai `WEBHOOK_MAX_ATTEMPTS` |
+
+**5 percobaan ulang setelah kiriman pertama** = maksimal 6 panggilan HTTP, jeda `1m → 5m → 30m → 2j
+→ 6j`. Angka ini masuk daftar *Angka batasnya belum pernah diukur* di atas.
+
+### Pengiriman `at-least-once`
+
+Crash antara "HTTP terkirim" dan "hasil tercatat" menghasilkan pengiriman **ganda**. Ini keputusan
+sadar — `exactly-once` lintas jaringan tidak bisa dicapai tanpa kerja sama penerima. `delivery_id`
+yang stabil lintas percobaan adalah alat deduplikasi yang **didokumentasikan ke penerima**, bukan
+disembunyikan (TD §4.2).
+
+### Pertahanan SSRF
+
+URL divalidasi **dua kali** (saat disimpan **dan** setiap kali dikirim), terhadap **IP hasil
+resolusi**, bukan hostname — validasi sekali bisa dilewati DNS rebinding. Koneksi memakai IP hasil
+resolusi itu lewat `DialContext` kustom (`internal/shared/safedial`), bukan menyerahkan hostname ke
+`http.Client` (TOCTOU). Redirect **tidak pernah** diikuti. Daftar tolak: loopback, privat,
+link-local (`169.254.169.254` — metadata cloud), CGNAT, unspecified, multicast/broadcast/reserved,
+IPv4-mapped IPv6. Detail: `docs/phases/07-outbound-webhook/td.md` §3.
+
+### Endpoint pengelolaan (principal user, Owner/Admin)
+
+| Method | Path | `Action` |
+|---|---|---|
+| `POST` | `/v1/webhook-endpoints` | `webhook.create` |
+| `GET` | `/v1/webhook-endpoints` | `webhook.list` — array polos, tidak berpaginasi |
+| `GET` | `/v1/webhook-endpoints/:id` | `webhook.read` |
+| `PATCH` | `/v1/webhook-endpoints/:id` | `webhook.update` — last-write-wins, tanpa `version` (Aturan #35 tidak mengikat tabel ini) |
+| `DELETE` | `/v1/webhook-endpoints/:id` | `webhook.delete` — soft delete |
+| `GET` | `/v1/webhook-endpoints/:id/deliveries` | `webhook.read` — berpaginasi (`meta.total`) |
+| `POST` | `/v1/webhook-deliveries/:id/retry` | `webhook.update` — hanya sah untuk status `failed`, selain itu `409 delivery_not_retryable` |
+
+`webhook-endpoints` (bukan `webhooks`) supaya `/v1/webhook-deliveries/…` di sebelahnya tidak ambigu.
+Matriks role di `authorization.md` bagian *Matriks (Phase 7)*.
+
+### Retensi
+
+`webhook_deliveries` adalah tabel dengan pertumbuhan tercepat di produk (satu baris per lead × per
+endpoint × per percobaan). Baris `succeeded`/`failed` yang lebih tua dari
+`WEBHOOK_DELIVERY_RETENTION_DAYS` (default 30) dihapus **malas, tanpa scheduler**, di-throttle 1×/jam
+dari dalam putaran worker — pola persis retensi `idempotency_key` (#47), termasuk keraguan yang sama:
+belum pernah diuji di volume produksi (`docs/issues/047`, `docs/issues/102`). Baris
+`pending`/`delivering` tidak pernah dihapus. Aturan #18 (*"Activity & audit log tidak pernah
+dihapus"*) **tidak** berlaku — riwayat pengiriman adalah alat diagnosis, bukan catatan audit; yang
+bersifat audit (endpoint dibuat/dihapus) tetap masuk `audit_log`.

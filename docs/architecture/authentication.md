@@ -15,6 +15,10 @@ Public form key→ Browser pengunjung     → public_key di path          → pr
 
 **Tidak ada satupun yang boleh menggantikan yang lain** (Aturan #24, `multi-tenancy.md`). Dokumen ini hanya membahas jalur pertama — user session — yang mencakup dashboard **dan** mobile. Keduanya memakai kredensial yang sama; yang berbeda hanya cara token dikirim (lihat di bawah) dan masa berlaku refresh token.
 
+Ketiganya adalah **kredensial masuk** — pihak lain membuktikan diri **kepada kita**. Phase 7
+memperkenalkan kredensial **keempat** yang bukan jalur autentikasi sama sekali dan arah
+kepercayaannya terbalik: **signing secret webhook** (`whsec_`) — lihat bagian terpisah di bawah.
+
 ---
 
 ## Access token — JWT
@@ -117,6 +121,44 @@ Diperbarui paling sering sekali per 5 menit per kunci (peta in-memory di `apikey
 eviction — utang yang sama bentuknya dengan `ratelimit.FixedWindow` sejak #9) — menuliskannya di setiap
 request akan membuat `api_keys` jadi *write hotspot* ([ADR-004](../decisions/ADR-004-api-key-format.md)
 aturan #3). Dashboard merender ini sebagai perkiraan ("sekitar N menit lalu"), tidak pernah jam presisi.
+
+---
+
+## Signing secret webhook (`whsec_`) — kredensial keempat, arah kepercayaan terbalik (Phase 7)
+
+Bukan jalur autentikasi. Ketiga kredensial di atas dipakai pihak lain untuk membuktikan diri
+**kepada kita**, dan kita yang memverifikasi. Signing secret webhook adalah kebalikannya: **kita**
+memakainya untuk membuktikan bahwa sebuah kiriman webhook keluar benar-benar dari kita, dan
+**penerima** yang memverifikasi.
+
+| | `api_key` / `public_key` / `refresh_token` | **`whsec_`** |
+|---|---|---|
+| Siapa pegang rahasianya | pihak lain | **kita** |
+| Siapa memverifikasi | **kita** | penerima (pelanggan) |
+| Disimpan sebagai | **hash** SHA-256 (Aturan #20) | **terenkripsi** AES-256-GCM ([ADR-013](../decisions/ADR-013-signing-secret-storage.md)) |
+| Kenapa | kebocoran DB tidak menghasilkan kredensial yang bisa dipakai | HMAC butuh secret **asli** sebagai kunci — hash tidak bisa dipakai menandatangani |
+
+```
+X-Jualin-Signature: t=<unix>,v1=HMAC-SHA256(secret, "<t>.<body mentah>")
+```
+
+| Aspek | Ketentuan |
+|---|---|
+| Bentuk | `whsec_<43 karakter base64url>`, 32 byte `crypto/rand`. Sengaja **tidak** menyerupai `jln_live_` maupun `pk_` — empat kredensial dengan aturan berlawanan tidak boleh terlihat mirip |
+| Penyimpanan | `webhook_endpoints.secret_ciphertext` (`bytea`), AES-256-GCM lewat `internal/shared/crypter`, kunci dari `WEBHOOK_SECRET_ENC_KEY` (required, min 32 byte, tanpa default — tanpanya membuat endpoint gagal di environment mana pun). `secret_prefix` (8 karakter pertama) plaintext terpisah untuk ditampilkan di daftar |
+| Ditampilkan | **Sekali**, saat endpoint dibuat (Aturan #21) — bentuk penyimpanan tidak mengubah ini |
+| Di-log | **Tidak pernah**, termasuk jalur gagal (Aturan #26) — dibuktikan dengan mencari string secret di keluaran, bukan dipercaya dari baca kode |
+| Toleransi replay | 5 menit — dinyatakan di dokumentasi penerima (`/connect/webhook/docs`), tidak ditegakkan pengirim. `t` **ikut ditandatangani** supaya tidak bisa diganti tanpa merusak `v1` |
+| Rotasi `WEBHOOK_SECRET_ENC_KEY` | Membuat **seluruh** secret tersimpan tidak bisa didekripsi — worker menandai pengiriman `failed` permanen (bukan retry selamanya). Jalur rotasi bertahap belum ada, dicatat di `docs/issues/101-webhook-signature-enqueue.md` |
+
+Penyimpangan dari Aturan #20 diputuskan lewat [ADR-013](../decisions/ADR-013-signing-secret-storage.md),
+bukan diselipkan ke `freeze.md` (Aturan #30). Batas pengecualiannya tegas: hanya kredensial yang
+**kita** pakai untuk menghasilkan bukti, hanya bila tidak ada alternatif hash yang bisa memenuhi
+fungsinya. Kredensial verifikasi **inbound** webhook (Phase 7.5) kembali ke hash — pengirim yang
+memegang rahasianya, kita yang memverifikasi.
+
+Contoh verifikasi untuk penerima (Node, PHP, Python) ada di dashboard, `/connect/webhook/docs`,
+mengikuti preseden `/connect/api/docs` (#49).
 
 ---
 

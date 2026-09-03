@@ -78,7 +78,14 @@ export function WebhooksScreen() {
           <h2 className="text-[13.5px] font-semibold">Webhook</h2>
           <p className="text-[12.5px] text-muted-foreground">
             Kirim event ke sistem Anda sendiri begitu sesuatu terjadi di Jualin — tanpa perlu
-            menanyakannya berulang kali.
+            menanyakannya berulang kali.{" "}
+            <button
+              type="button"
+              onClick={() => router.push("/connect/webhook/docs")}
+              className="text-accent-strong underline"
+            >
+              Dokumentasi verifikasi
+            </button>
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>+ Tambah endpoint</Button>

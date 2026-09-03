@@ -163,6 +163,36 @@ Bentuk sama persis dengan `api_key.*` (Phase 4) — Manager tidak dapat **sama s
 
 ---
 
+## Matriks (Phase 7) — issue #100
+
+| Action | Owner | Admin | Manager | Employee |
+|---|---|---|---|---|
+| `webhook.create` | ✅ | ✅ | — | — |
+| `webhook.list` | ✅ | ✅ | — | — |
+| `webhook.read` | ✅ | ✅ | — | — |
+| `webhook.update` | ✅ | ✅ | — | — |
+| `webhook.delete` | ✅ | ✅ | — | — |
+
+Bentuk sama persis dengan `api_key.*` (Phase 4) dan `form.*` (Phase 6) — Manager dan Employee tidak
+dapat **sama sekali**, bukan read-only. Endpoint webhook adalah instruksi tetap untuk mengalirkan
+data lead organization ke alamat yang dipilih seseorang; siapa pun yang bisa menambahkannya bisa
+diam-diam mengarahkan setiap lead baru ke tempat lain (`internal/shared/authz/authz.go`'s doc comment
+pada `ActionWebhookCreate`).
+
+`webhook.read` juga menggerbangi `GET /v1/webhook-endpoints/:id/deliveries` (riwayat pengiriman) dan
+`webhook.update` menggerbangi `POST /v1/webhook-deliveries/:id/retry` (kirim ulang manual) — tidak ada
+`Action` terpisah untuk keduanya.
+
+Kelima `Action` ditambahkan ke `authz_test.go`'s `allActions` **dan** tabel per-role di PR yang sama
+yang mendefinisikannya (#100) — celah yang sama sudah terjadi dua kali (`ActionAPIKey*` #46,
+`ActionForm*` #85, keduanya di-backfill belakangan) dan tidak terulang ketiga kalinya. Tidak ada peta
+gaya `apiKeyScopeFor`/`publicFormAllows` untuk webhook: endpoint webhook tidak pernah memanggil balik
+ke sistem (ia hanya menerima pengiriman), jadi tidak ada principal "webhook" — kelima `Action` itu
+seluruh permukaannya, dan tabel-atas-seluruh-`Action` yang sudah ada membuktikan principal
+`api_key`/`public_form` tidak dapat satu pun tanpa baris baru.
+
+---
+
 ## Otorisasi berbasis scope — principal tanpa role (Phase 4, issue #47)
 
 Matriks role di atas menjawab pertanyaan **"role apa boleh action apa"** — tapi principal `api_key`

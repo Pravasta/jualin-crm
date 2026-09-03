@@ -3,59 +3,57 @@
 > Checklist ringkas, **bukan** catatan status. Status pekerjaan tetap hidup di GitHub Issues (ADR-008) —
 > berkas ini hanya mengumpulkan poin yang perlu **dicek ulang saat #104** menutup Phase 7. Detail lengkap
 > tiap poin ada di `docs/phases/07-outbound-webhook/notes.md` bagian `## #101`.
+>
+> **Ditinjau di #104 (3 September 2026).** Status tiap poin di bawah.
 
 ## Deviasi dari TD / ADR
 
-- [ ] **Aturan #20 dilanggar secara sadar untuk `whsec_`** — signing secret disimpan **terenkripsi**
-      (AES-256-GCM), bukan di-hash. Alasannya sudah ditulis penuh di `td.md` §2.1 dan di komentar
-      migration `0009`, tapi **`freeze.md` bagian 5 #20 sendiri belum menyebut pengecualian ini**.
-      Aturan #20 berbunyi "API key SHA-256" tanpa syarat, dan sekarang ada satu kredensial yang tidak
-      mengikutinya. Perlu diputuskan saat #104: tambahkan klausa ke #20 lewat ADR baru (Aturan #30:
-      perubahan arsitektur hanya lewat ADR), atau biarkan sebagai pengecualian ber-scope-phase yang
-      dicatat di `authentication.md` saja. **Jangan diam-diam mengubah freeze.**
+- [x] **Aturan #20 dilanggar secara sadar untuk `whsec_`** — signing secret disimpan **terenkripsi**
+      (AES-256-GCM), bukan di-hash. **Diputuskan di #104: lewat ADR baru**
+      ([ADR-013](../decisions/ADR-013-signing-secret-storage.md)) yang menambah klausa pengecualian
+      bertingkat batas ke Aturan #20 — kredensial yang **kita** pakai untuk menghasilkan bukti, hanya
+      bila tidak ada alternatif hash. `freeze.md` tetap tak disentuh (Aturan #30); rujukannya lewat
+      `authentication.md`.
 
-- [ ] **`architecture/authentication.md` belum punya baris keempat** untuk `whsec_`. TD §15 sudah
-      mendaftarkannya sebagai perubahan dokumentasi yang harus terjadi di phase ini; #101 belum
-      mengerjakannya karena tabel itu baru bermakna lengkap setelah worker #102 benar-benar mengirim.
-      Cek di #104 bahwa baris itu ada, termasuk kolom "arah kepercayaan" yang membedakannya dari tiga
-      lainnya.
+- [x] **`architecture/authentication.md` baris keempat untuk `whsec_`** — ditambahkan di #104: bagian
+      *Signing secret webhook (`whsec_`)* dengan tabel "arah kepercayaan" yang membedakannya dari tiga
+      kredensial masuk, penyimpanan terenkripsi, tampil sekali, tak pernah di-log, dan konsekuensi
+      rotasi kunci.
 
 ## Keputusan yang perlu dicek ulang
 
-- [ ] **`delivery_id` tidak ikut di dalam payload yang di-enqueue.** TD §5 menggambarkan payload dengan
-      `delivery_id` di dalamnya; implementasinya menyimpan snapshot **tanpa** field itu dan menyerahkan
-      penyuntikannya ke worker saat kirim (`delivery_id` = `webhook_deliveries.id`, stabil lintas
-      percobaan sesuai TD §4.2). Alasannya: satu snapshot dipakai bersama oleh semua endpoint yang
-      melanggan, sedangkan `delivery_id` berbeda per baris. **#102 wajib benar-benar menyuntikkannya** —
-      kalau tidak, penerima kehilangan satu-satunya alat deduplikasi yang kita janjikan untuk model
-      `at-least-once`. Ini gagal **diam-diam**: payload tetap valid JSON, hanya kehilangan satu field.
+- [x] **`delivery_id` tidak ikut di dalam payload yang di-enqueue.** **#102 menyuntikkannya** lewat
+      splice byte (bukan marshal ulang), sebagai kunci pertama, dibuktikan lewat penerima sungguhan yang
+      memverifikasi signature dengan skema terdokumentasi. Lihat `docs/issues/102-webhook-worker.md`
+      bagian *Kontrak kabel dari #101 — dipenuhi*.
 
 - [ ] **Rotasi `WEBHOOK_SECRET_ENC_KEY` belum punya jalur bertahap.** Merotasi kunci membuat seluruh
-      secret tersimpan tidak bisa didekripsi dan setiap endpoint harus dibuat ulang. Dapat diterima
-      sekarang (belum ada pelanggan), tapi perlu ditinjau sebelum produksi. Bentuk penyelesaiannya kalau
-      dibutuhkan: kolom versi kunci, bukan perubahan skema `0009`.
+      secret tersimpan tidak bisa didekripsi; setiap endpoint harus dibuat ulang. Worker menandai
+      pengiriman `failed` permanen (bukan retry selamanya) saat `Decrypt` gagal — jadi tidak ada
+      kegagalan senyap, hanya kerja manual. **Pemicu peninjauan: sebelum ada pelanggan produksi
+      pertama** (`docs/STATUS.md` bagian *Punya Lead Time* / *Berikutnya*). Bentuk penyelesaiannya bila
+      dibutuhkan: kolom versi kunci, bukan perubahan skema `0009`. Dicatat juga di
+      [ADR-013](../decisions/ADR-013-signing-secret-storage.md) bagian *Konsekuensi*.
 
-- [ ] **Timestamp di dalam payload memakai offset lokal, bukan `Z`.** `occurred_at` yang dibangun #101
-      benar (`...Z`, UTC), tapi `data.lead.created_at` / `updated_at` yang berasal dari `Lead.Fields()`
-      dirender sebagai `+07:00`. Ini **bukan regresi #101** — bentuk itu sudah dipakai API dashboard
-      sejak Phase 2 dan webhook sengaja memakai bentuk yang sama persis (TD §5: satu bentuk lead, bukan
-      bentuk kedua). Tapi Aturan #33 berbunyi "ISO 8601 UTC `Z`", jadi salah satu dari keduanya keliru.
-      Memperbaikinya mengubah response API yang sudah dipakai dashboard **dan** mobile, jadi bukan
-      pekerjaan Phase 7. Perlu diputuskan: revisi Aturan #33, atau jadwalkan perubahan API lintas klien.
+- [ ] **Timestamp di `data.lead.created_at`/`updated_at` memakai offset `+07:00`, bukan `Z`.** Bukan
+      regresi #101 — bentuk itu sudah dipakai API dashboard sejak Phase 2, dan webhook sengaja memakai
+      `leadJSON` yang sama (TD §5). Tapi Aturan #33 berbunyi "ISO 8601 UTC `Z`", jadi salah satu keliru.
+      Memperbaikinya mengubah response API yang dipakai dashboard **dan** mobile — **bukan pekerjaan
+      Phase 7**. **Pemicu: saat ada perubahan API lintas klien terjadwal berikutnya** (atau lebih awal
+      bila integrator webhook melaporkan masalah parsing). Keputusannya: revisi Aturan #33 lewat ADR,
+      atau jadwalkan perubahan API. Tetap terbuka di `docs/STATUS.md` bagian *Utang Teknis*.
 
-## Kontrak kabel untuk #102
+## Kontrak kabel untuk #102 — **dipenuhi & dibuktikan di #102**
 
-Nilai literal yang #101 tetapkan dan #102 harus cocokkan **persis**. Semuanya gagal diam-diam:
+Nilai literal yang #101 tetapkan dan #102 harus cocokkan persis. Semuanya gagal diam-diam — keempatnya
+dicek lewat penerima sungguhan yang memverifikasi signature dengan skema terdokumentasi:
 
-- [ ] `webhook.SignatureHeader` = `X-Jualin-Signature`, isi `t=<unix>,v1=<hex>` — worker harus memakai
-      `webhook.Sign`, **bukan** menyusun ulang header-nya sendiri. Menyusun ulang dan salah urutan
-      (`"<body>.<ts>"`) menghasilkan signature yang valid secara bentuk dan tidak pernah cocok di sisi
-      penerima.
-- [ ] Body yang ditandatangani harus **byte yang benar-benar dikirim**. Mem-parse `payload` lalu
-      me-marshal ulang sebelum menandatangani akan mengubah urutan kunci dan membuat setiap signature
-      gagal diverifikasi, tanpa error di sisi kita.
-- [ ] Worker harus **mendekripsi** `secret_ciphertext` lewat `crypter` yang sama sebelum menandatangani.
-- [ ] `delivery_id` disuntikkan saat kirim (lihat bagian di atas).
+- [x] `webhook.SignatureHeader` = `X-Jualin-Signature`, isi `t=<unix>,v1=<hex>` — worker memakai
+      `webhook.Sign` apa adanya, tidak menyusun ulang header.
+- [x] Body yang ditandatangani adalah byte yang benar-benar dikirim (`delivery_id` disuntik lewat
+      splice, bukan marshal ulang).
+- [x] Worker mendekripsi `secret_ciphertext` lewat `crypter` yang sama sebelum menandatangani.
+- [x] `delivery_id` disuntikkan saat kirim, sebagai kunci pertama.
 
 ## Bug ditemukan & sudah diperbaiki (dicatat untuk arsip)
 
