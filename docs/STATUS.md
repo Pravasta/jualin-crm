@@ -3,7 +3,7 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 3 September 2026 — **Issue #104 selesai — Phase 7 tutup** (halaman verifikasi `/connect/webhook/docs`, ADR-013, dokumen arsitektur, `docs/testing/flow/09-webhook.md`, review 14 AC PRD). **Verifikasi manual `09-webhook.md` dijalankan** (sesi browser, pasca-merge #110): AC #1/#2/#6/#9/#10/#11 + gerbang role terkonfirmasi dari sisi penerima sungguhan; §9.8 SSRF dilewati (butuh env flip) — dikunci `denylist_test.go` + #100. Follow-up PR #TBD memperbaiki kontradiksi env di `09-webhook.md` §9.8. Sebelumnya: **#103**, **#102**, **#101**, **#100**.
+**Last updated:** 3 September 2026 — **Issue #104 selesai — Phase 7 tutup** (halaman verifikasi `/connect/webhook/docs`, ADR-013, dokumen arsitektur, `docs/testing/flow/09-webhook.md`, review 14 AC PRD). **Verifikasi manual `09-webhook.md` dijalankan** (sesi browser, pasca-merge #110): AC #1/#2/#6/#9/#10/#11 + gerbang role terkonfirmasi dari sisi penerima sungguhan; §9.8 SSRF dilewati (butuh env flip) — dikunci `denylist_test.go` + #100. Follow-up PR [#111](https://github.com/Pravasta/jualin-crm/pull/111) memperbaiki kontradiksi env di `09-webhook.md` §9.8. Sebelumnya: **#103**, **#102**, **#101**, **#100**.
 **Phase sekarang:** Belum ada — Phase 7 selesai. Berikutnya **Phase 7.5 (Inbound Webhook)** atau **Phase 8 (Subscription)**, sesuai keputusan pemilik produk. Phase 6 GATE freeze **dilewati secara sadar** (lihat *Berikutnya*).
 
 ---
