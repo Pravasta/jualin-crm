@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 3 September 2026 — **Issue #104 selesai — Phase 7 tutup** (halaman verifikasi `/connect/webhook/docs`, ADR-013, dokumen arsitektur, `docs/testing/flow/09-webhook.md`, review 14 AC PRD). **Verifikasi manual `09-webhook.md` dijalankan** (sesi browser, pasca-merge #110): AC #1/#2/#6/#9/#10/#11 + gerbang role terkonfirmasi dari sisi penerima sungguhan; §9.8 SSRF dilewati (butuh env flip) — dikunci `denylist_test.go` + #100. Follow-up PR [#111](https://github.com/Pravasta/jualin-crm/pull/111) memperbaiki kontradiksi env di `09-webhook.md` §9.8. Sebelumnya: **#103**, **#102**, **#101**, **#100**.
-**Phase sekarang:** Belum ada — Phase 7 selesai. Berikutnya **Phase 7.5 (Inbound Webhook)** atau **Phase 8 (Subscription)**, sesuai keputusan pemilik produk. Phase 6 GATE freeze **dilewati secara sadar** (lihat *Berikutnya*).
+**Last updated:** 3 September 2026 — **Phase 8 — Subscription dibuka** (PRD/TD/issues, #112–#115): gerbang paket, **mekanismenya bukan angkanya** (ADR-012 §4); tanpa `usage_counters`, tanpa tabel `plans`, tanpa migration. **Phase 7.5 ditunda** atas keputusan pemilik produk. Sebelumnya: **Issue #104 selesai — Phase 7 tutup** (halaman verifikasi `/connect/webhook/docs`, ADR-013, dokumen arsitektur, `docs/testing/flow/09-webhook.md`, review 14 AC PRD). **Verifikasi manual `09-webhook.md` dijalankan** (sesi browser, pasca-merge #110): AC #1/#2/#6/#9/#10/#11 + gerbang role terkonfirmasi dari sisi penerima sungguhan; §9.8 SSRF dilewati (butuh env flip) — dikunci `denylist_test.go` + #100. Follow-up PR [#111](https://github.com/Pravasta/jualin-crm/pull/111) memperbaiki kontradiksi env di `09-webhook.md` §9.8. Sebelumnya: **#103**, **#102**, **#101**, **#100**.
+**Phase sekarang:** **Phase 8 — Subscription** ([#112–#115](https://github.com/Pravasta/jualin-crm/milestone/11)), baru dibuka. **Mekanismenya, bukan angkanya** — tidak ada harga/limit/`usage_counters` (ADR-012 §4). Phase 7.5 (Inbound Webhook) **ditunda**, konsep dicari dulu. GATE freeze (3–5 pengguna nyata) **masih dilewati secara sadar** (lihat *Berikutnya*).
 
 ---
 
@@ -71,26 +71,17 @@
 
 ## Sedang Dikerjakan
 
-**Tidak ada.** Phase 7 (Outbound Webhook, #100–#104) selesai. Langkah berikutnya adalah keputusan
-pemilik produk: buka **Phase 7.5 (Inbound Webhook)** atau **Phase 8 (Subscription)** — belum ada
-PRD/TD/issue untuk keduanya.
+**Phase 8 — Subscription** ([#112–#115](https://github.com/Pravasta/jualin-crm/milestone/11)) — **baru
+dibuka**, belum ada issue yang dikerjakan. Dokumen: `docs/phases/08-subscription/`.
 
-**Verifikasi manual `09-webhook.md` sudah dijalankan** (sesi browser, 3 Sep 2026, pasca-merge #110):
-endpoint didaftarkan dari dashboard → lead → **request sungguhan sampai ke `receiver.py` lokal yang
-memverifikasi signature dengan skema terdokumentasi** (`[OK] signature_valid=True`, HTTP 200); contoh
-Python di `/connect/webhook/docs` = konstruksi `receiver.py` persis; `lead.status_changed` dengan
-`changes` benar dan snapshot `lead.created` tetap beku; gagal→retry→**Kirim ulang** memulihkan baris
-yang sama; gerbang role Manager nol panggilan API. §9.8 (SSRF saat disimpan) **dilewati** — butuh
-`WEBHOOK_ALLOW_PRIVATE_TARGETS=false` yang mematikan receiver lokal; dikunci
-`internal/shared/safedial/denylist_test.go` (~35 alamat) + `curl` #100. Detail: `notes.md` `## #104`
-bagian *Verifikasi manual dijalankan*.
+**Phase 7.5 (Inbound Webhook) ditunda** — keputusan pemilik produk 3 September 2026: konsepnya masih
+dicari lebih dulu. Analisis awal yang sudah dilakukan (kasus WordPress: plugin form yang sudah ada,
+hanya bisa diberi satu URL) tercatat di *Berikutnya* di bawah supaya tidak hilang.
 
-**Dipecah secara sadar**: Phase 7 hanya **outbound**. Inbound webhook jadi **Phase 7.5** — ia
-pengulangan bentuk Phase 6 (kredensial publik, satu endpoint, signature menggantikan honeypot),
-sementara outbound kelas yang sama sekali berbeda (antrian, worker, SSRF). Bentuk payload inbound
-sudah diputuskan di muka: **tetap, sama seperti API Phase 4**. Kredensial verifikasi inbound = **kelima**,
-di-hash (Aturan #20 apa adanya) — [ADR-013](./decisions/ADR-013-signing-secret-storage.md) hanya
-mengecualikan `whsec_` outbound.
+**Apa yang Phase 8 tidak akan selesaikan** — dibaca sebelum mengharapkan sebaliknya: setelah #115
+merge, produk punya gerbang paket yang bekerja dan **nol paket berbayar untuk digerbangi**. Kartu
+terkunci tidak akan muncul di layar siapa pun sampai peta `planChannels` diisi paket kedua, dan itu
+menunggu **data pengguna nyata** (ADR-012 §4) — bukan menunggu kode. Detail di *Berikutnya*.
 
 **Verifikasi anti-spam sungguhan (Turnstile) masih tertunda** — seluruh Phase 6 dibangun & diverifikasi
 dengan `CAPTCHA_PROVIDER=none` (akun Cloudflare belum diurus, lihat *Punya Lead Time* di bawah).
@@ -127,6 +118,64 @@ daftar itu, bukan memulai keraguan terpisah.
 > **Kenapa bagian ini ada.** Pointer seperti ini tidak pernah dipasang untuk Phase 5 dan Phase 6,
 > sehingga enam berkas di atas tidak pernah dibaca saat phase-nya ditutup (#98). Templat issue kini
 > mewajibkannya.
+
+### Phase 8 — Subscription — baru dibuka (#112–#115)
+
+**Batas paket menjadi nyata — mekanismenya, bukan angkanya.** `subscriptions` ada sejak `0002`
+(Phase 1, amandemen S1) dan **belum pernah dibaca satu query pun**; Phase 8 melahirkan pembaca
+pertamanya, lalu menegakkan gerbangnya di usecase (ADR-012 §3). Dokumen:
+`docs/phases/08-subscription/`.
+
+**Yang sengaja TIDAK dikerjakan, dan kenapa:**
+
+- **Tidak ada harga, limit free tier, atau peta kanal-per-paket yang mengunci sesuatu.** ADR-012 §4
+  mengikat angka-angka itu ke *"setelah gate freeze (3–5 pengguna nyata) memberi data yang membuat
+  angka itu bisa dipilih dengan jujur"*. Yang ADR-012 nyatakan bisa dikerjakan sekarang adalah
+  kalimatnya sendiri: **"ADR ini menetapkan mekanismenya, bukan angkanya."**
+- **Tidak ada `usage_counters`** (keputusan D1) — penyimpangan tertulis dari `freeze.md` 8.4, bentuk
+  yang sama dengan D1 Phase 7 yang menolak tabel `jobs`: kuota adalah *"berapa banyak"*, dan tidak ada
+  satu pun angka untuk ditegakkan. Penghitung tanpa pembanding hanya menulis baris.
+- **Tidak ada tabel `plans`** (keputusan D2) — ADR-012 §4 sudah memutuskannya; `plan_code` sebagai
+  `text` masih cukup untuk satu paket (Aturan #28).
+- **Tidak ada migration sama sekali** — phase kedua tanpa migration setelah Phase 3. Kolomnya sudah ada
+  sejak `0002`; amandemen S1 menyebut biayanya "mendekati nol", dan phase ini yang menagih hasilnya.
+
+**Konsekuensi yang harus dibaca jujur:** setelah #115 merge, produk punya gerbang paket yang bekerja
+dan **nol paket berbayar untuk digerbangi**. Kartu terkunci tidak akan muncul di layar siapa pun
+sampai `planChannels` diisi paket kedua — dan itu menunggu data pengguna nyata, bukan menunggu kode.
+
+**Tidak ada pihak ketiga, tidak ada angka yang harus diputuskan lebih dulu, tidak ada issue yang
+terblokir.**
+
+---
+
+### Phase 7.5 — Inbound Webhook — ditunda, konsep dicari dulu
+
+Keputusan pemilik produk **3 September 2026**: 7.5 tidak dibuka sekarang; konsepnya dicari lebih dulu.
+Analisis awal yang sudah dilakukan dicatat di sini supaya tidak diulang dari nol:
+
+- **Kasus penggunanya = WordPress.** Pemilik toko punya form yang **sudah ada** (Contact Form 7 /
+  WPForms / Gravity / Fluent) yang tidak mau ia ganti dengan snippet embed Phase 6. Yang ia mau: form
+  itu tetap dipakai, submission-nya **juga** masuk ke Jualin. Plugin webhook WP-nya sering hanya
+  menyediakan **satu kolom URL**, tanpa custom header.
+- **Konsekuensinya**: kredensial harus muat di **path** (bentuk `pk_`), bukan `Authorization` — dan
+  **signature tidak bisa jadi penjaga utama**, karena pengirim yang hanya bisa diberi URL tidak bisa
+  menandatangani apa pun. Itu **bertentangan** dengan `07/prd.md` yang menulis *"verifikasi signature
+  menggantikan honeypot"*; pertentangan ini harus dihadapi terbuka di PRD 7.5, bukan didiamkan.
+- **Endpoint-nya hampir persis `POST /v1/forms/{public_key}/submit` yang sudah ada** — kredensial di
+  path, terima `x-www-form-urlencoded`, field tak dikenal ke `raw_payload`, rate limit + cap body.
+  Yang membuat plugin WP **gagal** kalau diarahkan ke sana hari ini hanya tiga: **Origin allowlist**,
+  **honeypot**, dan **time-trap token** — ketiganya pertahanan khusus-browser. Jadi 7.5 ≈ endpoint itu
+  tanpa ketiganya, **dengan penggantinya** — dan apa penggantinya adalah pertanyaan yang belum dijawab.
+- `leads.source` sudah menerima `'webhook'` sejak `0003`, menunggu phase ini.
+
+> **Satu klaim di dokumen Phase 7 yang perlu dikoreksi saat 7.5 dibuka** (Aturan #30 — dilaporkan,
+> bukan diam-diam diubah): `07/td.md` §11 dan §16 menulis *"`safedial` … akan dipakai lagi oleh inbound
+> webhook (Phase 7.5)"*. Itu kemungkinan besar keliru — `safedial` adalah pertahanan untuk panggilan
+> **keluar** (resolve DNS + dial IP tervalidasi). Inbound **menerima** request; ia tidak men-dial ke
+> mana pun. TD 7.5 harus menyatakan ini, bukan mewarisi asumsinya.
+
+---
 
 ### Phase 7 — Outbound Webhook — ✅ SELESAI (#100–#104)
 
@@ -300,10 +349,10 @@ Tidak ada yang memblokir. Semuanya diputuskan saat fitur terkait dikerjakan.
 | — | Email provider (Resend / Postmark / SES) | **Tidak lagi memblokir** sejak Phase 4.6 — transport SMTP, ganti provider = ganti env |
 | — | Domain final & branding | Phase 1 — ⏳ *lead time, lihat bawah* |
 | — | Hosting & managed PostgreSQL | Phase 0 akhir |
-| — | Retensi data free tier | Phase 8 |
+| — | Retensi data free tier | Phase 8 — **tetap terbuka**; Phase 8 sengaja hanya membangun mekanismenya (ADR-012 §4) |
 | — | Push provider detail | **Ditutup #68** — FCM HTTP v1 API langsung, tanpa Firebase Admin SDK |
-| — | Pricing final & limit free tier | Phase 8 |
-| — | Kontrak integrasi payment service | Sebelum Phase 8 |
+| — | Pricing final & limit free tier | Phase 8 — **tetap terbuka setelah Phase 8 dibuka.** ADR-012 §4 mengikatnya ke gate freeze (3–5 pengguna nyata), bukan ke phase-nya. Phase 8 membangun tempat yang menunggunya: satu peta `planChannels` yang tinggal diisi |
+| — | Kontrak integrasi payment service | `freeze.md` menulis "sebelum Phase 8" — **belum ada, dan Phase 8 berjalan tanpanya secara sadar**: keputusan D6 menghentikan kartu terkunci tepat di batas yang membutuhkannya (tanpa tombol upgrade, tanpa harga). Yang tidak boleh terjadi adalah menebak bentuk kontraknya lalu membangun ke arah tebakan itu |
 
 Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 dan `docs/brainstorming/architecture_product_review.md` bagian 12.
 
@@ -375,6 +424,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 5 | Employee Mobile | ✅ | ✅ | ✅ #68–#73 | ✅ |
 | 6 | Connect & Embedded Form | ✅ | ✅ | ✅ #85–#89 | ✅ |
 | 7 | Outbound Webhook | ✅ | ✅ | ✅ #100–#104 | ✅ |
-| 7.5 | Inbound Webhook | ⬜ | ⬜ | ⬜ | ⬜ |
+| 7.5 | Inbound Webhook | ⬜ | ⬜ | ⬜ | ⬜ — **ditunda**, konsep dicari dulu (3 Sep 2026) |
+| 8 | Subscription | ✅ | ✅ | ✅ #112–#115 | ⬜ |
 
 Pekerjaan yang sedang berjalan: `gh issue list --state open`
