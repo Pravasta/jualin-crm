@@ -267,7 +267,42 @@ Kalau §9.8 dilewati manual, tandai di checklist "diverifikasi lewat test otomat
 → Network: **nol** panggilan ke `/v1/webhook-endpoints` (hanya `/v1/me` + notifikasi/metrics dari
 layout).
 
-## 9.10 Bersihkan
+## 9.10 Gerbang paket (Phase 8, issue #112–#114) — kanal ditutup terbukti bisa gagal
+
+`free` membuka ketiga kanal Connect hari ini (`internal/subscription/plan.go`), jadi membuktikan
+gerbangnya benar-benar menolak butuh membalik satu entri **sementara**, dijalankan lalu dikembalikan
+— prosedur yang sama dengan harness isolasi tenant (#11/#23). **Jangan pernah commit dalam keadaan
+dibalik.**
+
+1. Di `crm_be/internal/subscription/plan.go`, ubah `planChannels[PlanFree][ChannelWebhook]` dari
+   `true` menjadi `false`.
+2. `docker compose restart api` (atau restart proses `go run ./cmd/api` bila jalan lokal).
+3. Lewat `curl` (bukan lewat UI yang menyembunyikan tombol — ADR-012 §3 mensyaratkan ini eksplisit):
+
+```bash
+curl -s -X POST http://localhost:8080/v1/webhook-endpoints -b "$COOKIES" \
+  -H "Content-Type: application/json" -H "X-CSRF-Token: $CSRF" \
+  -d '{"url":"https://example.com/hook","events":["lead.created"]}'
+# harus: 403 {"error":{"code":"plan_upgrade_required",...}}
+
+curl -s -X POST http://localhost:8080/v1/api-keys -b "$COOKIES" \
+  -H "Content-Type: application/json" -H "X-CSRF-Token: $CSRF" \
+  -d '{"name":"Masih Terbuka"}'
+# harus: 201 — hanya kanal webhook yang dibalik, api_key/form tidak ikut tertutup
+
+curl -s http://localhost:8080/v1/webhook-endpoints -b "$COOKIES"
+# harus: 200 — GET tidak digerbangi (D4), resource yang sudah ada tetap terkelola
+```
+
+4. Di browser, buka `/connect`. Kartu **Webhook** harus redup, tidak bisa diklik, dengan badge
+   "Terkunci oleh paket" — kartu **API** dan **Formulir** tetap normal.
+5. Kembalikan `planChannels[PlanFree][ChannelWebhook]` ke `true`, restart lagi, ulangi langkah 3 baris
+   pertama — harus kembali `201`.
+
+Detail keputusan desain gerbang ini ada di `architecture/api.md` bagian *Gerbang Paket* dan
+`architecture/authorization.md` bagian *Dua pertanyaan berbeda*.
+
+## 9.11 Bersihkan
 
 1. Login lagi sebagai Owner. Hapus endpoint uji (blok merah **Hapus endpoint** di detail, atau
    nonaktifkan saja bila ingin menyimpan riwayat).

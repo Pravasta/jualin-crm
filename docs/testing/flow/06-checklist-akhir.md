@@ -134,6 +134,18 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 - [ ] URL `169.254.169.254` / `127.0.0.1` / `10.x` / `ftp://` → ditolak "URL webhook tidak diizinkan." di bawah field; `https://example.com` diterima (AC #4)
 - [ ] Manager/Employee di `/connect/webhook`, `/connect/webhook/{id}`, `/connect/webhook/docs`: "tidak tersedia untuk role Anda", **nol** panggilan `/v1/webhook-endpoints`
 
+## 10 — Subscription (Phase 8)
+
+Prosedur lengkap: [`09-webhook.md`](./09-webhook.md) §9.10 (membalik `planChannels`, dijalankan lalu
+dikembalikan — jangan pernah commit dalam keadaan dibalik).
+
+- [ ] Ketiga kartu Connect (`API`, `Formulir`, `Webhook`) aktif tanpa syarat dengan paket `free` default
+- [ ] `planChannels[free][webhook]` dibalik ke `false` → `curl POST /v1/webhook-endpoints` → **`403 plan_upgrade_required`**
+- [ ] Kanal lain (`api_key`) **tidak ikut** tertutup — hanya entri peta yang dibalik
+- [ ] `curl GET /v1/webhook-endpoints` tetap `200` — gerbang hanya di `POST` (D4)
+- [ ] Kartu **Webhook** di `/connect` redup, tidak bisa diklik, badge "Terkunci oleh paket" — **tanpa** tombol upgrade, **tanpa** harga; dua kartu lain tetap normal
+- [ ] Peta dikembalikan ke `true` → `POST /v1/webhook-endpoints` kembali `201`
+
 ## Kalau semua tercentang
 
 Alur inti MVP (Phase 0–5) terbukti benar-benar jalan sebagai **satu rangkaian utuh**, bukan cuma

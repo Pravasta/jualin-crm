@@ -136,6 +136,7 @@ Bertambah seiring fitur. Setiap kode baru dicatat di sini.
 | 400 | `captcha_failed` | Turnstile menolak, token tidak dikirim, atau verifikasi ke Cloudflare sendiri gagal — ketiganya jalur yang sama, gagal tertutup (issue #87) |
 | 400 | `webhook_url_not_allowed` | URL webhook menunjuk alamat privat/loopback/link-local, skema bukan `http(s)`, atau DNS tidak bisa diresolusi — **satu kode untuk semua alasan**, membedakannya memberi pelanggan alat memetakan jaringan internal kita (issue #100) |
 | 409 | `delivery_not_retryable` | `POST /v1/webhook-deliveries/:id/retry` dipanggil untuk pengiriman yang statusnya bukan `failed` (issue #100) |
+| 403 | `plan_upgrade_required` | `POST` ke salah satu dari tiga kanal Connect (`/v1/api-keys`, `/v1/forms`, `/v1/webhook-endpoints`) saat paket organization tidak membuka kanal itu, **atau** `status` subscription-nya bukan `active` — **satu kode untuk kedua sebab**; membedakannya di response membocorkan keadaan penagihan ke permukaan yang salah, sama alasannya dengan `webhook_url_not_allowed` (issue #113, lihat *Gerbang Paket* di bawah) |
 
 > `invalid_activity_type` dan `membership_has_open_leads` seharusnya masuk katalog ini saat issue #21
 > dan #22 selesai ("setiap kode baru dicatat di sini") — luput saat itu, ditambahkan di sini saat
@@ -555,3 +556,57 @@ belum pernah diuji di volume produksi (`docs/issues/047`, `docs/issues/102`). Ba
 `pending`/`delivering` tidak pernah dihapus. Aturan #18 (*"Activity & audit log tidak pernah
 dihapus"*) **tidak** berlaku — riwayat pengiriman adalah alat diagnosis, bukan catatan audit; yang
 bersifat audit (endpoint dibuat/dihapus) tetap masuk `audit_log`.
+
+---
+
+## Gerbang Paket (Phase 8, issue #112–#114)
+
+Sejak Phase 8, tiga endpoint `POST` di atas — `/v1/api-keys`, `/v1/forms`, `/v1/webhook-endpoints` —
+lewat **dua** gerbang berurutan sebelum mengerjakan apa pun: role (`authz.Require`, tidak berubah)
+lalu paket (`subscription.RequireChannel`, baru). Detail urutan dan alasannya ada di
+`authorization.md` bagian *Dua pertanyaan berbeda yang harus dilewati sebuah `POST` kanal*.
+
+### Apa yang digerbangi, dan apa yang sengaja tidak
+
+| Endpoint | Digerbangi paket? |
+|---|---|
+| `POST /v1/api-keys` | ✅ |
+| `POST /v1/forms` | ✅ |
+| `POST /v1/webhook-endpoints` | ✅ |
+| `GET`/`PATCH`/`DELETE` ketiga kanal | ❌ — resource yang sudah ada tetap dikelola |
+| `POST /v1/leads` (jalur API key) | ❌ — kunci yang sudah terbit tetap bekerja |
+| `POST /v1/forms/{public_key}/submit` | ❌ — form yang sudah tertanam tetap menerima |
+| Pengiriman webhook keluar (worker) | ❌ — endpoint yang sudah ada tetap terkirim |
+
+Baris "tidak digerbangi" bukan celah — menutup resource yang sudah jalan adalah perilaku
+**downgrade**, dan produk ini belum punya jalur downgrade sama sekali (hanya paket `free` yang eksis
+hari ini). Menambahkannya sebelum ada transisi paket yang bisa terjadi melanggar Aturan #29.
+
+### `GET /v1/me` membawa kapabilitas yang sudah diselesaikan
+
+```json
+{
+  "data": {
+    "user_id": "…", "email": "…", "role": "owner",
+    "plan": {
+      "code": "free",
+      "channels": { "api_key": true, "form": true, "webhook": true }
+    }
+  }
+}
+```
+
+`channels` adalah **jawaban**, bukan bahan — dashboard merender `channels.webhook` langsung, tidak
+pernah menyalin peta paket→kanal ke TypeScript (kesalahan yang harus dikoreksi #33 di
+`lib/lead-status.ts`). `code` hanya untuk **ditampilkan**, tidak pernah untuk keputusan UI. Tidak ada
+endpoint `GET /v1/subscription` terpisah — `SessionGate` sudah memanggil `/v1/me` di setiap layar
+terproteksi (Aturan #27: jangan minta dua kali data yang sudah di tangan).
+
+### CRM tahu paket, tidak pernah tahu uang
+
+Batas ADR-012 §2, ditegakkan harfiah: `plan_code`, `status`, dan `external_reference` di
+`subscriptions` adalah satu-satunya jejak billing yang CRM ini simpan. **Harga, checkout, kartu,
+invoice, refund** seluruhnya di payment service — repository ini tidak pernah menghitung, menyimpan,
+atau menampilkan satu angka uang pun terkait paket (kriteria #9 Phase 8). `external_reference` adalah
+titik sambung ke payment service, disimpan tapi **tidak pernah dibaca** oleh phase ini — pembacanya
+menunggu kontrak integrasi payment service (`STATUS.md` bagian *Keputusan Belum Diambil*).

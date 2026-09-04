@@ -143,3 +143,64 @@ dilakukan sesi ini**, diserahkan ke pemilik produk setelah PR naik (keputusan ek
 `npm run typecheck && lint && test && build` bersih — 150 test (10 baru di `plan.test.ts`), 0 warning.
 Tidak ada peta paket→kanal versi TypeScript ditulis di mana pun (kriteria #6). Tidak ada harga atau
 angka di layar mana pun.
+
+---
+
+## #115 — Dokumentasi + penutup Phase 8
+
+Penutup phase, tanpa kode produksi baru. `api.md` bab *Gerbang Paket* + katalog `plan_upgrade_required`;
+`authorization.md` bagian *Dua pertanyaan berbeda*; `authentication.md` **tidak disentuh** (dicatat di
+sini sebagai keputusan — subscription bukan kredensial, bukan jalur autentikasi). Prosedur `curl`
+membalik peta ditulis di `docs/testing/flow/09-webhook.md` §9.10 (bagian baru pada berkas yang sudah
+ada, bukan berkas baru — sesuai TD) + rekap di `06-checklist-akhir.md` bagian *10 — Subscription* +
+satu baris di `README.md`. **Dua berkas `docs/issues/` ditulis retroaktif** (`112-subscription-domain.md`,
+`114-dashboard-plan-locked.md`) — #112/#113/#114 tidak menulisnya saat merge; celah tertangkap saat
+sesi ini mengecek `docs/issues/*` Phase 8 dan menemukan nol berkas untuk tiga issue yang sudah selesai
+(kewajiban #98). Keduanya langsung ditinjau di PR yang sama (bentuk `docs/issues/101` yang ditulis
+lalu ditinjau di sesi berbeda — di sini keduanya terjadi di satu sesi karena berkasnya sendiri belum
+ada sebelumnya).
+
+### Review 10 acceptance criteria PRD, satu per satu terhadap bukti nyata
+
+| # | Kriteria | Status | Bukti |
+|---|---|---|---|
+| 1 | `plan_code` punya pembaca nyata — `GET /v1/me` mengembalikan paket + kanal | ✅ | `internal/auth/handler_http.go`'s `plan` field; `TestHandler_Me_PlanChannelsKeySetMatchesSubscriptionChannels` |
+| 2 | Peta paket→kapabilitas satu tempat, perubahan satu baris | ✅ | `internal/subscription/plan.go`'s `planChannels`; `TestChannelsFor_KnownPlan_MatchesMap` |
+| 3 | `POST` tiga endpoint → `403 plan_upgrade_required` saat tertutup, dibuktikan lewat `curl` | ✅* | `cmd/api/plan_gate_test.go` — request HTTP mentah terhadap router produksi asli (setara `curl` di lapis protokol, bukan lewat UI); *literal `curl` command-line* ada di `09-webhook.md` §9.10, **belum dijalankan terhadap `docker compose` sungguhan** — diserahkan ke pemilik produk |
+| 4 | Gerbang terbukti bisa gagal: peta dibalik → `403`, dijalankan lalu dikembalikan | ✅ | **Benar-benar dijalankan** sesi #113: `planChannels[free][webhook]` dibalik, `go test -run TestPlanGate_OpenPlan` → merah hanya di webhook, dikembalikan, `git diff` kosong dikonfirmasi. Dicatat `notes.md` `## #113` |
+| 5 | Kartu Connect punya keadaan "terkunci oleh paket" yang nyata dan terlihat | ✅* | Kode: `channelCardState`, `connect-screen.tsx` — diuji `plan.test.ts`. **Verifikasi visual di browser sungguhan belum dijalankan** — diserahkan ke pemilik produk (keputusan eksplisit sebelum implementasi #114) |
+| 6 | Dashboard tidak memuat peta paket→kanal versinya sendiri | ✅ | `lib/plan.ts` murni membaca `plan.channels`; `grep` "planChannels\|PLAN_MAP" di `crm_dashboard/src` nihil di luar nama fungsi/komentar yang menjelaskan ketiadaannya |
+| 7 | Layar Connect menangani `403 plan_upgrade_required` dari balapan | ✅ | Sudah tertangani sebelum #114 lewat banner generik (`globalMessage(err)`) di ketiga *create dialog*; #114 menambah komentar yang menamai keputusan |
+| 8 | Organization paket tak dikenal → ditolak (gagal tertutup) | ✅ | `TestChannelsFor_UnknownPlan_AllClosed`; `TestUnit_ResolvePlan_NoActiveSubscription_AllChannelsClosedNoError` |
+| 9 | Tidak ada satu pun angka harga/limit/kuota di kode maupun dokumen phase ini | ✅ | `grep` numerik dijalankan sesi ini terhadap `internal/subscription/`, `lib/plan.ts`, `docs/phases/08-subscription/*.md` — nihil di luar rujukan prosa ke aturan/kriteria itu sendiri |
+| 10 | `go test -race ./...` dan `npm run typecheck && lint && test && build` bersih | ✅ | Dijalankan ulang di akhir #115 (lihat bawah) |
+
+**\*** Kriteria #3 dan #5 punya dua lapis bukti: mekanisme sudah dibuktikan dengan test otomatis
+sungguhan (bukan lewat UI yang menyembunyikan tombol — syarat intinya terpenuhi), tapi langkah
+**visual/`curl` literal terhadap stack `docker compose` yang benar-benar menyala** diserahkan ke
+pemilik produk, sesuai keputusan eksplisit sebelum #114 dan #115 dikerjakan. Prosedurnya tertulis
+lengkap di `09-webhook.md` §9.10 dan `06-checklist-akhir.md` *10 — Subscription*, tinggal dijalankan.
+
+### Kewajiban yang diteruskan ke phase berikutnya (TD §16)
+
+Dicatat di sini supaya tidak hilang — tidak satu pun memblokir penutupan Phase 8:
+
+- **Saat angka mendarat** (setelah gate freeze, 3–5 pengguna nyata): isi `planChannels` dengan paket
+  sesungguhnya — perubahan pada **satu literal** di `plan.go`, bukan usecase manapun. Bersamaan,
+  evaluasi ulang `usage_counters` (prd D1) dan jawab pertanyaan downgrade (prd D4).
+- **Saat payment service punya kontrak**: kartu terkunci mendapat satu tautan keluar (prd D6),
+  `external_reference` mendapat pembacanya. Bentuk kartunya **tidak berubah**.
+- **Saat kanal keempat lahir** (inbound webhook, Phase 7.5 atau sesudahnya): tambah satu konstanta ke
+  `subscription.Channels` dan satu entri ke `planChannels`. Test tabel (`plan_test.go`,
+  `lib/plan.test.ts`) otomatis mencakupnya — itu alasan `Channels`/`PLAN_CHANNELS` ada sebagai
+  slice/array, bukan daftar tulis tangan di tiap test.
+
+### Gerbang akhir
+
+`go test -race ./crm_be/...` bersih, `golangci-lint run ./crm_be/...` 0 issues (tidak ada perubahan
+kode Go di issue ini, dijalankan ulang untuk memastikan). `npm run typecheck && lint && test && build`
+di `crm_dashboard/` bersih (tidak ada perubahan kode TS di issue ini).
+
+Phase 8 selesai dengan **nol paket berbayar untuk digerbangi** — konsekuensi yang harus dibaca jujur,
+bukan kegagalan: kartu terkunci tidak akan muncul di layar siapa pun sampai `planChannels` diisi
+paket kedua, dan itu menunggu data pengguna nyata (ADR-012 §4), bukan menunggu kode.
