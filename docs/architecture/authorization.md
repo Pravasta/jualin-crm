@@ -283,6 +283,57 @@ terdaftar di paket ini terhadap principal `public_form`, bukan daftar tulis tang
 
 ---
 
+## Dua pertanyaan berbeda yang harus dilewati sebuah `POST` kanal (Phase 8, issue #112–#113)
+
+Sejak Phase 8, `Usecase.Create` di `apikey`, `form`, dan `webhook` masing-masing menjawab **dua**
+pertanyaan yang bentuknya sama sekali berbeda, berurutan:
+
+```go
+func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateInput) (...) {
+    if err := authz.Require(t, authz.ActionWebhookCreate); err != nil {
+        return err                        // 1. "role ini boleh?"  → 403 forbidden
+    }
+    if err := u.plan.RequireChannel(ctx, t, "webhook"); err != nil {
+        return err                        // 2. "paket ini membuka?" → 403 plan_upgrade_required
+    }
+    // ...
+}
+```
+
+| Pertanyaan | Dijawab oleh | Tabelnya |
+|---|---|---|
+| *"Role ini boleh melakukan aksi ini?"* | `internal/shared/authz` — matriks di atas | Statis, per-role, milik seluruh produk |
+| *"Paket organization ini membuka kanal ini?"* | `internal/subscription.RequireChannel` | `planChannels`, milik satu organization, bisa berubah kapan saja |
+
+**Kenapa urutannya mengikat, dan tidak boleh dibalik.** Manager yang memanggil `POST /v1/forms` harus
+menerima `403 forbidden` — bukan `plan_upgrade_required`. Kode kedua membocorkan keadaan paket
+organization kepada orang yang **memang tidak berhak** mengelola kanal itu sama sekali, apa pun
+paketnya. Semangatnya sama dengan Aturan #6 (404 alih-alih 403 untuk tenant lain): jangan menjawab
+pertanyaan yang penanyanya tidak berhak ajukan. Dibuktikan test, bukan komentar di kode — fake
+`PlanGate` yang menolak **sekaligus** dengan role yang authz tolak harus menghasilkan `forbidden`,
+karena satu-satunya cara mengamati urutan dari luar adalah lewat kasus di mana keduanya menolak.
+
+**Kenapa paket bukan baris tambahan di matriks `Action` di atas.** Paket adalah dimensi **kedua**,
+bukan perluasan dimensi role. Membaca paket sendiri (`plan.channels` di `GET /v1/me`) bukan aksi
+ber-otorisasi terpisah — setiap principal user yang terautentikasi berhak melihat paketnya sendiri,
+jadi tidak ada `Action` baru untuknya. Menambahkan paket sebagai kolom baru di `permissions[role][action]`
+akan salah secara kategori: satu sel di matriks itu menjawab *"siapa boleh"*, sedangkan paket
+menjawab *"organization mana yang boleh"* — pertanyaan yang berbeda sumbu.
+
+`internal/apikey`, `internal/form`, dan `internal/webhook` masing-masing mendeklarasikan **`PlanGate`
+miliknya sendiri** (ADR-011) — bentuk sama dengan `ActivityRecorder`/`LeadCreator`/`WebhookEnqueuer`:
+```go
+type PlanGate interface {
+    RequireChannel(ctx context.Context, t tenant.Context, ch string) error
+}
+```
+`ch` bertipe `string`, bukan `subscription.Channel` — mengimpor tipe itu berarti mengimpor
+`internal/subscription`, yang justru dihindari pola ini. Nilainya (`"api_key"`, `"form"`, `"webhook"`)
+adalah kontrak kabel dengan `subscription.Channels`, dikunci `cmd/api/plan_gate_test.go` — bukan
+diasumsikan cocok.
+
+---
+
 ## Empat aturan yang harus ditulis eksplisit
 
 Sumber: `architecture_product_review.md` §6.2. Tiga dari empat bergantung pada relasi actor-vs-target,
