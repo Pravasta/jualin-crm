@@ -37,6 +37,7 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/push"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/ratelimit"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/safedial"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/subscription"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/task"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/webhook"
 )
@@ -200,13 +201,22 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	invitationUsecase := invitation.NewUsecase(newInvitationStore(pool), mail, log, cfg.AppBaseURL)
 	invitation.NewHandler(invitationUsecase).RegisterRoutes(r, authMW, optionalAuthMW)
 
+	// plan is wired ahead of apikey/form/webhook — all three gate their
+	// Create on it (subscription #113). subscription itself has no Store
+	// (read-only, TD §6), so it's built directly from pool, same as
+	// metricsUsecase below. planGate bridges *subscription.Usecase to
+	// each domain's own PlanGate interface (ADR-011) without any of them
+	// importing internal/subscription.
+	planUsecase := subscription.NewUsecase(subscription.New(pool))
+	plan := newPlanGate(planUsecase, log)
+
 	// apikey is wired here, ahead of lead, because lead's public create
 	// route (below) needs apikeyUsecase to build its own middleware —
 	// apikeyUsecase.ResolveAPIKey structurally satisfies
 	// authn.APIKeyResolver (Phase 4 #47, TD §3). The management routes
 	// (create/list/revoke as principal user) are registered later,
 	// alongside every other domain's own handler.
-	apikeyUsecase := apikey.NewUsecase(newAPIKeyStore(pool))
+	apikeyUsecase := apikey.NewUsecase(newAPIKeyStore(pool), plan)
 	publicLeadCreateMW := authn.MiddlewareWithAPIKey(authUsecase, apikeyUsecase)
 
 	// device is wired here, ahead of lead, for the same reason apikey is
@@ -259,6 +269,7 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 		newCaptchaVerifier(cfg),
 		[]byte(cfg.FormTokenSecret),
 		newLeadCreatorAdapter(leadUsecase),
+		plan,
 	)
 	formSubmitIPLimiter := ratelimit.NewFixedWindow(cfg.FormSubmitRateLimitIP, time.Minute)
 	formSubmitKeyLimiter := ratelimit.NewFixedWindow(cfg.FormSubmitRateLimitForm, time.Minute)
@@ -285,6 +296,7 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 		safedial.NewValidator(cfg.WebhookAllowPrivateTargets),
 		webhookCrypter,
 		log,
+		plan,
 	)
 	webhook.NewHandler(webhookUsecase).RegisterRoutes(r, authMW)
 

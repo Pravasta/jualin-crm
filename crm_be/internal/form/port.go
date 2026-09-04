@@ -45,6 +45,16 @@ type AuditRepository interface {
 	Record(ctx context.Context, t tenant.Context, actorMembershipID *uuid.UUID, action string) error
 }
 
+// PlanGate is declared here, consumer-side (ADR-011) — same shape as
+// apikey.PlanGate and webhook.PlanGate, each declared independently
+// rather than shared (TD §3.2). Satisfied structurally by
+// *subscription.Usecase through cmd/api/subscription_gate.go's planGate
+// wrapper. "form" is a wire contract with subscription.ChannelForm —
+// locked by cmd/api/plan_gate_test.go (TD §7).
+type PlanGate interface {
+	RequireChannel(ctx context.Context, t tenant.Context, ch string) error
+}
+
 type Repos struct {
 	Form  Repository
 	Audit AuditRepository

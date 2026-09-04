@@ -26,14 +26,16 @@ type Usecase struct {
 	captchaVerifier captcha.Verifier
 	formTokenSecret []byte
 	leadCreator     LeadCreator
+	plan            PlanGate
 }
 
-func NewUsecase(store Store, captchaVerifier captcha.Verifier, formTokenSecret []byte, leadCreator LeadCreator) *Usecase {
+func NewUsecase(store Store, captchaVerifier captcha.Verifier, formTokenSecret []byte, leadCreator LeadCreator, plan PlanGate) *Usecase {
 	return &Usecase{
 		store:           store,
 		captchaVerifier: captchaVerifier,
 		formTokenSecret: formTokenSecret,
 		leadCreator:     leadCreator,
+		plan:            plan,
 	}
 }
 
@@ -50,6 +52,11 @@ type CreateInput struct {
 // through List/Get, because it was never a secret to begin with (D3).
 func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateInput) (*Form, error) {
 	if err := authz.Require(t, authz.ActionFormCreate); err != nil {
+		return nil, err // 1. role → 403 forbidden
+	}
+	// 2. plan → 403 plan_upgrade_required, AFTER the role check —
+	// subscription TD §3.3.
+	if err := u.plan.RequireChannel(ctx, t, "form"); err != nil {
 		return nil, err
 	}
 	if in.Name == "" {

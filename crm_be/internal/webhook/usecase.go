@@ -30,10 +30,11 @@ type Usecase struct {
 	urls    URLValidator
 	crypter SecretCrypter
 	logger  *slog.Logger
+	plan    PlanGate
 }
 
-func NewUsecase(store Store, urls URLValidator, crypter SecretCrypter, logger *slog.Logger) *Usecase {
-	return &Usecase{store: store, urls: urls, crypter: crypter, logger: logger}
+func NewUsecase(store Store, urls URLValidator, crypter SecretCrypter, logger *slog.Logger, plan PlanGate) *Usecase {
+	return &Usecase{store: store, urls: urls, crypter: crypter, logger: logger, plan: plan}
 }
 
 // CreateInput is Create's argument. Events must be non-empty and every
@@ -46,6 +47,11 @@ type CreateInput struct {
 
 func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateInput) (*Endpoint, string, error) {
 	if err := authz.Require(t, authz.ActionWebhookCreate); err != nil {
+		return nil, "", err // 1. role → 403 forbidden
+	}
+	// 2. plan → 403 plan_upgrade_required, AFTER the role check —
+	// subscription TD §3.3.
+	if err := u.plan.RequireChannel(ctx, t, "webhook"); err != nil {
 		return nil, "", err
 	}
 	if err := u.validateEvents(in.Events); err != nil {

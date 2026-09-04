@@ -42,6 +42,22 @@ type AuditRepository interface {
 	Record(ctx context.Context, t tenant.Context, actorMembershipID *uuid.UUID, action string) error
 }
 
+// PlanGate is declared here, consumer-side (ADR-011) — Usecase.Create
+// needs only this one call, not internal/subscription's Repository or
+// Plan type. ch is a plain string, not subscription.Channel: importing
+// that type would mean importing internal/subscription, which this
+// interface exists specifically to avoid (TD §3.2). "api_key" is a wire
+// contract with subscription.ChannelAPIKey, subscription.Channels, and
+// GET /v1/me's plan.channels key — locked by cmd/api/plan_gate_test.go,
+// not by the compiler (TD §7).
+//
+// Satisfied structurally by *subscription.Usecase's own RequireChannel
+// through cmd/api/subscription_gate.go's planGate wrapper, same
+// bridging pattern as activity.NewRecorder / webhook.NewEnqueuer.
+type PlanGate interface {
+	RequireChannel(ctx context.Context, t tenant.Context, ch string) error
+}
+
 type Repos struct {
 	APIKey Repository
 	Audit  AuditRepository

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"testing"
 	"time"
 
@@ -179,6 +180,25 @@ func testCrypter() webhook.SecretCrypter {
 	return c
 }
 
+// fakePlanGate lets tests control the subscription gate (#113)
+// independently of authz — allow (nil) by default so every pre-existing
+// test keeps exercising Create's other branches unaffected, and reject
+// for the tests that specifically prove the gate is wired and ordered
+// correctly.
+type fakePlanGate struct {
+	reject bool
+}
+
+func openPlanGate() *fakePlanGate   { return &fakePlanGate{} }
+func closedPlanGate() *fakePlanGate { return &fakePlanGate{reject: true} }
+
+func (f *fakePlanGate) RequireChannel(_ context.Context, _ tenant.Context, _ string) error {
+	if f.reject {
+		return &httpx.DomainError{Status: http.StatusForbidden, Code: "plan_upgrade_required", Message: "Paket Anda tidak mencakup kanal ini."}
+	}
+	return nil
+}
+
 func testUsecase(deny bool) (*webhook.Usecase, *fakeStore, *fakeAudit) {
 	audit := &fakeAudit{}
 	store := &fakeStore{repos: webhook.Repos{
@@ -186,7 +206,7 @@ func testUsecase(deny bool) (*webhook.Usecase, *fakeStore, *fakeAudit) {
 		Delivery: newFakeDeliveryRepo(),
 		Audit:    audit,
 	}}
-	u := webhook.NewUsecase(store, &fakeURLValidator{deny: deny}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	u := webhook.NewUsecase(store, &fakeURLValidator{deny: deny}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)), openPlanGate())
 	return u, store, audit
 }
 
@@ -293,6 +313,41 @@ func TestUnit_Create_DeniesNonOwnerAdmin(t *testing.T) {
 	}
 }
 
+// --- Create: plan gate (#113) ---
+
+func TestUnit_Create_PlanClosed_Returns403PlanUpgradeRequired(t *testing.T) {
+	store := &fakeStore{repos: webhook.Repos{Endpoint: newFakeEndpointRepo(), Delivery: newFakeDeliveryRepo(), Audit: &fakeAudit{}}}
+	u := webhook.NewUsecase(store, &fakeURLValidator{}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)), closedPlanGate())
+
+	_, _, err := u.Create(context.Background(), ownerCtx(), webhook.CreateInput{
+		URL: "https://example.com/hook", Events: []string{"lead.created"},
+	})
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "plan_upgrade_required" {
+		t.Fatalf("expected plan_upgrade_required, got: %v", err)
+	}
+}
+
+// TestUnit_Create_RoleCheckedBeforePlan is the only way to prove the
+// ORDER of the two gates from outside (subscription TD §3.3): a fake
+// that rejects BOTH role and plan must surface "forbidden", never
+// "plan_upgrade_required" — a Manager who can't manage webhooks at all
+// must never learn the organization's plan state.
+func TestUnit_Create_RoleCheckedBeforePlan(t *testing.T) {
+	store := &fakeStore{repos: webhook.Repos{Endpoint: newFakeEndpointRepo(), Delivery: newFakeDeliveryRepo(), Audit: &fakeAudit{}}}
+	u := webhook.NewUsecase(store, &fakeURLValidator{}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)), closedPlanGate())
+	ctx := ownerCtx()
+	ctx.Role = tenant.RoleManager // authz denies this role too
+
+	_, _, err := u.Create(context.Background(), ctx, webhook.CreateInput{
+		URL: "https://example.com/hook", Events: []string{"lead.created"},
+	})
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "forbidden" {
+		t.Fatalf("expected forbidden (role checked first), got: %v", err)
+	}
+}
+
 func TestUnit_Update_RevalidatesURL(t *testing.T) {
 	u, _, _ := testUsecase(false)
 	ctx := ownerCtx()
@@ -306,7 +361,7 @@ func TestUnit_Update_RevalidatesURL(t *testing.T) {
 	// Flip the validator to deny, then try to point the URL somewhere new.
 	u2 := webhook.NewUsecase(&fakeStore{repos: webhook.Repos{
 		Endpoint: fakeRepoWith(e), Delivery: newFakeDeliveryRepo(), Audit: &fakeAudit{},
-	}}, &fakeURLValidator{deny: true}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}}, &fakeURLValidator{deny: true}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)), openPlanGate())
 
 	newURL := "http://10.0.0.1/hook"
 	_, err = u2.Update(context.Background(), ctx, e.ID, webhook.UpdateInput{URL: &newURL})
@@ -324,7 +379,7 @@ func TestUnit_RetryDelivery_RejectsNonFailed(t *testing.T) {
 	dr.byID[id] = &webhook.Delivery{ID: id, OrganizationID: ctx.OrganizationID, Status: webhook.StatusSucceeded}
 	u := webhook.NewUsecase(&fakeStore{repos: webhook.Repos{
 		Endpoint: newFakeEndpointRepo(), Delivery: dr, Audit: audit,
-	}}, &fakeURLValidator{}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}}, &fakeURLValidator{}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)), openPlanGate())
 
 	_, err := u.RetryDelivery(context.Background(), ctx, id)
 	var derr *httpx.DomainError
@@ -340,7 +395,7 @@ func TestUnit_RetryDelivery_ResetsFailed(t *testing.T) {
 	dr.byID[id] = &webhook.Delivery{ID: id, OrganizationID: ctx.OrganizationID, Status: webhook.StatusFailed, Attempt: 5}
 	u := webhook.NewUsecase(&fakeStore{repos: webhook.Repos{
 		Endpoint: newFakeEndpointRepo(), Delivery: dr, Audit: &fakeAudit{},
-	}}, &fakeURLValidator{}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}}, &fakeURLValidator{}, testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)), openPlanGate())
 
 	d, err := u.RetryDelivery(context.Background(), ctx, id)
 	if err != nil {

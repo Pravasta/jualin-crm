@@ -8,6 +8,7 @@ package form_test
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
@@ -154,15 +155,35 @@ func (f *fakeLeadCreator) CreateFromForm(_ context.Context, t tenant.Context, na
 	return uuid.Must(uuid.NewV7()), nil
 }
 
+// fakePlanGate lets tests control the subscription gate (#113)
+// independently of authz — allow (nil) by default so every pre-existing
+// test keeps exercising Create's other branches unaffected, and reject
+// for the tests that specifically prove the gate is wired and ordered
+// correctly.
+type fakePlanGate struct {
+	reject bool
+}
+
+func openPlanGate() *fakePlanGate   { return &fakePlanGate{} }
+func closedPlanGate() *fakePlanGate { return &fakePlanGate{reject: true} }
+
+func (f *fakePlanGate) RequireChannel(_ context.Context, _ tenant.Context, _ string) error {
+	if f.reject {
+		return &httpx.DomainError{Status: http.StatusForbidden, Code: "plan_upgrade_required", Message: "Paket Anda tidak mencakup kanal ini."}
+	}
+	return nil
+}
+
 // newTestUsecase supplies sensible always-succeeding defaults for the
-// three dependencies #87 added to NewUsecase (captcha.NoopVerifier,
-// testFormTokenSecret, an empty-but-successful fakeLeadCreator) — used
-// by every test in this file that exercises CRUD, not Submit, where
-// these three are irrelevant plumbing rather than what's under test.
-// Submit-specific tests below construct form.NewUsecase directly so
-// each can swap in the ONE fake it actually needs control over.
+// four dependencies #87/#113 added to NewUsecase (captcha.NoopVerifier,
+// testFormTokenSecret, an empty-but-successful fakeLeadCreator, an
+// always-open PlanGate) — used by every test in this file that exercises
+// CRUD, not Submit, where these are irrelevant plumbing rather than what
+// is under test. Submit-specific tests below construct form.NewUsecase
+// directly so each can swap in the ONE fake it actually needs control
+// over.
 func newTestUsecase(store form.Store) *form.Usecase {
-	return form.NewUsecase(store, captcha.NoopVerifier{}, testFormTokenSecret, &fakeLeadCreator{})
+	return form.NewUsecase(store, captcha.NoopVerifier{}, testFormTokenSecret, &fakeLeadCreator{}, openPlanGate())
 }
 
 func actorContext(orgID, membershipID uuid.UUID, role tenant.Role) tenant.Context {
@@ -211,6 +232,37 @@ func TestUnit_Create_ManagerAndEmployeeForbidden(t *testing.T) {
 		if !errors.As(err, &derr) || derr.Code != "forbidden" {
 			t.Fatalf("role %s: expected forbidden, got: %v", role, err)
 		}
+	}
+}
+
+// --- Create: plan gate (#113) ---
+
+func TestUnit_Create_PlanClosed_Returns403PlanUpgradeRequired(t *testing.T) {
+	store := newFakeStore()
+	u := form.NewUsecase(store, captcha.NoopVerifier{}, testFormTokenSecret, &fakeLeadCreator{}, closedPlanGate())
+	actor, _ := ownerActor()
+
+	_, err := u.Create(context.Background(), actor, form.CreateInput{Name: "Website"})
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "plan_upgrade_required" {
+		t.Fatalf("expected plan_upgrade_required, got: %v", err)
+	}
+}
+
+// TestUnit_Create_RoleCheckedBeforePlan is the only way to prove the
+// ORDER of the two gates from outside (subscription TD §3.3): a fake
+// that rejects BOTH role and plan must surface "forbidden", never
+// "plan_upgrade_required" — a Manager who can't manage forms at all
+// must never learn the organization's plan state.
+func TestUnit_Create_RoleCheckedBeforePlan(t *testing.T) {
+	store := newFakeStore()
+	u := form.NewUsecase(store, captcha.NoopVerifier{}, testFormTokenSecret, &fakeLeadCreator{}, closedPlanGate())
+	actor := actorForRole(tenant.RoleManager) // authz denies this role too
+
+	_, err := u.Create(context.Background(), actor, form.CreateInput{Name: "Website"})
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "forbidden" {
+		t.Fatalf("expected forbidden (role checked first), got: %v", err)
 	}
 }
 
@@ -583,7 +635,7 @@ func TestUnit_Submit_HoneypotFilled_FakeSuccessWithoutCreatingLead(t *testing.T)
 	org := uuid.Must(uuid.NewV7())
 	seedForm(store, org, "pk_test", []string{"https://example.com"}, form.DefaultFields())
 	creator := &fakeLeadCreator{}
-	u := form.NewUsecase(store, captcha.NoopVerifier{}, testFormTokenSecret, creator)
+	u := form.NewUsecase(store, captcha.NoopVerifier{}, testFormTokenSecret, creator, openPlanGate())
 
 	in := validSubmitInput()
 	in.HoneypotFilled = true
@@ -671,7 +723,7 @@ func TestUnit_Submit_CaptchaFails_Returns400(t *testing.T) {
 	store := newFakeStore()
 	org := uuid.Must(uuid.NewV7())
 	f := seedForm(store, org, "pk_test", []string{"https://example.com"}, form.DefaultFields())
-	u := form.NewUsecase(store, fakeCaptchaVerifier{err: captcha.ErrCaptchaFailed}, testFormTokenSecret, &fakeLeadCreator{})
+	u := form.NewUsecase(store, fakeCaptchaVerifier{err: captcha.ErrCaptchaFailed}, testFormTokenSecret, &fakeLeadCreator{}, openPlanGate())
 
 	in := validSubmitInput()
 	in.FormToken = validTokenFor(f.ID)
@@ -731,7 +783,7 @@ func TestUnit_Submit_Success_CreatesLeadAndIncrementsSubmitCount(t *testing.T) {
 	org := uuid.Must(uuid.NewV7())
 	f := seedForm(store, org, "pk_test", []string{"https://example.com"}, form.DefaultFields())
 	creator := &fakeLeadCreator{}
-	u := form.NewUsecase(store, captcha.NoopVerifier{}, testFormTokenSecret, creator)
+	u := form.NewUsecase(store, captcha.NoopVerifier{}, testFormTokenSecret, creator, openPlanGate())
 
 	in := form.SubmitInput{
 		Name: "Budi Santoso", Phone: ptrStr("0812xxxx"), Origin: "https://example.com",
@@ -776,7 +828,7 @@ func TestUnit_Submit_LeadCreatorFails_PropagatesErrorAndSkipsIncrement(t *testin
 	f := seedForm(store, org, "pk_test", []string{"https://example.com"}, form.DefaultFields())
 	wantErr := errors.New("boom")
 	creator := &fakeLeadCreator{err: wantErr}
-	u := form.NewUsecase(store, captcha.NoopVerifier{}, testFormTokenSecret, creator)
+	u := form.NewUsecase(store, captcha.NoopVerifier{}, testFormTokenSecret, creator, openPlanGate())
 
 	in := validSubmitInput()
 	in.Phone = ptrStr("0812")

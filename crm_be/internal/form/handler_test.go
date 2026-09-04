@@ -30,6 +30,7 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db/dbtest"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/formtoken"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/ratelimit"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
 )
@@ -62,10 +63,30 @@ func (s *testStore) Repos() form.Repos {
 // incidentally.
 const generousSubmitLimit = 1000
 
+// alwaysOpenPlanGate lets every pre-existing test in this file keep
+// exercising the HTTP layer unaffected by subscription's gate (#113) —
+// TestHandler_Create_PlanClosed_Returns403 below is the one test that
+// swaps it for a closed gate.
+type alwaysOpenPlanGate struct{}
+
+func (alwaysOpenPlanGate) RequireChannel(context.Context, tenant.Context, string) error { return nil }
+
+type alwaysClosedPlanGate struct{}
+
+func (alwaysClosedPlanGate) RequireChannel(context.Context, tenant.Context, string) error {
+	return &httpx.DomainError{Status: http.StatusForbidden, Code: "plan_upgrade_required", Message: "Paket Anda tidak mencakup kanal ini."}
+}
+
 func newTestRouter(t *testing.T) (*gin.Engine, *pgxpool.Pool) {
 	t.Helper()
 	r, pool, _ := newTestRouterWithLeadCreator(t, &fakeLeadCreator{})
 	return r, pool
+}
+
+func newTestRouterWithPlanGate(t *testing.T, gate form.PlanGate) (*gin.Engine, *pgxpool.Pool, *form.Usecase) {
+	t.Helper()
+	r, pool, u, _ := newTestRouterFull(t, &fakeLeadCreator{}, "none", "", gate)
+	return r, pool, u
 }
 
 // newTestRouterWithLeadCreator is newTestRouter's Submit-test-facing
@@ -77,7 +98,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *pgxpool.Pool) {
 // newTestRouterWithCaptcha instead.
 func newTestRouterWithLeadCreator(t *testing.T, leadCreator form.LeadCreator) (*gin.Engine, *pgxpool.Pool, *form.Usecase) {
 	t.Helper()
-	r, pool, u, _ := newTestRouterFull(t, leadCreator, "none", "")
+	r, pool, u, _ := newTestRouterFull(t, leadCreator, "none", "", alwaysOpenPlanGate{})
 	return r, pool, u
 }
 
@@ -87,15 +108,15 @@ func newTestRouterWithLeadCreator(t *testing.T, leadCreator form.LeadCreator) (*
 // verification).
 func newTestRouterWithCaptcha(t *testing.T, captchaProvider, turnstileSiteKey string) (*gin.Engine, *pgxpool.Pool, *form.Usecase) {
 	t.Helper()
-	r, pool, u, _ := newTestRouterFull(t, &fakeLeadCreator{}, captchaProvider, turnstileSiteKey)
+	r, pool, u, _ := newTestRouterFull(t, &fakeLeadCreator{}, captchaProvider, turnstileSiteKey, alwaysOpenPlanGate{})
 	return r, pool, u
 }
 
-func newTestRouterFull(t *testing.T, leadCreator form.LeadCreator, captchaProvider, turnstileSiteKey string) (*gin.Engine, *pgxpool.Pool, *form.Usecase, *form.Handler) {
+func newTestRouterFull(t *testing.T, leadCreator form.LeadCreator, captchaProvider, turnstileSiteKey string, plan form.PlanGate) (*gin.Engine, *pgxpool.Pool, *form.Usecase, *form.Handler) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	pool := dbtest.NewPool(t)
-	u := form.NewUsecase(newTestStore(pool), captcha.NoopVerifier{}, testFormTokenSecret, leadCreator)
+	u := form.NewUsecase(newTestStore(pool), captcha.NoopVerifier{}, testFormTokenSecret, leadCreator, plan)
 
 	r := gin.New()
 	ipLimit := ratelimit.NewFixedWindow(generousSubmitLimit, time.Minute)
@@ -184,6 +205,100 @@ func TestHandler_Create_ManagerAndEmployeeForbidden(t *testing.T) {
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("role %s: expected 403, got %d: %s", role, w.Code, w.Body.String())
 		}
+	}
+}
+
+// TestHandler_Create_PlanClosed_Returns403PlanUpgradeRequired proves
+// subscription's gate (#113) is actually wired into the HTTP layer —
+// an Owner, otherwise fully entitled by role, is rejected once the plan
+// gate closes the channel.
+func TestHandler_Create_PlanClosed_Returns403PlanUpgradeRequired(t *testing.T) {
+	r, pool, _ := newTestRouterWithPlanGate(t, alwaysClosedPlanGate{})
+	ctx := context.Background()
+	org, userID, membershipID := seedOrgAndOwner(t, ctx, pool)
+	token := bearerToken(t, userID, org, membershipID, tenant.RoleOwner)
+
+	w := doJSON(r, http.MethodPost, "/v1/forms", token, map[string]string{"name": "Website"})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Error.Code != "plan_upgrade_required" {
+		t.Errorf("expected code plan_upgrade_required, got %q", body.Error.Code)
+	}
+}
+
+// TestHandler_GetPatchDelete_UnaffectedByPlanClosed proves D4: the plan
+// gate closes CREATE, never management of a form that already exists —
+// GET/PATCH/DELETE keep working on a plan-closed organization.
+func TestHandler_GetPatchDelete_UnaffectedByPlanClosed(t *testing.T) {
+	rOpen, pool := newTestRouter(t)
+	ctx := context.Background()
+	org, userID, membershipID := seedOrgAndOwner(t, ctx, pool)
+	token := bearerToken(t, userID, org, membershipID, tenant.RoleOwner)
+
+	created := doJSON(rOpen, http.MethodPost, "/v1/forms", token, map[string]string{"name": "Website"})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("seed create: expected 201, got %d: %s", created.Code, created.Body.String())
+	}
+	var createdBody struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &createdBody); err != nil {
+		t.Fatalf("decode created: %v", err)
+	}
+
+	// A second router over the SAME pool (not newTestRouterWithPlanGate,
+	// which would build its own empty database) so the closed-gate
+	// router sees the form that was actually created above.
+	closedUsecase := form.NewUsecase(newTestStore(pool), captcha.NoopVerifier{}, testFormTokenSecret, &fakeLeadCreator{}, alwaysClosedPlanGate{})
+	rClosed := gin.New()
+	form.NewHandler(closedUsecase, ratelimit.NewFixedWindow(generousSubmitLimit, time.Minute), ratelimit.NewFixedWindow(generousSubmitLimit, time.Minute), "none", "").
+		RegisterRoutes(rClosed, authn.Middleware(testClaimsParser{}))
+
+	if w := doJSON(rClosed, http.MethodGet, "/v1/forms/"+createdBody.Data.ID, token, nil); w.Code != http.StatusOK {
+		t.Errorf("GET with plan closed: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if w := doJSON(rClosed, http.MethodPatch, "/v1/forms/"+createdBody.Data.ID, token, map[string]string{"name": "Renamed"}); w.Code != http.StatusOK {
+		t.Errorf("PATCH with plan closed: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if w := doJSON(rClosed, http.MethodDelete, "/v1/forms/"+createdBody.Data.ID, token, nil); w.Code != http.StatusNoContent {
+		t.Errorf("DELETE with plan closed: expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandler_Submit_UnaffectedByPlanClosed proves TD §11: the plan gate
+// never touches the public submit path — a visitor on a customer's own
+// site must not learn anything about that customer's plan state, even
+// when the organization's channel is closed.
+func TestHandler_Submit_UnaffectedByPlanClosed(t *testing.T) {
+	pool := dbtest.NewPool(t)
+	org := seedOrganization(t, context.Background(), pool)
+	f := seedRealForm(t, context.Background(), pool, org, "pk_plan_closed", []string{"https://example.com"}, form.DefaultFields())
+
+	u := form.NewUsecase(newTestStore(pool), captcha.NoopVerifier{}, testFormTokenSecret, &fakeLeadCreator{}, alwaysClosedPlanGate{})
+	r := gin.New()
+	form.NewHandler(u, ratelimit.NewFixedWindow(generousSubmitLimit, time.Minute), ratelimit.NewFixedWindow(generousSubmitLimit, time.Minute), "none", "").
+		RegisterRoutes(r, authn.Middleware(testClaimsParser{}))
+
+	values := url.Values{
+		"name":       {"Budi Santoso"},
+		"phone":      {"0812xxxx"},
+		"form_token": {validFormToken(f.ID)},
+	}
+	w := doFormPost(r, "/v1/forms/"+f.PublicKey+"/submit", "https://example.com", values)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected submit to succeed regardless of plan state, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -400,7 +515,7 @@ func newTestRouterWithLimits(t *testing.T, ipLimit, keyLimit int) (*gin.Engine, 
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	pool := dbtest.NewPool(t)
-	u := form.NewUsecase(newTestStore(pool), captcha.NoopVerifier{}, testFormTokenSecret, &fakeLeadCreator{})
+	u := form.NewUsecase(newTestStore(pool), captcha.NoopVerifier{}, testFormTokenSecret, &fakeLeadCreator{}, alwaysOpenPlanGate{})
 
 	r := gin.New()
 	form.NewHandler(u, ratelimit.NewFixedWindow(ipLimit, time.Minute), ratelimit.NewFixedWindow(keyLimit, time.Minute), "none", "").

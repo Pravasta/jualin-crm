@@ -51,11 +51,30 @@ func (s *testStore) Repos() apikey.Repos {
 	return apikey.Repos{APIKey: apikey.New(s.pool), Audit: auditlog.New(s.pool)}
 }
 
+// alwaysOpenPlanGate lets every one of this file's pre-existing tests
+// keep exercising the HTTP layer unaffected by subscription's gate
+// (#113) — TestHandler_Create_PlanClosed_Returns403 below is the one
+// test that swaps it for a closed gate.
+type alwaysOpenPlanGate struct{}
+
+func (alwaysOpenPlanGate) RequireChannel(context.Context, tenant.Context, string) error { return nil }
+
+type alwaysClosedPlanGate struct{}
+
+func (alwaysClosedPlanGate) RequireChannel(context.Context, tenant.Context, string) error {
+	return &httpx.DomainError{Status: http.StatusForbidden, Code: "plan_upgrade_required", Message: "Paket Anda tidak mencakup kanal ini."}
+}
+
 func newTestRouter(t *testing.T) (*gin.Engine, *pgxpool.Pool) {
+	t.Helper()
+	return newTestRouterWithPlanGate(t, alwaysOpenPlanGate{})
+}
+
+func newTestRouterWithPlanGate(t *testing.T, gate apikey.PlanGate) (*gin.Engine, *pgxpool.Pool) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	pool := dbtest.NewPool(t)
-	u := apikey.NewUsecase(newTestStore(pool))
+	u := apikey.NewUsecase(newTestStore(pool), gate)
 
 	r := gin.New()
 	apikey.NewHandler(u).RegisterRoutes(r, authn.Middleware(testClaimsParser{}))
@@ -72,7 +91,7 @@ func newLoggingTestRouter(t *testing.T) (r *gin.Engine, pool *pgxpool.Pool, buf 
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	pool = dbtest.NewPool(t)
-	u := apikey.NewUsecase(newTestStore(pool))
+	u := apikey.NewUsecase(newTestStore(pool), alwaysOpenPlanGate{})
 
 	buf = &bytes.Buffer{}
 	logger := slog.New(slog.NewTextHandler(buf, nil))
@@ -156,6 +175,71 @@ func TestHandler_Create_ManagerAndEmployeeForbidden(t *testing.T) {
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("role %s: expected 403, got %d: %s", role, w.Code, w.Body.String())
 		}
+	}
+}
+
+// TestHandler_Create_PlanClosed_Returns403PlanUpgradeRequired proves
+// subscription's gate (#113) is actually wired into the HTTP layer, not
+// just the usecase's unit tests — an Owner, otherwise fully entitled by
+// role, is rejected once the plan gate closes the channel.
+func TestHandler_Create_PlanClosed_Returns403PlanUpgradeRequired(t *testing.T) {
+	r, pool := newTestRouterWithPlanGate(t, alwaysClosedPlanGate{})
+	ctx := context.Background()
+	org, userID, membershipID := seedOrgAndOwner(t, ctx, pool)
+	token := bearerToken(t, userID, org, membershipID, tenant.RoleOwner)
+
+	w := doJSON(r, http.MethodPost, "/v1/api-keys", token, map[string]string{"name": "Website"})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Error.Code != "plan_upgrade_required" {
+		t.Errorf("expected code plan_upgrade_required, got %q", body.Error.Code)
+	}
+}
+
+// TestHandler_ListAndRevoke_UnaffectedByPlanClosed proves D4: the plan
+// gate closes CREATE, never management of a credential that already
+// exists — GET and DELETE keep working on a plan-closed organization.
+func TestHandler_ListAndRevoke_UnaffectedByPlanClosed(t *testing.T) {
+	// Seed the key through an open-gate router (creating it is not what
+	// this test is about), then reopen the SAME database with a
+	// closed-gate router to prove list/revoke ignore the gate.
+	rOpen, pool := newTestRouter(t)
+	ctx := context.Background()
+	org, userID, membershipID := seedOrgAndOwner(t, ctx, pool)
+	token := bearerToken(t, userID, org, membershipID, tenant.RoleOwner)
+
+	created := doJSON(rOpen, http.MethodPost, "/v1/api-keys", token, map[string]string{"name": "Website"})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("seed create: expected 201, got %d: %s", created.Code, created.Body.String())
+	}
+	var createdBody struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &createdBody); err != nil {
+		t.Fatalf("decode created: %v", err)
+	}
+
+	rClosed := gin.New()
+	closedUsecase := apikey.NewUsecase(newTestStore(pool), alwaysClosedPlanGate{})
+	apikey.NewHandler(closedUsecase).RegisterRoutes(rClosed, authn.Middleware(testClaimsParser{}))
+
+	if w := doJSON(rClosed, http.MethodGet, "/v1/api-keys", token, nil); w.Code != http.StatusOK {
+		t.Errorf("GET with plan closed: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if w := doJSON(rClosed, http.MethodDelete, "/v1/api-keys/"+createdBody.Data.ID, token, nil); w.Code != http.StatusNoContent {
+		t.Errorf("DELETE with plan closed: expected 204, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

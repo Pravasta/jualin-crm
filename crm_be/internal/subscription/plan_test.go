@@ -37,6 +37,27 @@ func TestChannelsFor_UnknownPlan_AllClosed(t *testing.T) {
 	}
 }
 
+func TestParseChannel_KnownValues_RoundTrip(t *testing.T) {
+	for _, ch := range Channels {
+		got, err := ParseChannel(string(ch))
+		if err != nil {
+			t.Errorf("ParseChannel(%q): unexpected error: %v", ch, err)
+		}
+		if got != ch {
+			t.Errorf("ParseChannel(%q) = %q, want %q", ch, got, ch)
+		}
+	}
+}
+
+func TestParseChannel_UnknownValue_ReturnsError(t *testing.T) {
+	if _, err := ParseChannel("apikey"); err == nil {
+		t.Error("expected an error for a near-miss typo, got nil")
+	}
+	if _, err := ParseChannel(""); err == nil {
+		t.Error("expected an error for empty string, got nil")
+	}
+}
+
 func TestChannelsFor_NonActiveStatus_AllClosedRegardlessOfPlan(t *testing.T) {
 	for _, status := range []string{"past_due", "suspended", "canceled", ""} {
 		got := channelsFor(PlanFree, status)
