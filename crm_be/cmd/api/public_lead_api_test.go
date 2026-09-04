@@ -33,7 +33,7 @@ import (
 // receive from POST /v1/api-keys.
 func seedRealAPIKey(t *testing.T, pool *pgxpool.Pool, org, actorMembership uuid.UUID) (raw string, keyID uuid.UUID) {
 	t.Helper()
-	u := apikey.NewUsecase(newAPIKeyStore(pool))
+	u := apikey.NewUsecase(newAPIKeyStore(pool), alwaysOpenPlanGate{})
 	actor := tenant.Context{OrganizationID: org, PrincipalType: tenant.PrincipalUser, MembershipID: &actorMembership, Role: tenant.RoleOwner}
 	k, rawCredential, err := u.Create(context.Background(), actor, apikey.CreateInput{Name: "Integration Test Key"})
 	if err != nil {
@@ -44,7 +44,7 @@ func seedRealAPIKey(t *testing.T, pool *pgxpool.Pool, org, actorMembership uuid.
 
 func revokeAPIKey(t *testing.T, pool *pgxpool.Pool, org, actorMembership, keyID uuid.UUID) {
 	t.Helper()
-	u := apikey.NewUsecase(newAPIKeyStore(pool))
+	u := apikey.NewUsecase(newAPIKeyStore(pool), alwaysOpenPlanGate{})
 	actor := tenant.Context{OrganizationID: org, PrincipalType: tenant.PrincipalUser, MembershipID: &actorMembership, Role: tenant.RoleOwner}
 	if err := u.Revoke(context.Background(), actor, keyID); err != nil {
 		t.Fatalf("revoke api key: %v", err)

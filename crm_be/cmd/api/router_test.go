@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -13,11 +14,22 @@ import (
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/config"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
 )
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
+
+// alwaysOpenPlanGate satisfies apikey.PlanGate, form.PlanGate, and
+// webhook.PlanGate identically (same one-method shape, TD §3.2) — used
+// by every test in this package that constructs one of those Usecases
+// directly (bypassing newRouter's real subscription-backed planGate)
+// and isn't specifically exercising the gate itself, e.g. seeding a
+// credential/form/endpoint through Owner-authorized Create calls.
+type alwaysOpenPlanGate struct{}
+
+func (alwaysOpenPlanGate) RequireChannel(context.Context, tenant.Context, string) error { return nil }
 
 // testConfig returns a minimal config sufficient for newRouter — no
 // DATABASE_URL is set because these router-level tests never touch the

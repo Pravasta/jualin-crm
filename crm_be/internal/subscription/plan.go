@@ -1,5 +1,7 @@
 package subscription
 
+import "fmt"
+
 // Channel identifies one of the capabilities a plan can open or close.
 // String-typed (not int) because its literal values are a wire contract
 // with internal/auth's GET /v1/me response and with three other
@@ -58,4 +60,26 @@ func channelsFor(planCode, status string) map[Channel]bool {
 		out[ch] = open && plan[ch]
 	}
 	return out
+}
+
+// ParseChannel validates s against Channels and returns the typed
+// Channel. Every PlanGate implementation (§3.2: apikey/form/webhook each
+// declare their own, keyed by a plain string so they never import this
+// package) calls this at the composition-root bridge rather than
+// converting blindly with Channel(s).
+//
+// The distinction matters precisely because of the risk TD §7 names: a
+// typo in one of the four places the "api_key"/"form"/"webhook" literals
+// are duplicated makes that channel silently ALWAYS closed — planChannels
+// has no entry for the misspelled value, and channelsFor's fail-closed
+// behavior makes that indistinguishable from an honest deny. A blind
+// conversion ships that bug as a normal-looking 403. ParseChannel turns
+// it into a loud error on the very first request instead.
+func ParseChannel(s string) (Channel, error) {
+	for _, ch := range Channels {
+		if string(ch) == s {
+			return ch, nil
+		}
+	}
+	return "", fmt.Errorf("subscription: unknown channel %q", s)
 }

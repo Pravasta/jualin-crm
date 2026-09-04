@@ -19,10 +19,11 @@ import (
 // on every request turns this table into a write hotspot.
 const lastUsedThrottleWindow = 5 * time.Minute
 
-// Usecase depends only on Store (port.go), never on *pgxpool.Pool or
-// pgx.Tx directly (ADR-011).
+// Usecase depends only on Store and PlanGate (port.go), never on
+// *pgxpool.Pool or pgx.Tx directly (ADR-011).
 type Usecase struct {
 	store Store
+	plan  PlanGate
 
 	// lastUsedThrottle is an in-memory map[api_key_id]last-write-time.
 	// Deliberately WITHOUT eviction, unlike ratelimit.FixedWindow and
@@ -38,8 +39,8 @@ type Usecase struct {
 	lastUsedThrottle map[uuid.UUID]time.Time
 }
 
-func NewUsecase(store Store) *Usecase {
-	return &Usecase{store: store, lastUsedThrottle: map[uuid.UUID]time.Time{}}
+func NewUsecase(store Store, plan PlanGate) *Usecase {
+	return &Usecase{store: store, plan: plan, lastUsedThrottle: map[uuid.UUID]time.Time{}}
 }
 
 // CreateInput is Create's argument. Scopes empty means "the only scope
@@ -57,6 +58,14 @@ type CreateInput struct {
 // of scope.
 func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateInput) (result *APIKey, raw string, err error) {
 	if err := authz.Require(t, authz.ActionAPIKeyCreate); err != nil {
+		return nil, "", err // 1. role → 403 forbidden
+	}
+	// 2. plan → 403 plan_upgrade_required. Must run AFTER the role check
+	// above, never before: a Manager who isn't allowed to manage API keys
+	// at all must see "forbidden", not the organization's plan state
+	// (subscription TD §3.3, spirit of Rule #6 — don't answer a question
+	// the asker has no standing to ask).
+	if err := u.plan.RequireChannel(ctx, t, "api_key"); err != nil {
 		return nil, "", err
 	}
 	if in.Name == "" {

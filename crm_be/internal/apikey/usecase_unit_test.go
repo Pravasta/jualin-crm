@@ -114,6 +114,26 @@ func (s *fakeStore) Repos() apikey.Repos {
 	return apikey.Repos{APIKey: s.repo, Audit: s.audit}
 }
 
+// fakePlanGate lets tests control the subscription gate independently
+// of authz — allow (nil) by default so every pre-existing test keeps
+// exercising Create's other branches unaffected, and reject (a
+// plan_upgrade_required DomainError, the real shape RequireChannel
+// returns per subscription's TD §5) for the tests in this file that
+// specifically prove the gate is wired and ordered correctly (§113 AC).
+type fakePlanGate struct {
+	reject bool
+}
+
+func openPlanGate() *fakePlanGate   { return &fakePlanGate{} }
+func closedPlanGate() *fakePlanGate { return &fakePlanGate{reject: true} }
+
+func (f *fakePlanGate) RequireChannel(_ context.Context, _ tenant.Context, _ string) error {
+	if f.reject {
+		return &httpx.DomainError{Status: http.StatusForbidden, Code: "plan_upgrade_required", Message: "Paket Anda tidak mencakup kanal ini."}
+	}
+	return nil
+}
+
 func actorContext(orgID, membershipID uuid.UUID, role tenant.Role) tenant.Context {
 	return tenant.Context{OrganizationID: orgID, PrincipalType: tenant.PrincipalUser, MembershipID: &membershipID, Role: role}
 }
@@ -133,7 +153,7 @@ func ownerActor() (tenant.Context, uuid.UUID) {
 func TestUnit_Create_OwnerAndAdminAllowed(t *testing.T) {
 	for _, role := range []tenant.Role{tenant.RoleOwner, tenant.RoleAdmin} {
 		store := newFakeStore()
-		u := apikey.NewUsecase(store)
+		u := apikey.NewUsecase(store, openPlanGate())
 		actor := actorForRole(role)
 
 		k, raw, err := u.Create(context.Background(), actor, apikey.CreateInput{Name: "Website"})
@@ -152,7 +172,7 @@ func TestUnit_Create_OwnerAndAdminAllowed(t *testing.T) {
 func TestUnit_Create_ManagerAndEmployeeForbidden(t *testing.T) {
 	for _, role := range []tenant.Role{tenant.RoleManager, tenant.RoleEmployee} {
 		store := newFakeStore()
-		u := apikey.NewUsecase(store)
+		u := apikey.NewUsecase(store, openPlanGate())
 		actor := actorForRole(role)
 
 		_, _, err := u.Create(context.Background(), actor, apikey.CreateInput{Name: "Website"})
@@ -163,9 +183,40 @@ func TestUnit_Create_ManagerAndEmployeeForbidden(t *testing.T) {
 	}
 }
 
+// --- Create: plan gate (#113) ---
+
+func TestUnit_Create_PlanClosed_Returns403PlanUpgradeRequired(t *testing.T) {
+	store := newFakeStore()
+	u := apikey.NewUsecase(store, closedPlanGate())
+	actor, _ := ownerActor()
+
+	_, _, err := u.Create(context.Background(), actor, apikey.CreateInput{Name: "Website"})
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "plan_upgrade_required" {
+		t.Fatalf("expected plan_upgrade_required, got: %v", err)
+	}
+}
+
+// TestUnit_Create_RoleCheckedBeforePlan is the only way to prove the
+// ORDER of the two gates from outside (subscription TD §3.3): a fake
+// that rejects BOTH role and plan must surface "forbidden", never
+// "plan_upgrade_required" — a Manager who can't manage API keys at all
+// must never learn the organization's plan state.
+func TestUnit_Create_RoleCheckedBeforePlan(t *testing.T) {
+	store := newFakeStore()
+	u := apikey.NewUsecase(store, closedPlanGate())
+	actor := actorForRole(tenant.RoleManager) // authz denies this role too
+
+	_, _, err := u.Create(context.Background(), actor, apikey.CreateInput{Name: "Website"})
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "forbidden" {
+		t.Fatalf("expected forbidden (role checked first), got: %v", err)
+	}
+}
+
 func TestUnit_Create_NameRequired(t *testing.T) {
 	store := newFakeStore()
-	u := apikey.NewUsecase(store)
+	u := apikey.NewUsecase(store, openPlanGate())
 	actor, _ := ownerActor()
 
 	_, _, err := u.Create(context.Background(), actor, apikey.CreateInput{})
@@ -177,7 +228,7 @@ func TestUnit_Create_NameRequired(t *testing.T) {
 
 func TestUnit_Create_UnknownScopeRejected(t *testing.T) {
 	store := newFakeStore()
-	u := apikey.NewUsecase(store)
+	u := apikey.NewUsecase(store, openPlanGate())
 	actor, _ := ownerActor()
 
 	_, _, err := u.Create(context.Background(), actor, apikey.CreateInput{Name: "Website", Scopes: []string{"leads:read"}})
@@ -189,7 +240,7 @@ func TestUnit_Create_UnknownScopeRejected(t *testing.T) {
 
 func TestUnit_Create_EmptyScopesDefaultsToLeadsWrite(t *testing.T) {
 	store := newFakeStore()
-	u := apikey.NewUsecase(store)
+	u := apikey.NewUsecase(store, openPlanGate())
 	actor, _ := ownerActor()
 
 	k, _, err := u.Create(context.Background(), actor, apikey.CreateInput{Name: "Website"})
@@ -203,7 +254,7 @@ func TestUnit_Create_EmptyScopesDefaultsToLeadsWrite(t *testing.T) {
 
 func TestUnit_Create_RecordsAudit(t *testing.T) {
 	store := newFakeStore()
-	u := apikey.NewUsecase(store)
+	u := apikey.NewUsecase(store, openPlanGate())
 	actor, _ := ownerActor()
 
 	if _, _, err := u.Create(context.Background(), actor, apikey.CreateInput{Name: "Website"}); err != nil {
@@ -219,7 +270,7 @@ func TestUnit_Create_RecordsAudit(t *testing.T) {
 func TestUnit_List_OwnerAndAdminAllowed(t *testing.T) {
 	for _, role := range []tenant.Role{tenant.RoleOwner, tenant.RoleAdmin} {
 		store := newFakeStore()
-		u := apikey.NewUsecase(store)
+		u := apikey.NewUsecase(store, openPlanGate())
 		actor := actorForRole(role)
 
 		if _, err := u.List(context.Background(), actor); err != nil {
@@ -231,7 +282,7 @@ func TestUnit_List_OwnerAndAdminAllowed(t *testing.T) {
 func TestUnit_List_ManagerAndEmployeeForbidden(t *testing.T) {
 	for _, role := range []tenant.Role{tenant.RoleManager, tenant.RoleEmployee} {
 		store := newFakeStore()
-		u := apikey.NewUsecase(store)
+		u := apikey.NewUsecase(store, openPlanGate())
 		actor := actorForRole(role)
 
 		_, err := u.List(context.Background(), actor)
@@ -247,7 +298,7 @@ func TestUnit_List_ManagerAndEmployeeForbidden(t *testing.T) {
 func TestUnit_Revoke_OwnerAndAdminAllowed(t *testing.T) {
 	for _, role := range []tenant.Role{tenant.RoleOwner, tenant.RoleAdmin} {
 		store := newFakeStore()
-		u := apikey.NewUsecase(store)
+		u := apikey.NewUsecase(store, openPlanGate())
 		org := uuid.Must(uuid.NewV7())
 		owner := actorContext(org, uuid.Must(uuid.NewV7()), tenant.RoleOwner)
 		k, _, err := u.Create(context.Background(), owner, apikey.CreateInput{Name: "Website"})
@@ -265,7 +316,7 @@ func TestUnit_Revoke_OwnerAndAdminAllowed(t *testing.T) {
 func TestUnit_Revoke_ManagerAndEmployeeForbidden(t *testing.T) {
 	for _, role := range []tenant.Role{tenant.RoleManager, tenant.RoleEmployee} {
 		store := newFakeStore()
-		u := apikey.NewUsecase(store)
+		u := apikey.NewUsecase(store, openPlanGate())
 		org := uuid.Must(uuid.NewV7())
 		owner := actorContext(org, uuid.Must(uuid.NewV7()), tenant.RoleOwner)
 		k, _, err := u.Create(context.Background(), owner, apikey.CreateInput{Name: "Website"})
@@ -284,7 +335,7 @@ func TestUnit_Revoke_ManagerAndEmployeeForbidden(t *testing.T) {
 
 func TestUnit_Revoke_NotFound_Returns404(t *testing.T) {
 	store := newFakeStore()
-	u := apikey.NewUsecase(store)
+	u := apikey.NewUsecase(store, openPlanGate())
 	actor, _ := ownerActor()
 
 	err := u.Revoke(context.Background(), actor, uuid.Must(uuid.NewV7()))
@@ -295,7 +346,7 @@ func TestUnit_Revoke_NotFound_Returns404(t *testing.T) {
 
 func TestUnit_Revoke_CrossOrg_Returns404(t *testing.T) {
 	store := newFakeStore()
-	u := apikey.NewUsecase(store)
+	u := apikey.NewUsecase(store, openPlanGate())
 	ownerA, _ := ownerActor()
 	ownerB, _ := ownerActor()
 
@@ -316,7 +367,7 @@ func TestUnit_Revoke_CrossOrg_Returns404(t *testing.T) {
 // call, so a second no-op UPDATE is not a failure.
 func TestUnit_Revoke_Twice_StaysSuccessful(t *testing.T) {
 	store := newFakeStore()
-	u := apikey.NewUsecase(store)
+	u := apikey.NewUsecase(store, openPlanGate())
 	actor, _ := ownerActor()
 
 	k, _, err := u.Create(context.Background(), actor, apikey.CreateInput{Name: "Website"})
@@ -368,7 +419,7 @@ func seedResolvableKey(store *fakeStore, org uuid.UUID, scopes []string) *apikey
 
 func TestUnit_ResolveAPIKey_Success(t *testing.T) {
 	store := newFakeStore()
-	u := apikey.NewUsecase(store)
+	u := apikey.NewUsecase(store, openPlanGate())
 	org := uuid.Must(uuid.NewV7())
 	k := seedResolvableKey(store, org, []string{"leads:write"})
 
@@ -400,7 +451,7 @@ func TestUnit_ResolveAPIKey_Success(t *testing.T) {
 // instead of a resource id).
 func TestUnit_ResolveAPIKey_EveryFailureReasonIsIdentical(t *testing.T) {
 	store := newFakeStore()
-	u := apikey.NewUsecase(store)
+	u := apikey.NewUsecase(store, openPlanGate())
 	org := uuid.Must(uuid.NewV7())
 	revoked := seedResolvableKey(store, org, []string{"leads:write"})
 	now := time.Now()
@@ -450,7 +501,7 @@ func TestUnit_ResolveAPIKey_EveryFailureReasonIsIdentical(t *testing.T) {
 // throttle from timing.
 func TestUnit_ResolveAPIKey_LastUsedThrottled(t *testing.T) {
 	store := newFakeStore()
-	u := apikey.NewUsecase(store)
+	u := apikey.NewUsecase(store, openPlanGate())
 	org := uuid.Must(uuid.NewV7())
 	seedResolvableKey(store, org, []string{"leads:write"})
 	raw := "jln_live_" + testKeyID + "_" + testSecret

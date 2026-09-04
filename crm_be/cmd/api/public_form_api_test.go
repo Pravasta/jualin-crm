@@ -39,7 +39,7 @@ import (
 // what an Owner would get from POST /v1/forms.
 func seedRealForm(t *testing.T, pool *pgxpool.Pool, org, actorMembership uuid.UUID, allowedOrigins []string) *form.Form {
 	t.Helper()
-	u := form.NewUsecase(newFormStore(pool), nil, []byte(isolationFormTokenSecret), nil)
+	u := form.NewUsecase(newFormStore(pool), nil, []byte(isolationFormTokenSecret), nil, alwaysOpenPlanGate{})
 	actor := tenant.Context{OrganizationID: org, PrincipalType: tenant.PrincipalUser, MembershipID: &actorMembership, Role: tenant.RoleOwner}
 	f, err := u.Create(context.Background(), actor, form.CreateInput{Name: "Integration Test Form"})
 	if err != nil {

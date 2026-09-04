@@ -27,6 +27,7 @@ import (
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authn"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db/dbtest"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/safedial"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
@@ -61,15 +62,34 @@ func (s *testStore) Repos() webhook.Repos {
 	}
 }
 
+// alwaysOpenPlanGate lets every pre-existing test in this file keep
+// exercising the HTTP layer unaffected by subscription's gate (#113) —
+// TestHandler_Create_PlanClosed_Returns403 below is the one test that
+// swaps it for a closed gate.
+type alwaysOpenPlanGate struct{}
+
+func (alwaysOpenPlanGate) RequireChannel(context.Context, tenant.Context, string) error { return nil }
+
+type alwaysClosedPlanGate struct{}
+
+func (alwaysClosedPlanGate) RequireChannel(context.Context, tenant.Context, string) error {
+	return &httpx.DomainError{Status: http.StatusForbidden, Code: "plan_upgrade_required", Message: "Paket Anda tidak mencakup kanal ini."}
+}
+
 // newTestRouter wires the real usecase against real Postgres. allowPrivate
 // controls the SSRF validator: true lets any well-formed URL through
 // without DNS (the default for CRUD tests), false exercises the reject
 // path with an IP literal (no DNS needed either).
 func newTestRouter(t *testing.T, allowPrivate bool) (*gin.Engine, *pgxpool.Pool) {
 	t.Helper()
+	return newTestRouterWithPlanGate(t, allowPrivate, alwaysOpenPlanGate{})
+}
+
+func newTestRouterWithPlanGate(t *testing.T, allowPrivate bool, gate webhook.PlanGate) (*gin.Engine, *pgxpool.Pool) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	pool := dbtest.NewPool(t)
-	u := webhook.NewUsecase(&testStore{pool: pool}, safedial.NewValidator(allowPrivate), testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	u := webhook.NewUsecase(&testStore{pool: pool}, safedial.NewValidator(allowPrivate), testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)), gate)
 
 	r := gin.New()
 	webhook.NewHandler(u).RegisterRoutes(r, authn.Middleware(testClaimsParser{}))
@@ -147,6 +167,62 @@ func TestHandler_Create_OwnerAndAdminAllowed(t *testing.T) {
 		if w.Code != http.StatusCreated {
 			t.Fatalf("role %s: expected 201, got %d: %s", role, w.Code, w.Body.String())
 		}
+	}
+}
+
+// TestHandler_Create_PlanClosed_Returns403PlanUpgradeRequired proves
+// subscription's gate (#113) is actually wired into the HTTP layer —
+// an Owner, otherwise fully entitled by role, is rejected once the plan
+// gate closes the channel.
+func TestHandler_Create_PlanClosed_Returns403PlanUpgradeRequired(t *testing.T) {
+	r, pool := newTestRouterWithPlanGate(t, true, alwaysClosedPlanGate{})
+	org, user, mem := seedOrgOwner(t, context.Background(), pool, tenant.RoleOwner)
+	token := bearerToken(t, user, org, mem, tenant.RoleOwner)
+
+	w := doJSON(r, http.MethodPost, "/v1/webhook-endpoints", token, map[string]any{
+		"url": "https://receiver.example.com/hook", "events": []string{"lead.created"},
+	})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Error.Code != "plan_upgrade_required" {
+		t.Errorf("expected code plan_upgrade_required, got %q", body.Error.Code)
+	}
+}
+
+// TestHandler_GetPatchDelete_UnaffectedByPlanClosed proves D4: the plan
+// gate closes CREATE, never management of an endpoint that already
+// exists — GET/PATCH/DELETE keep working on a plan-closed organization.
+func TestHandler_GetPatchDelete_UnaffectedByPlanClosed(t *testing.T) {
+	rOpen, pool := newTestRouter(t, true)
+	org, user, mem := seedOrgOwner(t, context.Background(), pool, tenant.RoleOwner)
+	token := bearerToken(t, user, org, mem, tenant.RoleOwner)
+	ep := createEndpoint(t, rOpen, token)
+	epID := ep["id"].(string)
+
+	// A second router over the SAME pool so the closed-gate router sees
+	// the endpoint created above.
+	u := webhook.NewUsecase(&testStore{pool: pool}, safedial.NewValidator(true), testCrypter(), slog.New(slog.NewTextHandler(io.Discard, nil)), alwaysClosedPlanGate{})
+	rClosed := gin.New()
+	webhook.NewHandler(u).RegisterRoutes(rClosed, authn.Middleware(testClaimsParser{}))
+
+	if w := doJSON(rClosed, http.MethodGet, "/v1/webhook-endpoints/"+epID, token, nil); w.Code != http.StatusOK {
+		t.Errorf("GET with plan closed: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if w := doJSON(rClosed, http.MethodPatch, "/v1/webhook-endpoints/"+epID, token, map[string]any{"description": "x"}); w.Code != http.StatusOK {
+		t.Errorf("PATCH with plan closed: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if w := doJSON(rClosed, http.MethodDelete, "/v1/webhook-endpoints/"+epID, token, nil); w.Code != http.StatusNoContent {
+		t.Errorf("DELETE with plan closed: expected 204, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
