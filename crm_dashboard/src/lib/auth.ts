@@ -69,6 +69,12 @@ export function resetPassword(token: string, password: string): Promise<{ status
   return apiFetch("/v1/auth/password/reset", { method: "POST", body: { token, password } });
 }
 
+// plan.channels is keyed by Record<string, boolean>, NOT Record<PlanChannel,
+// boolean> — this is the wire shape (subscription TD §4), and a key this
+// dashboard doesn't recognize must still be a valid value, not a type
+// error. lib/plan.ts's isChannelOpen is the only place that should read
+// this field; it treats a missing key as closed (fail closed, mirroring
+// crm_be's channelsFor).
 export interface MeResponse {
   user_id: string;
   email: string;
@@ -77,6 +83,10 @@ export interface MeResponse {
   organization_name: string;
   membership_id: string;
   role: "owner" | "admin" | "manager" | "employee";
+  plan: {
+    code: string;
+    channels: Record<string, boolean>;
+  };
 }
 
 export function me(): Promise<MeResponse> {
