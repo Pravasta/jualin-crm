@@ -594,6 +594,10 @@ func (u *Usecase) Me(ctx context.Context, t tenant.Context) (*MeOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("auth: me: load organization: %w", err)
 	}
+	planCode, planChannels, err := repos.Plan.ResolvePlan(ctx, t)
+	if err != nil {
+		return nil, fmt.Errorf("auth: me: resolve plan: %w", err)
+	}
 
 	return &MeOutput{
 		UserID:           usr.ID,
@@ -603,6 +607,8 @@ func (u *Usecase) Me(ctx context.Context, t tenant.Context) (*MeOutput, error) {
 		OrganizationName: org.Name,
 		MembershipID:     *t.MembershipID,
 		Role:             t.Role,
+		PlanCode:         planCode,
+		PlanChannels:     planChannels,
 	}, nil
 }
 

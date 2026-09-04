@@ -47,6 +47,15 @@ type SubscriptionRepository interface {
 	CreateFree(ctx context.Context, t tenant.Context, id uuid.UUID) (*subscription.Subscription, error)
 }
 
+// PlanResolver is declared here, consumer-side (ADR-011), same shape as
+// RefreshTokenRevoker below — Me (usecase.go) needs only this one
+// computation from internal/subscription, not its Repository or
+// RequireChannel. Satisfied structurally by
+// subscription.NewUsecase(...)'s return value at the composition root.
+type PlanResolver interface {
+	ResolvePlan(ctx context.Context, t tenant.Context) (code string, channels map[string]bool, err error)
+}
+
 // VerificationTokenRepository has no consumers outside this package —
 // its implementation lives in repository_postgres.go, right alongside
 // this interface, rather than in a separate internal/verification
@@ -115,6 +124,7 @@ type Repos struct {
 	Org          OrganizationRepository
 	Member       MembershipRepository
 	Sub          SubscriptionRepository
+	Plan         PlanResolver
 	Verify       VerificationTokenRepository
 	Audit        AuditRepository
 	RefreshToken RefreshTokenRepository

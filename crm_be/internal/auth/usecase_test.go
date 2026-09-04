@@ -63,6 +63,7 @@ func testRepos(q db.Querier) auth.Repos {
 		Org:          organization.New(q),
 		Member:       membership.New(q),
 		Sub:          subscription.New(q),
+		Plan:         subscription.NewUsecase(subscription.New(q)),
 		Verify:       auth.NewVerificationRepository(q),
 		Audit:        auditlog.New(q),
 		RefreshToken: auth.NewRefreshTokenRepository(q),

@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/subscription"
 )
 
 func doRequest(r *gin.Engine, method, path string, body any, mutate func(*http.Request)) *httptest.ResponseRecorder {
@@ -312,6 +313,58 @@ func TestHandler_Me_WithBearerToken_ReturnsProfile(t *testing.T) {
 	}
 	if me.Data.Email != "session-me@example.com" {
 		t.Errorf("expected email session-me@example.com, got %q", me.Data.Email)
+	}
+}
+
+// TestHandler_Me_PlanChannelsKeySetMatchesSubscriptionChannels locks the
+// wire contract TD §7 warns about: plan.channels' key set must be
+// EXACTLY subscription.Channels. A typo in any of the four places that
+// literal is duplicated (planChannels, the three PlanGate call sites,
+// this JSON body, and the dashboard's TypeScript) fails silently
+// everywhere else — this is the one place it fails loudly.
+func TestHandler_Me_PlanChannelsKeySetMatchesSubscriptionChannels(t *testing.T) {
+	r, m := newTestRouter(t)
+	registerAndVerifyHTTP(t, r, m, "session-plan@example.com")
+
+	login := doJSON(r, http.MethodPost, "/v1/auth/login", map[string]string{
+		"email": "session-plan@example.com", "password": loginPassword, "client": "mobile",
+	})
+	var loginBody struct {
+		Data struct {
+			AccessToken string `json:"access_token"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(login.Body.Bytes(), &loginBody)
+
+	w := doRequest(r, http.MethodGet, "/v1/me", nil, func(req *http.Request) {
+		req.Header.Set("Authorization", "Bearer "+loginBody.Data.AccessToken)
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var me struct {
+		Data struct {
+			Plan struct {
+				Code     string          `json:"code"`
+				Channels map[string]bool `json:"channels"`
+			} `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &me); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if me.Data.Plan.Code != subscription.PlanFree {
+		t.Errorf("expected plan.code %q, got %q", subscription.PlanFree, me.Data.Plan.Code)
+	}
+	if len(me.Data.Plan.Channels) != len(subscription.Channels) {
+		t.Fatalf("expected %d keys in plan.channels, got %d: %v", len(subscription.Channels), len(me.Data.Plan.Channels), me.Data.Plan.Channels)
+	}
+	for _, ch := range subscription.Channels {
+		if _, ok := me.Data.Plan.Channels[string(ch)]; !ok {
+			t.Errorf("plan.channels missing key %q — must match subscription.Channels exactly", ch)
+		}
 	}
 }
 
