@@ -90,3 +90,56 @@ manual wajib").
 Tidak ada penyimpangan lain dari TD. Titik pasang tetap persis tabel §3.4 (hanya `POST` ketiga kanal);
 `GET`/`PATCH`/`DELETE`, `POST /v1/leads` (API key), dan `POST /v1/forms/{public_key}/submit`
 diverifikasi eksplisit tetap terbuka lewat `cmd/api/plan_gate_test.go`. Tidak ada `Action` `authz` baru.
+
+---
+
+## #114 — Dashboard: keadaan "terkunci oleh paket" di Connect
+
+Issue pertama Phase 8 yang menyentuh `crm_dashboard`. Mengikuti TD §8, §4 apa adanya — **tanpa**
+menggerbangi layar tujuan (hanya menangani balapan, sesuai keputusan eksplisit sebelum implementasi).
+
+**`plan` masuk `MeResponse` sebagai `{ code: string; channels: Record<string, boolean> }`** —
+`Record<string, boolean>`, bukan `Record<PlanChannel, boolean>`, supaya kunci yang tidak dikenal tetap
+sah secara tipe (bentuk kabelnya sendiri, bukan cermin `subscription.Channel` Go). `channels` datang
+gratis lewat `GET /v1/me` yang `SessionGate` sudah panggil di setiap layar — tanpa request tambahan.
+
+**`lib/plan.ts` (baru)** — pembaca murni, bukan peta paket→kanal:
+- `PLAN_CHANNELS = ["api_key", "form", "webhook"]` — kontrak kabel dengan `subscription.Channels` Go,
+  dikunci test bentuk `WEBHOOK_EVENTS` vs `webhook.KnownEvents` (#103)
+- `isChannelOpen(plan, channel)` — `=== true`, kunci hilang → tertutup (gagal tertutup juga di klien)
+- `channelCardState(productStatus, plan, channel)` — menggabungkan **dua fakta independen**: apakah
+  kanal sudah dibangun produk (`productStatus`, per-kartu, tidak berhubungan dengan paket organization
+  mana pun) dan apakah paket organization membukanya. Sengaja dipisah supaya kanal yang belum dibangun
+  tidak pernah terbaca "terkunci" — itu berbohong soal alasan (`06/td.md` §416, dikutip TD §8)
+- `isPlanUpgradeRequired(err)` — bentuk `isWebhookUrlNotAllowed` (#103)
+
+**`connect-screen.tsx` jadi client component** — sebelumnya server component murni; sekarang butuh
+`useSession()` untuk `session.plan`. `ChannelCard` diketik sebagai **union diskriminatif** atas
+`productStatus` (`"active"` bawa `channel: PlanChannel` wajib, `"unavailable"` tidak) supaya TypeScript
+menolak kartu `active` tanpa kanal alih-alih membiarkan `undefined` lolos ke `channelCardState`.
+
+Kartu terkunci: **terlihat**, `opacity-60` (gaya sama dengan "belum tersedia"), **tidak dibungkus
+`<Link>`** sama sekali (bukan sekadar `pointer-events-none` — konsisten dengan kartu "belum tersedia"
+yang sudah begitu sejak #86), badge "Terkunci oleh paket" (**beda** dari badge "Belum tersedia" —
+keduanya `bg-muted`/`text-muted-foreground` tapi teksnya harus jujur soal alasan), deskripsi kanal
+**tetap tampil** (ADR-012 *Alasan*: pelanggan yang tidak pernah melihat Webhook ada tidak akan pernah
+upgrade), plus satu baris "Kanal ini tidak termasuk paket Anda saat ini." **Tanpa tombol upgrade,
+tanpa harga** (D6) — tidak ada elemen semacam itu ditulis sama sekali, bukan disembunyikan lewat CSS.
+
+**Balapan `403 plan_upgrade_required`** — ketiga *create dialog* (`create-api-key-dialog`,
+`create-form-dialog`, `create-webhook-dialog`) sudah menjatuhkan error tak dikenal ke banner lewat
+`globalMessage(err)` **sebelum** issue ini; perilakunya sudah benar secara kebetulan. Yang ditambahkan
+di sini murni **komentar** yang menamai `isPlanUpgradeRequired`/`lib/plan.ts` di titik tangkapnya —
+membuatnya keputusan yang terbaca dan tercatat, bukan menambah cabang kode yang perilakunya identik
+dengan `else` yang sudah ada (Aturan #27 — jangan menambah kode yang tidak mengubah perilaku).
+**Layar tujuan tidak digerbangi** (tombol "Buat" tetap tampil terlepas dari `plan.channels`) —
+diputuskan eksplisit sebelum implementasi: satu-satunya jalan sampai ke sana adalah mengetik URL
+langsung, dan di situ backend (#113) yang menolak. Menambahkannya berarti gerbang ketiga yang harus
+ikut benar untuk kemenangan yang UI-kartu-terkunci sudah beri secara praktis.
+
+**Verifikasi manual AC #7 (kartu terkunci sungguhan di browser, `planChannels` dibalik) — belum
+dilakukan sesi ini**, diserahkan ke pemilik produk setelah PR naik (keputusan eksplisit).
+
+`npm run typecheck && lint && test && build` bersih — 150 test (10 baru di `plan.test.ts`), 0 warning.
+Tidak ada peta paket→kanal versi TypeScript ditulis di mana pun (kriteria #6). Tidak ada harga atau
+angka di layar mana pun.

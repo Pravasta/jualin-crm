@@ -53,6 +53,12 @@ export function CreateFormDialog({
       const form = await createForm(name);
       onCreated(form);
     } catch (err) {
+      // plan_upgrade_required (subscription #113) — the RACE where the
+      // organization's plan closed this channel between the card
+      // rendering and this click — falls into the banner branch below
+      // on purpose (lib/plan.ts's isPlanUpgradeRequired names this
+      // code; globalMessage(err) already renders the backend's message
+      // as-is, same handling #103's delivery_not_retryable gets).
       const fields = fieldErrorsFrom(err);
       if (Object.keys(fields).length > 0) setFieldErrors(fields);
       else setError(globalMessage(err));
