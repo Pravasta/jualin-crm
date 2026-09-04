@@ -130,6 +130,8 @@ type MeOutput struct {
 	OrganizationName string
 	MembershipID     uuid.UUID
 	Role             tenant.Role
+	PlanCode         string
+	PlanChannels     map[string]bool
 }
 
 // OrgOption is one entry in OrganizationSelectionError's list.

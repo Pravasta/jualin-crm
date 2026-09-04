@@ -144,6 +144,17 @@ func (f *fakeSubRepo) CreateFree(_ context.Context, t tenant.Context, id uuid.UU
 	return &subscription.Subscription{ID: id, OrganizationID: t.OrganizationID, PlanCode: "free", Status: "active"}, nil
 }
 
+// fakePlanRepo satisfies subscription.Repository — every organization is
+// on an active free plan, same as fakeSubRepo.CreateFree above. Wrapped
+// in the real subscription.NewUsecase (not hand-rolled here) so
+// TestUnit_Me_ReturnsProfile exercises the real channelsFor resolution
+// instead of a second, possibly-drifting copy of it.
+type fakePlanRepo struct{}
+
+func (f *fakePlanRepo) FindActiveByOrg(_ context.Context, t tenant.Context) (*subscription.Subscription, error) {
+	return &subscription.Subscription{OrganizationID: t.OrganizationID, PlanCode: subscription.PlanFree, Status: "active"}, nil
+}
+
 type fakeVerifyToken struct {
 	userID uuid.UUID
 	used   bool
@@ -303,6 +314,7 @@ func newFakeStore() *fakeStore {
 		Org:          newFakeOrgRepo(),
 		Member:       &fakeMembershipRepo{},
 		Sub:          &fakeSubRepo{},
+		Plan:         subscription.NewUsecase(&fakePlanRepo{}),
 		Verify:       newFakeVerifyRepo(),
 		Audit:        &fakeAuditRepo{},
 		RefreshToken: newFakeRefreshTokenRepo(),

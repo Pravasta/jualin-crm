@@ -334,6 +334,10 @@ func (h *Handler) me(c *gin.Context) {
 		"organization_name": out.OrganizationName,
 		"membership_id":     out.MembershipID,
 		"role":              out.Role,
+		"plan": gin.H{
+			"code":     out.PlanCode,
+			"channels": out.PlanChannels,
+		},
 	})
 }
 
