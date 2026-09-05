@@ -98,6 +98,31 @@ services:
       WEBHOOK_DELIVERY_TIMEOUT: 10s
       WEBHOOK_MAX_ATTEMPTS: 5
       WEBHOOK_DELIVERY_RETENTION_DAYS: 30
+      # --- Paket berbayar & kuota (Phase 8.5, issue #122-#126) ---
+      # Dev-only placeholder - same shape and same reasoning as JWT_SECRET,
+      # FORM_TOKEN_SECRET, and WEBHOOK_SECRET_ENC_KEY above: a literal here
+      # so `docker compose up` exercises the whole path with zero setup,
+      # never reused in a real environment. Empty would mean
+      # POST /internal/subscriptions/{id}/plan is not registered at all
+      # (a 404), which would make docs/testing/flow/09-webhook.md 9.11
+      # impossible to run out of the box.
+      SUBSCRIPTION_ADMIN_TOKEN: ${SUBSCRIPTION_ADMIN_TOKEN:-development-only-subscription-admin-token-do-not-use-in-production}
+      # Enables POST /v1/subscription/test-checkout so the "Coba Pro (test)"
+      # button on the Langganan screen works locally. Safe to default true
+      # HERE and only here: config.Validate REJECTS this outright when
+      # APP_ENV=production (a customer upgrading themselves for free is a
+      # hole, not a degraded mode), so it cannot follow this file into a
+      # real deployment unnoticed.
+      SUBSCRIPTION_TEST_CHECKOUT: ${SUBSCRIPTION_TEST_CHECKOUT:-true}
+      # The ONE value in this block read from a local .env instead of being
+      # written here, and deliberately so: it is a real contact address,
+      # not a dev placeholder, and today's value is a personal number that
+      # must not enter git history (issue #125 follow-up). Compose
+      # substitutes it from ./.env (gitignored); `:-` keeps a missing .env
+      # from breaking `docker compose up`, exactly as the comment at the
+      # top of this block promises. Empty means the Enterprise card renders
+      # with no link - never a dead button.
+      ENTERPRISE_CONTACT_URL: ${ENTERPRISE_CONTACT_URL:-}
     ports:
       - "8080:8080"
     depends_on:

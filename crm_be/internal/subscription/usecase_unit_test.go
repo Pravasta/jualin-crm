@@ -307,3 +307,30 @@ func TestUnit_ListPlans_NeverTouchesRepository(t *testing.T) {
 		t.Fatalf("list plans: %v", err)
 	}
 }
+
+// TestUnit_AdminChangePlan_NoRowMatched_Returns404NotFound covers the
+// /internal/ surface's likeliest failure: a mistyped organization_id in
+// the path. It used to surface as a 500 internal_error, which reads as
+// "the server broke" rather than "that organization does not exist" —
+// found while wiring the token into docker-compose and verifying the
+// endpoint by hand against a running stack.
+func TestUnit_AdminChangePlan_NoRowMatched_Returns404NotFound(t *testing.T) {
+	repo := &fakeRepo{
+		err:           subscription.ErrNoActiveSubscription,
+		changePlanErr: subscription.ErrNoActiveSubscription,
+	}
+	u := subscription.NewUsecase(repo)
+
+	_, err := u.AdminChangePlan(context.Background(), testTenant(), subscription.PlanPro)
+
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) {
+		t.Fatalf("expected *httpx.DomainError, got %v (%T)", err, err)
+	}
+	if derr.Status != 404 {
+		t.Errorf("expected 404, got %d", derr.Status)
+	}
+	if derr.Code != "not_found" {
+		t.Errorf("expected code not_found, got %q", derr.Code)
+	}
+}
