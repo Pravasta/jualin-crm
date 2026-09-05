@@ -166,20 +166,21 @@ ada sebelumnya).
 |---|---|---|---|
 | 1 | `plan_code` punya pembaca nyata — `GET /v1/me` mengembalikan paket + kanal | ✅ | `internal/auth/handler_http.go`'s `plan` field; `TestHandler_Me_PlanChannelsKeySetMatchesSubscriptionChannels` |
 | 2 | Peta paket→kapabilitas satu tempat, perubahan satu baris | ✅ | `internal/subscription/plan.go`'s `planChannels`; `TestChannelsFor_KnownPlan_MatchesMap` |
-| 3 | `POST` tiga endpoint → `403 plan_upgrade_required` saat tertutup, dibuktikan lewat `curl` | ✅* | `cmd/api/plan_gate_test.go` — request HTTP mentah terhadap router produksi asli (setara `curl` di lapis protokol, bukan lewat UI); *literal `curl` command-line* ada di `09-webhook.md` §9.10, **belum dijalankan terhadap `docker compose` sungguhan** — diserahkan ke pemilik produk |
+| 3 | `POST` tiga endpoint → `403 plan_upgrade_required` saat tertutup, dibuktikan lewat `curl` | ✅ | `cmd/api/plan_gate_test.go` — request HTTP mentah terhadap router produksi asli (setara `curl` di lapis protokol, bukan lewat UI); **`09-webhook.md` §9.10 dijalankan pemilik produk 5 Sep 2026** terhadap stack sungguhan |
 | 4 | Gerbang terbukti bisa gagal: peta dibalik → `403`, dijalankan lalu dikembalikan | ✅ | **Benar-benar dijalankan** sesi #113: `planChannels[free][webhook]` dibalik, `go test -run TestPlanGate_OpenPlan` → merah hanya di webhook, dikembalikan, `git diff` kosong dikonfirmasi. Dicatat `notes.md` `## #113` |
-| 5 | Kartu Connect punya keadaan "terkunci oleh paket" yang nyata dan terlihat | ✅* | Kode: `channelCardState`, `connect-screen.tsx` — diuji `plan.test.ts`. **Verifikasi visual di browser sungguhan belum dijalankan** — diserahkan ke pemilik produk (keputusan eksplisit sebelum implementasi #114) |
+| 5 | Kartu Connect punya keadaan "terkunci oleh paket" yang nyata dan terlihat | ✅ | Kode: `channelCardState`, `connect-screen.tsx` — diuji `plan.test.ts`; **verifikasi visual di browser dijalankan pemilik produk 5 Sep 2026** lewat `09-webhook.md` §9.10 langkah 4 |
 | 6 | Dashboard tidak memuat peta paket→kanal versinya sendiri | ✅ | `lib/plan.ts` murni membaca `plan.channels`; `grep` "planChannels\|PLAN_MAP" di `crm_dashboard/src` nihil di luar nama fungsi/komentar yang menjelaskan ketiadaannya |
 | 7 | Layar Connect menangani `403 plan_upgrade_required` dari balapan | ✅ | Sudah tertangani sebelum #114 lewat banner generik (`globalMessage(err)`) di ketiga *create dialog*; #114 menambah komentar yang menamai keputusan |
 | 8 | Organization paket tak dikenal → ditolak (gagal tertutup) | ✅ | `TestChannelsFor_UnknownPlan_AllClosed`; `TestUnit_ResolvePlan_NoActiveSubscription_AllChannelsClosedNoError` |
 | 9 | Tidak ada satu pun angka harga/limit/kuota di kode maupun dokumen phase ini | ✅ | `grep` numerik dijalankan sesi ini terhadap `internal/subscription/`, `lib/plan.ts`, `docs/phases/08-subscription/*.md` — nihil di luar rujukan prosa ke aturan/kriteria itu sendiri |
 | 10 | `go test -race ./...` dan `npm run typecheck && lint && test && build` bersih | ✅ | Dijalankan ulang di akhir #115 (lihat bawah) |
 
-**\*** Kriteria #3 dan #5 punya dua lapis bukti: mekanisme sudah dibuktikan dengan test otomatis
-sungguhan (bukan lewat UI yang menyembunyikan tombol — syarat intinya terpenuhi), tapi langkah
-**visual/`curl` literal terhadap stack `docker compose` yang benar-benar menyala** diserahkan ke
-pemilik produk, sesuai keputusan eksplisit sebelum #114 dan #115 dikerjakan. Prosedurnya tertulis
-lengkap di `09-webhook.md` §9.10 dan `06-checklist-akhir.md` *10 — Subscription*, tinggal dijalankan.
+> **Pembaruan 5 September 2026 (pasca-merge #115).** Kriteria #3 dan #5 tadinya ditandai ✅\* — mekanisme
+> terbukti lewat test otomatis, tapi langkah `curl` literal + visual browser terhadap stack sungguhan
+> belum dijalankan siapa pun. **Pemilik produk menjalankan `09-webhook.md` §9.10 pada 5 September 2026**
+> dan melaporkannya lolos; kedua kriteria kini ✅ penuh. Dicatat sebagai laporan pemilik produk —
+> agent tidak mengamati sendiri output-nya, sama seperti pencatatan verifikasi HP Android Phase 5 dan
+> sesi browser Phase 7. **Seluruh 10 AC PRD Phase 8 kini terpenuhi.**
 
 ### Kewajiban yang diteruskan ke phase berikutnya (TD §16)
 

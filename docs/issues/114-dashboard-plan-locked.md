@@ -16,14 +16,13 @@
       sebelum implementasi, bukan luput. Tidak ada pemicu peninjauan: ini bentuk yang diinginkan
       selama belum ada jalur downgrade (D4 di TD Phase 8).
 
-## Belum dijalankan, diserahkan ke pemilik produk
+## Verifikasi manual — dijalankan
 
-- [ ] **Verifikasi browser AC #7 — kartu terkunci sungguhan, `planChannels` dibalik.** Keputusan
+- [x] **Verifikasi browser AC #7 — kartu terkunci sungguhan, `planChannels` dibalik.** Keputusan
       eksplisit sebelum implementasi #114: diserahkan ke pemilik produk untuk dijalankan sendiri
-      setelah PR naik, bukan dijalankan sesi itu. **Prosedurnya sekarang tertulis** di
-      `docs/testing/flow/09-webhook.md` §9.10 (ditambahkan #115) — pemicu peninjauan: **dijalankan
-      sekali oleh pemilik produk**, lalu poin ini dicoret di sini atau di `docs/testing/flow/`
-      langsung (checklist di `06-checklist-akhir.md` bagian *10 — Subscription*).
+      setelah PR naik, bukan dijalankan sesi itu. Prosedurnya ditulis di
+      `docs/testing/flow/09-webhook.md` §9.10 (ditambahkan #115). **Dijalankan pemilik produk
+      5 September 2026** — dilaporkan lewat sesi kerja, bukan diamati agent. Poin ini ditutup.
 
 ## Tidak ada deviasi TD/ADR lain
 
