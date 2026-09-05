@@ -157,15 +157,26 @@ export function SubscriptionScreen() {
                     </Button>
                   )}
 
-                  {/* Enterprise never gets a buy button (D4): the price is
-                      negotiated, not self-serve, and a button leading
-                      nowhere is worse than no button (issue #125's own
-                      "yang tidak boleh terjadi"). The contact channel
-                      itself is still a placeholder pending the product
-                      owner (docs/issues/125) — text only until then. */}
-                  {plan.code === "enterprise" && (
-                    <p className="text-[12.5px] text-muted-foreground">Hubungi kami untuk diskusi harga.</p>
-                  )}
+                  {/* Enterprise never gets a BUY button (D4): the price is
+                      negotiated, not self-serve. It gets a contact link
+                      instead — and only when the backend actually sent
+                      one, because a button leading nowhere is worse than
+                      no button (issue #125's own "yang tidak boleh
+                      terjadi"). rel="noopener noreferrer" because this is
+                      the one link on the screen pointing off-product. */}
+                  {plan.code === "enterprise" &&
+                    (plan.contact_url ? (
+                      <a
+                        href={plan.contact_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block text-[12.5px] text-accent-strong underline"
+                      >
+                        Hubungi kami untuk diskusi harga
+                      </a>
+                    ) : (
+                      <p className="text-[12.5px] text-muted-foreground">Hubungi kami untuk diskusi harga.</p>
+                    ))}
                 </CardContent>
               </Card>
             );

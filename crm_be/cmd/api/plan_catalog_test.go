@@ -16,12 +16,15 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/membership"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db/dbtest"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
 )
 
@@ -133,4 +136,64 @@ func seedExtraMember(t *testing.T, pool *pgxpool.Pool, org uuid.UUID, email stri
 		t.Fatalf("seed member membership: %v", err)
 	}
 	return seededMember{userID: userID, membershipID: m.ID}
+}
+
+// --- contact_url (Phase 8.5 follow-up) ---
+
+// TestPlanCatalog_ContactURL_OmittedWhenUnset locks the "no destination
+// yet" shape: the field is ABSENT, not an empty string, so the dashboard
+// renders the Enterprise card as plain text rather than an href="".
+func TestPlanCatalog_ContactURL_OmittedWhenUnset(t *testing.T) {
+	r, pool := newIsolationRouter(t) // isolationTestConfig leaves it empty
+	org, userID, membershipID := seedOrgOwner(t, pool, "Contact Unset Org", "contact-unset@example.com")
+	token := mintBearerToken(t, userID, org, membershipID, tenant.RoleOwner)
+
+	w := doIsolationRequest(r, http.MethodGet, "/v1/plans", token, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "contact_url") {
+		t.Errorf("expected contact_url to be omitted entirely when unconfigured, got: %s", w.Body.String())
+	}
+}
+
+// TestPlanCatalog_ContactURL_OnlyOnEnterprise proves the link is scoped
+// to the one plan that negotiates (prd D4) — Free and Pro are self-serve
+// and must never sprout a "contact us" link.
+func TestPlanCatalog_ContactURL_OnlyOnEnterprise(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	pool := dbtest.NewPool(t)
+	cfg := isolationTestConfig()
+	cfg.EnterpriseContactURL = "https://wa.me/6281234567890?text=Halo"
+	r := newRouter(testLogger(), pool, cfg)
+
+	org, userID, membershipID := seedOrgOwner(t, pool, "Contact Set Org", "contact-set@example.com")
+	token := mintBearerToken(t, userID, org, membershipID, tenant.RoleOwner)
+
+	w := doIsolationRequest(r, http.MethodGet, "/v1/plans", token, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var v struct {
+		Data []struct {
+			Code       string `json:"code"`
+			ContactURL string `json:"contact_url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, p := range v.Data {
+		switch p.Code {
+		case "enterprise":
+			if p.ContactURL != cfg.EnterpriseContactURL {
+				t.Errorf("enterprise: got contact_url %q, want %q", p.ContactURL, cfg.EnterpriseContactURL)
+			}
+		default:
+			if p.ContactURL != "" {
+				t.Errorf("plan %q must not carry a contact_url — only Enterprise negotiates (prd D4), got %q", p.Code, p.ContactURL)
+			}
+		}
+	}
 }
