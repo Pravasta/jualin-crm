@@ -8,6 +8,8 @@ import (
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auditlog"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auth"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/invitation"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/lead"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/membership"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/organization"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/db"
@@ -51,6 +53,9 @@ func reposFor(q db.Querier) auth.Repos {
 		Member:       membership.New(q),
 		Sub:          subscription.New(q),
 		Plan:         subscription.NewUsecase(subscription.New(q)),
+		LeadCount:    lead.New(q),
+		SeatCount:    membership.New(q),
+		PendingSeats: invitation.New(q),
 		Verify:       auth.NewVerificationRepository(q),
 		Audit:        auditlog.New(q),
 		RefreshToken: auth.NewRefreshTokenRepository(q),

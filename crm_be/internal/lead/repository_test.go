@@ -239,3 +239,141 @@ func seedMembership(t *testing.T, ctx context.Context, pool *pgxpool.Pool, org u
 	}
 	return membershipID
 }
+
+// --- CountCreatedThisMonth (Phase 8.5 #122) ---
+
+// TestRepository_CountCreatedThisMonth_IncludesSoftDeleted is the
+// property that lets a COUNT stand in for a usage_counters table
+// (08.5 prd D1): deleting a lead must NOT hand the quota back.
+// Without it there is a trivial abuse path — create up to the limit,
+// delete, repeat forever.
+func TestRepository_CountCreatedThisMonth_IncludesSoftDeleted(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := lead.New(pool)
+	org := seedOrganization(t, ctx, pool)
+	tc := tenant.Context{OrganizationID: org}
+
+	kept, err := repo.Create(ctx, tc, minimalInput("Tetap"))
+	if err != nil {
+		t.Fatalf("create kept: %v", err)
+	}
+	deleted, err := repo.Create(ctx, tc, minimalInput("Dihapus"))
+	if err != nil {
+		t.Fatalf("create deleted: %v", err)
+	}
+	if err := repo.Delete(ctx, tc, deleted.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	n, err := repo.CountCreatedThisMonth(ctx, tc)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 (the deleted lead still consumes quota), got %d", n)
+	}
+
+	// Sanity: the deleted one really is gone from normal reads, so the
+	// count above is not just "delete did nothing".
+	if _, err := repo.FindByID(ctx, tc, deleted.ID); err == nil {
+		t.Error("expected the soft-deleted lead to be invisible to FindByID")
+	}
+	_ = kept
+}
+
+func TestRepository_CountCreatedThisMonth_TenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := lead.New(pool)
+
+	orgA := seedOrganization(t, ctx, pool)
+	orgB := seedOrganization(t, ctx, pool)
+
+	for i := 0; i < 3; i++ {
+		if _, err := repo.Create(ctx, tenant.Context{OrganizationID: orgB}, minimalInput("Milik B")); err != nil {
+			t.Fatalf("seed org B: %v", err)
+		}
+	}
+
+	n, err := repo.CountCreatedThisMonth(ctx, tenant.Context{OrganizationID: orgA})
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected org A to count 0 of org B's 3 leads, got %d", n)
+	}
+}
+
+// TestRepository_CountCreatedThisMonth_ExcludesPreviousMonth proves the
+// window is the current month rather than all time — and that it is cut
+// in the ORGANIZATION'S timezone (Rule #13), not UTC. The lead below is
+// backdated to the last instant of the previous month in Asia/Jakarta;
+// counting in UTC would place it 7 hours earlier, which is still the
+// previous month, so this case is only sharp about the month boundary.
+// The timezone itself is asserted separately below.
+func TestRepository_CountCreatedThisMonth_ExcludesPreviousMonth(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := lead.New(pool)
+	org := seedOrganization(t, ctx, pool)
+	tc := tenant.Context{OrganizationID: org}
+
+	current, err := repo.Create(ctx, tc, minimalInput("Bulan ini"))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	old, err := repo.Create(ctx, tc, minimalInput("Bulan lalu"))
+	if err != nil {
+		t.Fatalf("create old: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE leads SET created_at = date_trunc('month', now()) - interval '1 day' WHERE id = $1`, old.ID,
+	); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+
+	n, err := repo.CountCreatedThisMonth(ctx, tc)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected only this month's lead to count, got %d", n)
+	}
+	_ = current
+}
+
+// TestRepository_CountCreatedThisMonth_UsesOrganizationTimezone is the
+// case UTC would get wrong. A lead created at 00:30 on the 1st in
+// Asia/Jakarta is 17:30 on the LAST day of the previous month in UTC —
+// so an implementation that truncates in UTC drops it from the count,
+// and the customer's quota looks like it reset late.
+func TestRepository_CountCreatedThisMonth_UsesOrganizationTimezone(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := lead.New(pool)
+	org := seedOrganization(t, ctx, pool)
+	tc := tenant.Context{OrganizationID: org}
+
+	created, err := repo.Create(ctx, tc, minimalInput("Dini hari tanggal 1"))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// 00:30 on the 1st, Asia/Jakarta — the seeded organization's default
+	// timezone (migration 0002).
+	if _, err := pool.Exec(ctx,
+		`UPDATE leads
+		    SET created_at = (date_trunc('month', now() AT TIME ZONE 'Asia/Jakarta') + interval '30 minutes') AT TIME ZONE 'Asia/Jakarta'
+		  WHERE id = $1`, created.ID,
+	); err != nil {
+		t.Fatalf("backdate to 00:30 local: %v", err)
+	}
+
+	n, err := repo.CountCreatedThisMonth(ctx, tc)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected the 00:30-on-the-1st lead to count in its own timezone, got %d — counting in UTC would place it in the previous month", n)
+	}
+}

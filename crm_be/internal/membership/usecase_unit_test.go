@@ -94,6 +94,19 @@ func (f *fakeRepo) CountActiveOwners(_ context.Context, t tenant.Context) (int, 
 	return n, nil
 }
 
+// CountActive is CountActiveOwners without the role predicate — half the
+// seat meter (#122). No test in this file reads it yet; enforcement is
+// #124's.
+func (f *fakeRepo) CountActive(_ context.Context, t tenant.Context) (int, error) {
+	n := 0
+	for _, m := range f.byID {
+		if m.OrganizationID == t.OrganizationID && m.DeletedAt == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
 type fakeAuditRepo struct{ actions []string }
 
 func (f *fakeAuditRepo) Record(_ context.Context, _ tenant.Context, _ *uuid.UUID, action string) error {

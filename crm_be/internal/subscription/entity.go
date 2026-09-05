@@ -30,4 +30,5 @@ type Subscription struct {
 type Plan struct {
 	Code     string
 	Channels map[Channel]bool
+	Limits   Limits
 }

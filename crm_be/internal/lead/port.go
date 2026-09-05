@@ -25,6 +25,13 @@ type Repository interface {
 	UpdateAssignment(ctx context.Context, t tenant.Context, id uuid.UUID, expectedVersion int, assignedTo *uuid.UUID) (*Lead, error)
 	Delete(ctx context.Context, t tenant.Context, id uuid.UUID) error
 
+	// CountCreatedThisMonth is the quota meter (Phase 8.5) — leads
+	// created this calendar month in the organization's own timezone,
+	// INCLUDING soft-deleted ones. Read by GET /v1/me for display (#122)
+	// and by Usecase.Create for enforcement (#123). Full rationale on
+	// the implementation in repository_postgres.go.
+	CountCreatedThisMonth(ctx context.Context, t tenant.Context) (int, error)
+
 	// CleanupExpiredIdempotencyKeys clears idempotency_key on rows older
 	// than 48h for t.OrganizationID (Phase 4 #47, TD §7 — keputusan D3,
 	// closing the retention debt recorded in Phase 2 TD §19). It never

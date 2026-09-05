@@ -22,9 +22,14 @@ const (
 // automatically.
 var Channels = []Channel{ChannelAPIKey, ChannelForm, ChannelWebhook}
 
-// PlanFree is the only plan that exists today (prd D2 — no plans
-// table).
-const PlanFree = "free"
+// The three plans (Phase 8.5). Still plain `text` in plan_code, with no
+// plans table — prd D2 of Phase 8 holds: one column is enough until
+// there is a real second implementation, and three literals is not it.
+const (
+	PlanFree       = "free"
+	PlanPro        = "pro"
+	PlanEnterprise = "enterprise"
+)
 
 // planChannels is THE map (prd D3). Opening or closing a channel for a
 // plan is a one-line change here and nowhere else (kriteria #2).
@@ -33,8 +38,57 @@ const PlanFree = "free"
 // is the honest state of the product until pricing exists (ADR-012 §4,
 // prd kriteria #9). The mechanism is what ships now; the numbers
 // replace this literal later (TD §16).
+// Every channel is open on every plan TODAY, including free. That is
+// deliberate and not an oversight: closing a channel that free already
+// opens would take something away from organizations already using it,
+// which is the downgrade behaviour Phase 8 D4 refused to build. Which
+// channels each paid plan actually distinguishes is part of the
+// provisional-numbers decision still owed by the product owner
+// (08.5-paid-plans/prd.md, tabel *Angka provisional*) — until then the
+// only real differentiator is planLimits below.
 var planChannels = map[string]map[Channel]bool{
-	PlanFree: {ChannelAPIKey: true, ChannelForm: true, ChannelWebhook: true},
+	PlanFree:       {ChannelAPIKey: true, ChannelForm: true, ChannelWebhook: true},
+	PlanPro:        {ChannelAPIKey: true, ChannelForm: true, ChannelWebhook: true},
+	PlanEnterprise: {ChannelAPIKey: true, ChannelForm: true, ChannelWebhook: true},
+}
+
+// Unlimited is what a zero means inside Limits. It is NOT "none" — the
+// distinction matters enough that no call site compares against 0
+// directly; allows() below is the only place that knows.
+const Unlimited = 0
+
+// Limits is what a plan allows in QUANTITY — the dimension Phase 8
+// deliberately did not have (TD 8.5 §2). Kept beside planChannels
+// rather than merged into it because "which channel" and "how many" are
+// different questions with different failure modes (§2.1).
+type Limits struct {
+	LeadsPerMonth int
+	Seats         int
+}
+
+// LimitsAreProvisional guards the one thing that must never ship by
+// accident: numbers nobody chose. The composition root refuses to boot
+// with APP_ENV=production while this is true (cmd/api, ADR-010's
+// fail-fast) — the same shape as WEBHOOK_ALLOW_PRIVATE_TARGETS (#100)
+// and CAPTCHA_PROVIDER=none (#87).
+//
+// TD 8.5 §14 originally proposed a deliberately failing test for this.
+// A red test in CI trains people to ignore red; a boot that refuses
+// production cannot be ignored and cannot be forgotten. Flipped to
+// false in the closing issue (#126), together with the real numbers.
+const LimitsAreProvisional = true
+
+// planLimits is THE map for quantities. Adding a plan or changing a
+// quota is a one-line change here and nowhere else.
+//
+// ⚠️ ANGKA DI BAWAH PROVISIONAL — dipilih tanpa data pengguna nyata
+// (ADR-014). Wajib ditinjau ulang setelah 3–5 pelanggan berbayar
+// pertama, keempatnya bersama-sama: kuota Free, kuota Pro, harga Pro,
+// batas seat.
+var planLimits = map[string]Limits{
+	PlanFree:       {LeadsPerMonth: 100, Seats: 2},
+	PlanPro:        {LeadsPerMonth: 2000, Seats: 10},
+	PlanEnterprise: {LeadsPerMonth: Unlimited, Seats: Unlimited},
 }
 
 const statusActive = "active"
@@ -60,6 +114,45 @@ func channelsFor(planCode, status string) map[Channel]bool {
 		out[ch] = open && plan[ch]
 	}
 	return out
+}
+
+// limitsFor resolves the quantities planCode allows, gated by status.
+//
+// It fails closed to the STRICTEST KNOWN PLAN (free), NOT to zero — and
+// that is a deliberate asymmetry with channelsFor above, which does
+// close everything. The two have different blast radii (TD 8.5 §2.1):
+//
+//   - A closed channel means "you cannot create a NEW api key / form /
+//     webhook". Annoying; nothing already running stops.
+//   - A zero lead quota would mean the product stops accepting leads
+//     AT ALL — the customer's embedded form dies, their integration
+//     dies. A billing hiccup must never delete the core function.
+//
+// So an unknown plan_code, or a subscription that is not active, drops
+// the organization to free-tier quantities until the situation is
+// sorted out. That is the standard SaaS behaviour and it is reversible.
+func limitsFor(planCode, status string) Limits {
+	if status != statusActive {
+		return planLimits[PlanFree]
+	}
+	l, ok := planLimits[planCode]
+	if !ok {
+		return planLimits[PlanFree]
+	}
+	return l
+}
+
+// allows reports whether one more unit fits under limit, given how many
+// are already used. Unlimited (0) always fits.
+//
+// The ONLY place that knows what 0 means. Callers ask this question
+// rather than comparing numbers themselves, so "0 is unlimited, not
+// none" lives in exactly one line of the codebase.
+func allows(limit, used int) bool {
+	if limit == Unlimited {
+		return true
+	}
+	return used < limit
 }
 
 // ParseChannel validates s against Channels and returns the typed

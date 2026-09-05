@@ -53,6 +53,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Plan quotas that nobody chose must never reach a paying customer
+	// (ADR-014). The numbers in subscription.planLimits are placeholders
+	// until the product owner fills them in and #126 flips the constant;
+	// production refuses to boot until then — the same fail-fast shape
+	// as WEBHOOK_ALLOW_PRIVATE_TARGETS in production (ADR-010).
+	if cfg.AppEnv == "production" && subscription.LimitsAreProvisional {
+		fmt.Fprintln(os.Stderr, "subscription: plan limits are still provisional (subscription.LimitsAreProvisional) — refusing to start in production. Fill in docs/phases/08.5-paid-plans/prd.md's angka provisional, set the real numbers in internal/subscription/plan.go, then flip the constant.")
+		os.Exit(1)
+	}
+
 	log := logger.New(cfg)
 
 	ctx := context.Background()
@@ -193,7 +203,12 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	authMW := authn.Middleware(authUsecase)
 	optionalAuthMW := authn.OptionalMiddleware(authUsecase)
 
-	auth.NewHandler(authUsecase, cookieCfg).RegisterRoutes(r, authMW)
+	// TestCheckoutAvailable is hardcoded false here: the endpoint it
+	// advertises (POST /v1/subscription/test-checkout) and the config
+	// flag that gates it both arrive in #124. Wiring the field now keeps
+	// GET /v1/me's shape stable for the dashboard (#125) without
+	// pretending a route exists.
+	auth.NewHandler(authUsecase, cookieCfg, auth.MeConfig{TestCheckoutAvailable: false}).RegisterRoutes(r, authMW)
 
 	membershipUsecase := membership.NewUsecase(newMembershipStore(pool))
 	membership.NewHandler(membershipUsecase).RegisterRoutes(r, authMW)

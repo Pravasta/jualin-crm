@@ -594,9 +594,27 @@ func (u *Usecase) Me(ctx context.Context, t tenant.Context) (*MeOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("auth: me: load organization: %w", err)
 	}
-	planCode, planChannels, err := repos.Plan.ResolvePlan(ctx, t)
+	planCode, planChannels, limits, err := repos.Plan.ResolvePlan(ctx, t)
 	if err != nil {
 		return nil, fmt.Errorf("auth: me: resolve plan: %w", err)
+	}
+
+	// Two meters, three queries — the cost this endpoint pays so that no
+	// client ever computes usage itself (Phase 8.5 §7). If this turns out
+	// to be measurably expensive (it is called on EVERY protected screen
+	// via SessionGate), the documented first move is to keep limits here
+	// and serve usage from the Langganan screen's own endpoint instead.
+	leadsThisMonth, err := repos.LeadCount.CountCreatedThisMonth(ctx, t)
+	if err != nil {
+		return nil, fmt.Errorf("auth: me: count leads this month: %w", err)
+	}
+	activeSeats, err := repos.SeatCount.CountActive(ctx, t)
+	if err != nil {
+		return nil, fmt.Errorf("auth: me: count active seats: %w", err)
+	}
+	pendingSeats, err := repos.PendingSeats.CountPendingSeats(ctx, t)
+	if err != nil {
+		return nil, fmt.Errorf("auth: me: count pending seats: %w", err)
 	}
 
 	return &MeOutput{
@@ -609,6 +627,14 @@ func (u *Usecase) Me(ctx context.Context, t tenant.Context) (*MeOutput, error) {
 		Role:             t.Role,
 		PlanCode:         planCode,
 		PlanChannels:     planChannels,
+		PlanLimits: PlanLimits{
+			LeadsPerMonth: limits.LeadsPerMonth,
+			Seats:         limits.Seats,
+		},
+		PlanUsage: PlanUsage{
+			LeadsThisMonth: leadsThisMonth,
+			SeatsUsed:      activeSeats + pendingSeats,
+		},
 	}, nil
 }
 

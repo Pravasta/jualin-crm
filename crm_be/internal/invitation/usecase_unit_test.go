@@ -153,6 +153,20 @@ func (f *fakeInvitationRepo) MarkRevoked(_ context.Context, id uuid.UUID) error 
 	return nil
 }
 
+// CountPendingSeats mirrors the real predicate: still acceptable means
+// not accepted, not revoked, AND not expired (#122). No test in this
+// file reads it yet — seat enforcement is #124's.
+func (f *fakeInvitationRepo) CountPendingSeats(_ context.Context, t tenant.Context) (int, error) {
+	n := 0
+	for _, inv := range f.byHash {
+		if inv.OrganizationID == t.OrganizationID &&
+			inv.AcceptedAt == nil && inv.RevokedAt == nil && inv.ExpiresAt.After(time.Now()) {
+			n++
+		}
+	}
+	return n, nil
+}
+
 type fakeStore struct{ repos invitation.Repos }
 
 func newFakeStore() *fakeStore {

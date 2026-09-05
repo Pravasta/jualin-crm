@@ -35,6 +35,21 @@ func (f *fakeLeadRepo) CleanupExpiredIdempotencyKeys(_ context.Context, t tenant
 	return nil
 }
 
+// CountCreatedThisMonth exists so *fakeLeadRepo still satisfies
+// lead.Repository (#122). Nothing in this file exercises the quota —
+// the meter has no reader inside lead.Usecase until #123 wires
+// enforcement — so counting what the fake happens to hold is both
+// honest and enough.
+func (f *fakeLeadRepo) CountCreatedThisMonth(_ context.Context, t tenant.Context) (int, error) {
+	n := 0
+	for _, l := range f.byID {
+		if l.OrganizationID == t.OrganizationID {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (f *fakeLeadRepo) Create(_ context.Context, t tenant.Context, in lead.CreateInput) (*lead.Lead, error) {
 	if in.IdempotencyKey != nil {
 		for _, l := range f.byID {

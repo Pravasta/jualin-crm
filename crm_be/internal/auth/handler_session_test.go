@@ -401,3 +401,68 @@ func TestHandler_ResetPassword_Success_ThenLoginWithNewPassword(t *testing.T) {
 		t.Fatalf("login with new password: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// TestHandler_Me_CarriesPlanLimitsAndUsage is Phase 8.5 §7: the client
+// gets ANSWERS (how much is allowed, how much is used), never the
+// ingredients to compute them itself — the same rule plan.channels
+// already follows.
+//
+// A freshly registered organization is the sharpest fixture available:
+// exactly one membership, zero leads, no invitations. Any number other
+// than 1 seat / 0 leads means the meters are reading something other
+// than what they claim.
+func TestHandler_Me_CarriesPlanLimitsAndUsage(t *testing.T) {
+	r, m := newTestRouter(t)
+	registerAndVerifyHTTP(t, r, m, "session-usage@example.com")
+
+	login := doJSON(r, http.MethodPost, "/v1/auth/login", map[string]string{
+		"email": "session-usage@example.com", "password": loginPassword, "client": "mobile",
+	})
+	var loginBody struct {
+		Data struct {
+			AccessToken string `json:"access_token"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(login.Body.Bytes(), &loginBody)
+
+	w := doRequest(r, http.MethodGet, "/v1/me", nil, func(req *http.Request) {
+		req.Header.Set("Authorization", "Bearer "+loginBody.Data.AccessToken)
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var me struct {
+		Data struct {
+			Plan struct {
+				Limits struct {
+					LeadsPerMonth int `json:"leads_per_month"`
+					Seats         int `json:"seats"`
+				} `json:"limits"`
+				Usage struct {
+					LeadsThisMonth int `json:"leads_this_month"`
+					SeatsUsed      int `json:"seats_used"`
+				} `json:"usage"`
+				TestCheckoutAvailable bool `json:"test_checkout_available"`
+			} `json:"plan"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &me); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if me.Data.Plan.Limits.LeadsPerMonth <= 0 || me.Data.Plan.Limits.Seats <= 0 {
+		t.Errorf("free plan must carry real quantities, got %+v", me.Data.Plan.Limits)
+	}
+	if me.Data.Plan.Usage.LeadsThisMonth != 0 {
+		t.Errorf("a fresh organization has created no leads, got leads_this_month=%d", me.Data.Plan.Usage.LeadsThisMonth)
+	}
+	if me.Data.Plan.Usage.SeatsUsed != 1 {
+		t.Errorf("a fresh organization has exactly its owner, got seats_used=%d", me.Data.Plan.Usage.SeatsUsed)
+	}
+	// #124 wires the flag and the endpoint it advertises; until then the
+	// honest answer is false, and this pins that it isn't accidentally true.
+	if me.Data.Plan.TestCheckoutAvailable {
+		t.Error("test_checkout_available must be false until #124 wires SUBSCRIPTION_TEST_CHECKOUT")
+	}
+}
