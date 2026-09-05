@@ -88,6 +88,95 @@ func TestPlanLimits_EveryPlanHasEntry(t *testing.T) {
 	}
 }
 
+// TestPlanCatalog_AllFourCollectionsAgree extends the check above to
+// planDisplay and planOrder (added in #125) — a plan missing from any
+// ONE of the four leaves either a silent free-tier fallback (planLimits/
+// planChannels, already covered above) or a plan the comparison screen
+// can never show/never renders a name for (planOrder/planDisplay).
+func TestPlanCatalog_AllFourCollectionsAgree(t *testing.T) {
+	inOrder := make(map[string]bool, len(planOrder))
+	for _, code := range planOrder {
+		inOrder[code] = true
+	}
+
+	for plan := range planChannels {
+		if !inOrder[plan] {
+			t.Errorf("plan %q is in planChannels but missing from planOrder", plan)
+		}
+		if _, ok := planDisplay[plan]; !ok {
+			t.Errorf("plan %q is in planChannels but missing from planDisplay", plan)
+		}
+	}
+	for plan := range inOrder {
+		if _, ok := planChannels[plan]; !ok {
+			t.Errorf("plan %q is in planOrder but missing from planChannels", plan)
+		}
+	}
+	for plan := range planDisplay {
+		if _, ok := planChannels[plan]; !ok {
+			t.Errorf("plan %q is in planDisplay but missing from planChannels", plan)
+		}
+	}
+	if len(planOrder) != len(inOrder) {
+		t.Errorf("planOrder has a duplicate entry: %v", planOrder)
+	}
+}
+
+// TestCatalog_ReturnsEveryPlanInOrder locks the display order the
+// dashboard's three columns render in — Free, Pro, Enterprise — since a
+// map (planChannels/planLimits/planDisplay) has none of its own.
+func TestCatalog_ReturnsEveryPlanInOrder(t *testing.T) {
+	got := Catalog()
+
+	if len(got) != len(planOrder) {
+		t.Fatalf("expected %d plans, got %d", len(planOrder), len(got))
+	}
+	for i, code := range planOrder {
+		if got[i].Code != code {
+			t.Errorf("position %d: got %q, want %q", i, got[i].Code, code)
+		}
+	}
+}
+
+// TestCatalog_EachEntryMatchesItsSourceMaps proves Catalog() is a pure
+// read of the four maps above, not a second copy of their numbers —
+// changing planLimits/planChannels/planDisplay and not Catalog() would
+// otherwise be invisible until the comparison screen shows stale data.
+func TestCatalog_EachEntryMatchesItsSourceMaps(t *testing.T) {
+	for _, entry := range Catalog() {
+		if entry.Limits != planLimits[entry.Code] {
+			t.Errorf("%q: Limits %+v does not match planLimits", entry.Code, entry.Limits)
+		}
+		if entry.Name != planDisplay[entry.Code].Name {
+			t.Errorf("%q: Name %q does not match planDisplay", entry.Code, entry.Name)
+		}
+		if entry.PriceLabel != planDisplay[entry.Code].PriceLabel {
+			t.Errorf("%q: PriceLabel %q does not match planDisplay", entry.Code, entry.PriceLabel)
+		}
+		for _, ch := range Channels {
+			if entry.Channels[ch] != planChannels[entry.Code][ch] {
+				t.Errorf("%q channel %q: got %v, want %v", entry.Code, ch, entry.Channels[ch], planChannels[entry.Code][ch])
+			}
+		}
+	}
+}
+
+// TestCatalog_ResolvesEveryPlanAsIfActive proves the catalog describes
+// what a plan OFFERS, not any one organization's current status — every
+// entry must be resolved as "active", even though no organization in
+// the database is guaranteed to hold that status for that plan right
+// now.
+func TestCatalog_ResolvesEveryPlanAsIfActive(t *testing.T) {
+	for _, entry := range Catalog() {
+		want := channelsFor(entry.Code, statusActive)
+		for _, ch := range Channels {
+			if entry.Channels[ch] != want[ch] {
+				t.Errorf("%q channel %q: got %v, want %v (resolved as active)", entry.Code, ch, entry.Channels[ch], want[ch])
+			}
+		}
+	}
+}
+
 // TestLimitsFor_UnknownPlan_FallsBackToFreeNotZero locks the deliberate
 // asymmetry with channelsFor (TD 8.5 §2.1): channels close completely,
 // quantities drop to the strictest KNOWN plan. Zero here would stop the

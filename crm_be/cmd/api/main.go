@@ -228,6 +228,7 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	// gated the way it is).
 	registerSubscriptionAdminRoutes(r, planUsecase, auditlog.New(pool), cfg.SubscriptionAdminToken)
 	registerTestCheckoutRoute(r, authMW, planUsecase, auditlog.New(pool), cfg.SubscriptionTestCheckout)
+	subscription.NewHandler(planUsecase).RegisterRoutes(r, authMW)
 
 	// apikey is wired here, ahead of lead, because lead's public create
 	// route (below) needs apikeyUsecase to build its own middleware —

@@ -42,6 +42,7 @@ describe("pageTitle", () => {
     // sub-pages, but this proves the sort doesn't accidentally pick a
     // shorter, unrelated href instead).
     expect(pageTitle("/connect/api")).toBe("Connect");
+    expect(pageTitle("/subscription")).toBe("Langganan");
     expect(pageTitle("/settings")).toBe("Pengaturan");
   });
 
@@ -57,7 +58,7 @@ describe("NAV_ITEMS", () => {
   // not, and must not creep back in.
   it("uses Indonesian labels except for the two glossary terms", () => {
     const labels = NAV_ITEMS.map((item) => item.label);
-    expect(labels).toEqual(["Beranda", "Lead", "Customer", "Tugas", "Tim", "Connect", "Pengaturan"]);
+    expect(labels).toEqual(["Beranda", "Lead", "Customer", "Tugas", "Tim", "Connect", "Langganan", "Pengaturan"]);
     expect(labels).not.toContain("Home");
     expect(labels).not.toContain("Task");
     expect(labels).not.toContain("Settings");

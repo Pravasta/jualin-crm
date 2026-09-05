@@ -260,3 +260,99 @@ Ditulis sebagai komentar di `recordPlanChangeAudit`, bukan hanya di sini.
   berhasil, bukan dipercaya dari membaca kode (`TestSubscriptionAdmin_TokenNeverLogged`)
 
 `go test -race ./...` bersih, `golangci-lint run` 0 issues. Tanpa migration baru.
+
+---
+
+## #125 — Dashboard: layar Langganan
+
+Mengikuti TD §7, §9. Satu keputusan yang mengubah bentuk pekerjaan sebelum kode ditulis — dilaporkan
+ke pemilik produk lewat `AskUserQuestion`, bukan diputuskan sepihak — dan satu penyimpangan langsung
+dari isi issue (bukan hanya TD) yang jadi konsekuensinya.
+
+### Temuan sebelum implementasi — perbandingan tiga paket butuh data yang belum dikirim siapa pun
+
+`GET /v1/me` hanya membawa paket **organization yang sedang login** — angka paket *lain* (berapa
+lead/seat yang didapat kalau naik ke Pro) hanya hidup di peta Go, dan harga tidak punya rumah sama
+sekali. Tiga jalan diajukan: (a) backend mengirim katalog lewat endpoint baru, (b) layar tanpa angka
+konkret untuk paket lain, (c) tunda perbandingan ke issue terpisah. **(a) dipilih** — satu-satunya
+opsi yang memenuhi Phase 8 kriteria #6 dan prd 8.5 kriteria #9 (angka paket **tidak pernah** hidup dua
+kali, sekali di Go dan sekali di TypeScript) sekaligus benar-benar menjawab kebutuhan prd 8.5 #3
+("tahu apa yang saya dapat kalau naik paket, tanpa bertanya"). Konsekuensinya: **#125, berlabel
+`dashboard`, ikut menyentuh Go** — penyimpangan langsung dari cakupan issue, dicatat di sini dan di
+`docs/issues/125`.
+
+### Penyimpangan — `authz.ActionSubscriptionRead` yang #124 tolak buat, sekarang dibuat
+
+#124 sengaja tidak membuat Action ini karena nol pemanggil nyata saat itu. `GET /v1/plans` adalah
+pemanggil nyata pertama: ia mengembalikan angka paket **lain**, bukan cuma milik organization sendiri
+(yang `GET /v1/me` sudah buka untuk semua principal tanpa Action apa pun) — jadi penjagaannya memang
+baru sekarang jadi relevan. **Owner *dan* Admin**, beda dari `ActionSubscriptionChange` yang Owner-only
+— TD §9 eksplisit memberi Admin hak melihat gambaran tagihan meski hanya Owner yang bisa bertindak.
+
+### Bentuk implementasi — katalog paket (Go)
+
+- **`subscription.Catalog()`** — fungsi murni, bukan method `Usecase`, karena ia tidak butuh
+  `tenant.Context` sama sekali: katalog menjelaskan apa yang **ditawarkan** tiap paket, sama untuk
+  organization mana pun yang bertanya. Dibangun dari **empat** peta di `plan.go`
+  (`planChannels`/`planLimits`/`planDisplay`/`planOrder` — dua terakhir baru) sehingga tidak ada
+  angka yang di-hardcode ulang di dalamnya.
+- **`planDisplay`/`planOrder`** — nama tampilan dan urutan kolom, rumah yang sama prd D7 tetapkan untuk
+  angka provisional ("satu peta Go + satu tabel dokumen"). Label harga (`"Rp0"`/`"Segera"`/`"Negosiasi"`)
+  sengaja bukan angka pasti — Pro masih `_(?)_` di prd, dan `LimitsAreProvisional = true` yang sudah
+  ada **sudah menahan boot produksi** selama itu benar, jadi placeholder ini tidak mungkin diam-diam
+  sampai ke pelanggan produksi.
+- **Test key-set yang sudah ada** (`TestPlanLimits_EveryPlanHasEntry`, sejak #122) diperluas jadi
+  `TestPlanCatalog_AllFourCollectionsAgree` — paket yang ditambahkan ke satu peta dan lupa di peta lain
+  sekarang gagal di keempat kombinasinya, bukan cuma dua.
+- **`Usecase.ListPlans`** — satu-satunya method di paket ini yang **tidak** memanggil
+  `FindActiveByOrg` sama sekali (dikunci `TestUnit_ListPlans_NeverTouchesRepository`): pertanyaan
+  "apa yang ditawarkan tiap paket" tidak butuh baris subscription organization mana pun, beda dari
+  `ResolvePlan`/`RequireChannel`/`RequireLeadQuota`/`RequireSeatLimit` yang keempatnya membaca itu
+  lebih dulu.
+- **`internal/subscription/handler_http.go`** (berkas baru) — `GET /v1/plans`, endpoint HTTP pertama
+  yang dimiliki paket ini secara langsung; setiap entry point lain sebelumnya dipanggil dari usecase
+  domain lain lewat bridge `PlanGate` (ADR-011).
+
+### Bentuk implementasi — dashboard
+
+- **`session.plan` sudah cukup untuk "Paket Aktif" dan "Pemakaian"** — `GET /v1/me` sudah membawa
+  `limits`/`usage`/`test_checkout_available` sejak #122/#124, jadi bagian ini nol fetch tambahan.
+  Hanya kolom perbandingan yang memanggil `GET /v1/plans` — apa yang ditawarkan paket **lain** memang
+  tidak ada di `session.plan`.
+- **`lib/plan.ts`** bertambah `planDisplayName` (pembaca pertama `plan.code`, menutup poin terbuka
+  `docs/issues/112`, fallback ke kode mentah untuk nilai tak dikenal alih-alih crash),
+  `formatLimit`/`formatUsage`/`isUnlimitedLimit` (satu-satunya tempat arti "0 = tanpa batas" dibaca di
+  TypeScript, mirip `allows()` di Go), dan `usageRatio` yang **di-clamp `[0, 1]`** — pemakaian yang
+  melewati batas (lead dari form publik setelah kuota habis, #123 D3) tidak pernah membuat bar >100%
+  atau angka negatif (AC eksplisit, dikunci test).
+- **`lib/session-context.tsx` bertambah `useSessionRefresh`** — satu-satunya pemanggilnya adalah
+  layar ini: setelah test checkout mengubah `plan.code`, layar harus menunjukkan paket baru **seketika**,
+  bukan menunggu navigasi berikutnya (SessionGate hanya memanggil `GET /v1/me` sekali saat mount).
+  `useSession()` sendiri tidak berubah bentuk — setiap pemanggil lama tetap jalan tanpa sentuhan.
+- **Aksi di kolom paket**: tombol test checkout muncul **hanya** bila `test_checkout_available` **dan**
+  `canChangePlan(role)` (Owner) **dan** bukan paket yang sedang aktif. Enterprise **tidak pernah**
+  punya tombol — teks *"Hubungi kami untuk diskusi harga"* saja, karena tujuan kontaknya (nomor
+  WhatsApp/email) masih placeholder menunggu pemilik produk (keputusan eksplisit sebelum implementasi:
+  tombol yang tidak menuju ke mana pun dilarang AC, bukan didisable). Dicatat sebagai poin terbuka di
+  `docs/issues/125`.
+- **Dua layar lama bertambah keadaan inline**: `new-lead-dialog.tsx` (`plan_quota_exceeded`) dan
+  `invite-member-dialog.tsx` (`plan_seat_limit_reached`) — `FormErrorBanner` menampilkan pesan backend
+  apa adanya (sudah ada), ditambah satu tautan "Lihat paket & pemakaian" ke `/subscription` yang
+  **hanya muncul untuk kode error itu**, bukan untuk error lain yang dialog ini bisa tampilkan.
+- **Item sidebar "Langganan" visible untuk SEMUA role** — pola yang sama "Connect" pakai sejak #86:
+  gerbang sungguhan (`canViewSubscription`) ada di dalam layar, bukan dengan menyembunyikan item nav.
+  Manager/Employee bisa membuka `/subscription` dan melihat "tidak tersedia untuk role Anda" dengan
+  **nol** panggilan `GET /v1/plans` — dikunci di dua lapis: `lib/subscription-permissions.test.ts`
+  (murni) dan `cmd/api/plan_catalog_test.go` (`403` sungguhan bila gerbang backend saja yang tersisa).
+
+### Verifikasi — dijalankan, bukan diasumsikan (backend); manual (dashboard, diserahkan ke pemilik produk)
+
+`cmd/api/plan_catalog_test.go` terhadap router produksi asli: Owner/Admin `200` tiga paket berurutan
+(Free/Pro/Enterprise) dengan nama & label harga terisi; Manager/Employee `403`. `go test -race ./...`
+bersih, `golangci-lint run` 0 issues. `npm run typecheck && lint && test && build` bersih — 162 test.
+
+**Verifikasi manual terhadap `crm_be` sungguhan (AC eksplisit) diserahkan ke pemilik produk**, sama
+pola #114/#123: turunkan kuota organization lewat `/internal/subscriptions/{id}/plan` atau SQL
+langsung, konfirmasi `403 plan_quota_exceeded`/`plan_seat_limit_reached` tampil inline dengan tautan
+di layar asalnya, dan layar `/subscription` menunjukkan pemakaian serta perbandingan paket yang benar
+di browser. Prosedur lengkap: `docs/issues/125-dashboard-subscription-screen.md`.

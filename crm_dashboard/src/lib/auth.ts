@@ -86,6 +86,21 @@ export interface MeResponse {
   plan: {
     code: string;
     channels: Record<string, boolean>;
+    // limits/usage added #125 (subscription TD §7) — 0 in EITHER means
+    // "tanpa batas", never "none" (lib/plan.ts's formatLimit/formatUsage
+    // are the only place that reads what 0 means, mirroring crm_be's
+    // allows()).
+    limits: {
+      leads_per_month: number;
+      seats: number;
+    };
+    usage: {
+      leads_this_month: number;
+      seats_used: number;
+    };
+    // One source of truth for "does this deployment allow the test
+    // upgrade button" (TD 8.5 §7) — never a frontend-only flag.
+    test_checkout_available: boolean;
   };
 }
 
