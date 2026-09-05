@@ -161,3 +161,102 @@ kebisingan. Dikunci test (`TestUnit_Create_Quota_UserAndAPIKey_NeverNotify`).
 
 `go test -race ./...` bersih, `golangci-lint run` 0 issues. Kuota terlampaui di bawah konkurensi
 (1–2 baris) **tidak dikunci** — sesuai prd D2, diterima secara sadar, tidak diuji sebagai kegagalan.
+
+---
+
+## #124 — Batas seat + dua jalur perubahan paket (token internal & test checkout)
+
+Mengikuti TD §6, §8, §10, §11. Satu pemeriksaan yang issue minta secara eksplisit dicatat (bukan
+diasumsikan), satu penyimpangan dari isi issue (bukan sekadar TD) yang perlu disorot, dan satu
+keputusan desain yang tidak eksplisit ditutup TD.
+
+### Pemeriksaan yang diminta issue — jalur reaktivasi membership: **tidak ada**
+
+Issue eksplisit meminta: *"Periksa apakah ada jalur reaktivasi membership; kalau ada, itu titik pasang
+kedua. Kalau tidak ada, catat bahwa tidak ada — jangan diasumsikan."* Diperiksa lewat pencarian
+menyeluruh (`grep -rn "[Rr]eactivat" internal/membership internal/invitation`) — nol hasil. Satu-
+satunya jalan jumlah anggota aktif bertambah tetap `invitation.Usecase.Create` diikuti penerimaan
+undangan; tidak ada endpoint atau method yang menghidupkan kembali membership yang sudah nonaktif.
+Titik pasang tunggal (`invitation.Usecase.Create`) sudah benar tanpa titik kedua.
+
+### Penyimpangan — `Action` baru hanya `subscription.change`, **`subscription.read` tidak dibuat**
+
+Issue menulis dua Action baru: `subscription.change` (Owner) **dan** `subscription.read`
+(Owner+Admin). Hanya yang pertama dibuat. Alasan: `subscription.read` tidak punya pemanggil nyata —
+layar Langganan (#125) sepenuhnya dilayani `GET /v1/me` yang sudah terbuka sejak #112 untuk seluruh
+role (data paket bukan rahasia dari anggota organization sendiri), dan tidak ada endpoint baca-detail-
+paket terpisah yang direncanakan TD manapun. Menambah `Action` dengan **nol pemanggil permanen**
+melanggar Aturan #27/#28 secara langsung — folder kosong dan Action tak terpakai adalah utang yang
+sama bentuknya. Diputuskan untuk tidak membuatnya sekarang; kalau kelak ada endpoint yang benar-benar
+butuh membedakan "boleh lihat" dari "boleh ubah", menambah satu `Action` adalah perubahan kecil, bukan
+migrasi arsitektur. `subscription.change` sendirian sudah menjadi **`Action` Owner-only pertama** di
+seluruh codebase ini — setiap `Action` sebelumnya, Admin selalu mewarisi apa pun yang Owner punya;
+`authz_test.go` diperbarui eksplisit untuk kasus ini (satu baris komentar menjelaskan kenapa Admin
+`false` di sini).
+
+### Bentuk implementasi — batas seat
+
+- **`used = membership.CountActive + invitation.CountPendingSeats`**, dijumlahkan di
+  `invitation.Usecase.Create` sendiri (bukan di dalam gate) — pola identik #123's
+  `lead.PlanQuota`: gate memiliki batas, domain memiliki angka. `CountActive` dan `CountPendingSeats`
+  sama-sama sudah ada sejak #122, tapi **keduanya belum pernah punya test repository langsung** —
+  celah yang baru terasa sekarang karena #124 adalah pemanggil nyata pertama yang bergantung pada
+  ketepatan predikatnya (terutama "tidak menghitung yang kedaluwarsa"). Ditutup di issue ini:
+  `internal/membership/repository_test.go` (+3 test) dan `internal/invitation/repository_test.go`
+  (berkas baru, +3 test).
+- **Urutan tetap `authz.Require` → batas seat → validasi role undangan** — role check (Owner tidak
+  bisa diundang lewat jalur ini) datang **setelah** batas seat, bukan sebelum: mengetahui organization
+  penuh lebih berguna bagi si pengundang daripada mengetahui role targetnya salah, dan keduanya sama-
+  sama `4xx` jadi urutan tidak mengubah keamanan — hanya pesan mana yang dilihat lebih dulu.
+- **`invitation.PlanSeatQuota`** (consumer-declared, ADR-011) — `AllowSeat(ctx, t, used) error`, dan
+  `subscription.Usecase.RequireSeatLimit` bentuknya identik `RequireLeadQuota` #123, pesan menyebut
+  angka (`"Paket Anda dibatasi %d anggota"`).
+
+### Bentuk implementasi — dua jalur perubahan paket
+
+- **`subscription.Usecase.AdminChangePlan`** — satu method dipakai **kedua** jalur (admin token dan
+  test checkout), bukan dua usecase terpisah: keduanya sama-sama "ubah `plan_code` organization,
+  validasi dulu, kembalikan yang lama untuk audit". Test checkout mengunci tujuannya ke
+  `subscription.PlanPro` (hardcoded) — bukan menerima `plan_code` dari body, karena tombolnya memang
+  cuma "coba Pro", bukan pemilih paket bebas.
+- **Route tidak terdaftar sama sekali saat nonaktif** — pola yang sama `WEBHOOK_ALLOW_PRIVATE_TARGETS`
+  #100 pakai: `if adminToken == "" { return }` / `if !enabled { return }` sebelum `r.Group(...)`,
+  supaya fitur mati menghasilkan `404` (rute benar-benar tidak ada), bukan `401`/`403` dari middleware
+  yang menjaga rute yang tak seorang pun bisa lewati.
+- **`subscriptionAdminAuth`** — `subtle.ConstantTimeCompare` atas header `Authorization: Bearer
+  <token>`, pola yang sama seperti kredensial API key (#46) meski jenis principalnya beda:
+  `tenant.PrincipalSystem` dipakai untuk pertama kalinya di codebase ini — permukaan pertama yang
+  terautentikasi bukan sebagai `user`, `api_key`, maupun `public_form`.
+- **`auditlog.Repository.RecordChange`** — penulis pertama untuk kolom `old_values`/`new_values`/
+  `entity_type`/`entity_id` di `audit_logs`, yang sudah ada sejak `0002_identity.sql` tapi belum
+  pernah ditulis satu pun baris sampai sekarang.
+- **Guard boot `SUBSCRIPTION_TEST_CHECKOUT=true` + `APP_ENV=production` → gagal** — pola identik
+  `WEBHOOK_ALLOW_PRIVATE_TARGETS`/`CAPTCHA_PROVIDER=none`. `SUBSCRIPTION_ADMIN_TOKEN` opsional, tapi
+  kalau diisi wajib ≥32 byte — pola identik `FormTokenSecret`/`WebhookSecretEncKey`.
+
+### Keputusan yang TD tidak eksplisit tutup — perubahan paket + audit log **tidak atomik**
+
+`AdminChangePlan` menulis `subscriptions.plan_code`, lalu `recordPlanChangeAudit` menulis
+`audit_logs` — **dua statement terpisah, tanpa transaksi bersama**. Dipertimbangkan membungkus
+`internal/subscription` dengan `Store`/`Repos`/`InTx` penuh (menyentuh 11 call site
+`subscription.NewUsecase(repo)` yang sudah ada), tapi diputuskan tidak sepadan untuk aksi admin yang
+jarang terjadi, dipicu manual, dan sudah dijaga token — Aturan #27. Perubahan paket adalah efek yang
+penting; kegagalan menulis baris audit setelahnya (secara praktik nyaris tidak pernah terjadi pada
+`INSERT` satu baris ke tabel yang sama) tidak boleh membatalkan perubahan paket yang sudah berhasil.
+Ditulis sebagai komentar di `recordPlanChangeAudit`, bukan hanya di sini.
+
+### Verifikasi — dijalankan, bukan diasumsikan
+
+`cmd/api/subscription_admin_test.go` terhadap router produksi asli:
+- Tanpa token/token salah → `401`; token benar → `200` + `plan_code` berubah di database + **tepat
+  satu** baris `audit_logs` (`action = 'subscription.plan_changed'`) — dibaca langsung dari Postgres,
+  bukan diasumsikan dari respons HTTP
+- `plan_code` tak dikenal → `400` di kedua jalur
+- Isolasi tenant: mengubah organization A tidak menyentuh `plan_code` organization B
+- `SUBSCRIPTION_ADMIN_TOKEN=""` / `SUBSCRIPTION_TEST_CHECKOUT=false` → route benar-benar tidak
+  terdaftar (`404`, bukan `401`/`403`)
+- Test checkout: Owner → `200` + upgrade ke `pro`; Admin → `403` (Action Owner-only pertama)
+- **Token tidak pernah muncul di log** — dibaca dari buffer log sungguhan setelah percobaan gagal dan
+  berhasil, bukan dipercaya dari membaca kode (`TestSubscriptionAdmin_TokenNeverLogged`)
+
+`go test -race ./...` bersih, `golangci-lint run` 0 issues. Tanpa migration baru.

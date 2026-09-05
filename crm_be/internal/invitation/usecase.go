@@ -22,14 +22,15 @@ import (
 const minPasswordLength = 12
 
 type Usecase struct {
-	store   Store
-	mailer  mailer.Mailer
-	logger  *slog.Logger
-	baseURL string
+	store     Store
+	mailer    mailer.Mailer
+	logger    *slog.Logger
+	baseURL   string
+	seatQuota PlanSeatQuota
 }
 
-func NewUsecase(store Store, m mailer.Mailer, logger *slog.Logger, baseURL string) *Usecase {
-	return &Usecase{store: store, mailer: m, logger: logger, baseURL: baseURL}
+func NewUsecase(store Store, m mailer.Mailer, logger *slog.Logger, baseURL string, seatQuota PlanSeatQuota) *Usecase {
+	return &Usecase{store: store, mailer: m, logger: logger, baseURL: baseURL, seatQuota: seatQuota}
 }
 
 // Create invites email into t's organization. role=owner is rejected
@@ -38,8 +39,30 @@ func NewUsecase(store Store, m mailer.Mailer, logger *slog.Logger, baseURL strin
 // registration (freeze bagian 7).
 func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateInput) (*Invitation, error) {
 	if err := authz.Require(t, authz.ActionInvitationCreate); err != nil {
+		return nil, err // 1. role → 403 forbidden
+	}
+
+	// 2. seat limit (Phase 8.5 #124) — checked AFTER role, same binding
+	// order as every other plan gate in this codebase (subscription TD
+	// §3.3): a principal with no standing to invite anyone at all must
+	// never learn the organization's billing state through this branch
+	// instead. used sums TWO counters — active memberships AND pending
+	// invitations — because an invitation nobody has accepted yet still
+	// holds a seat; without counting it, a 2-seat organization could
+	// send five invitations and end up with five members.
+	repos := u.store.Repos()
+	activeSeats, err := repos.Member.CountActive(ctx, t)
+	if err != nil {
+		return nil, fmt.Errorf("invitation: create: count active seats: %w", err)
+	}
+	pendingSeats, err := repos.Invitation.CountPendingSeats(ctx, t)
+	if err != nil {
+		return nil, fmt.Errorf("invitation: create: count pending seats: %w", err)
+	}
+	if err := u.seatQuota.AllowSeat(ctx, t, activeSeats+pendingSeats); err != nil {
 		return nil, err
 	}
+
 	if in.Role == tenant.RoleOwner {
 		return nil, httpx.NewValidationError(httpx.ErrorDetail{Field: "role", Code: "cannot_invite_owner"})
 	}

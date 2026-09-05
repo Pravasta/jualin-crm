@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"testing"
 	"time"
 
@@ -67,6 +68,42 @@ func (f *fakeMembershipRepo) Create(_ context.Context, t tenant.Context, id, use
 	m := &membership.Membership{ID: id, OrganizationID: t.OrganizationID, UserID: userID, Role: role}
 	f.created = append(f.created, m)
 	return m, nil
+}
+
+// CountActive counts what this fake actually holds — half the seat
+// meter (Phase 8.5 #124). Deliberately does NOT count members created
+// by OTHER tests sharing a fakeMembershipRepo instance, since each test
+// constructs its own.
+func (f *fakeMembershipRepo) CountActive(_ context.Context, t tenant.Context) (int, error) {
+	n := 0
+	for _, m := range f.created {
+		if m.OrganizationID == t.OrganizationID {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// fakeSeatQuota lets tests control the seat gate (#124) independently
+// of authz — allow (nil) by default so every pre-existing test keeps
+// exercising Create's other branches unaffected. lastUsed records what
+// Usecase.Create actually summed (active + pending), so a test can
+// prove pending invitations were counted without needing a real quota
+// rejection to observe it.
+type fakeSeatQuota struct {
+	reject   bool
+	lastUsed int
+}
+
+func openSeatQuota() *fakeSeatQuota   { return &fakeSeatQuota{} }
+func closedSeatQuota() *fakeSeatQuota { return &fakeSeatQuota{reject: true} }
+
+func (f *fakeSeatQuota) AllowSeat(_ context.Context, _ tenant.Context, used int) error {
+	f.lastUsed = used
+	if f.reject {
+		return &httpx.DomainError{Status: http.StatusForbidden, Code: "plan_seat_limit_reached", Message: "Paket Anda dibatasi 2 anggota. Sudah tercapai batasnya."}
+	}
+	return nil
 }
 
 type fakeOrgRepo struct {
@@ -154,8 +191,8 @@ func (f *fakeInvitationRepo) MarkRevoked(_ context.Context, id uuid.UUID) error 
 }
 
 // CountPendingSeats mirrors the real predicate: still acceptable means
-// not accepted, not revoked, AND not expired (#122). No test in this
-// file reads it yet — seat enforcement is #124's.
+// not accepted, not revoked, AND not expired (#122) — exercised by
+// TestUnit_Create_SeatUsed_SumsActiveAndPending below (#124).
 func (f *fakeInvitationRepo) CountPendingSeats(_ context.Context, t tenant.Context) (int, error) {
 	n := 0
 	for _, inv := range f.byHash {
@@ -200,7 +237,7 @@ func actorContext(orgID, membershipID uuid.UUID, role tenant.Role) tenant.Contex
 // --- tests ---
 
 func TestUnit_Create_EmployeeForbidden(t *testing.T) {
-	u := invitation.NewUsecase(newFakeStore(), &spyMailer{}, unitLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(newFakeStore(), &spyMailer{}, unitLogger(), "http://localhost:3000", openSeatQuota())
 	orgID := uuid.Must(uuid.NewV7())
 
 	_, err := u.Create(context.Background(), actorContext(orgID, uuid.Must(uuid.NewV7()), tenant.RoleEmployee),
@@ -213,7 +250,7 @@ func TestUnit_Create_EmployeeForbidden(t *testing.T) {
 }
 
 func TestUnit_Create_CannotInviteOwner(t *testing.T) {
-	u := invitation.NewUsecase(newFakeStore(), &spyMailer{}, unitLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(newFakeStore(), &spyMailer{}, unitLogger(), "http://localhost:3000", openSeatQuota())
 	orgID := uuid.Must(uuid.NewV7())
 
 	_, err := u.Create(context.Background(), actorContext(orgID, uuid.Must(uuid.NewV7()), tenant.RoleOwner),
@@ -227,7 +264,7 @@ func TestUnit_Create_CannotInviteOwner(t *testing.T) {
 
 func TestUnit_Create_Success_SendsEmail(t *testing.T) {
 	m := &spyMailer{}
-	u := invitation.NewUsecase(newFakeStore(), m, unitLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(newFakeStore(), m, unitLogger(), "http://localhost:3000", openSeatQuota())
 	orgID := uuid.Must(uuid.NewV7())
 
 	inv, err := u.Create(context.Background(), actorContext(orgID, uuid.Must(uuid.NewV7()), tenant.RoleAdmin),
@@ -244,7 +281,7 @@ func TestUnit_Create_Success_SendsEmail(t *testing.T) {
 }
 
 func TestUnit_Accept_UnknownToken_ReturnsInvalidToken(t *testing.T) {
-	u := invitation.NewUsecase(newFakeStore(), &spyMailer{}, unitLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(newFakeStore(), &spyMailer{}, unitLogger(), "http://localhost:3000", openSeatQuota())
 
 	_, err := u.Accept(context.Background(), nil, "does-not-exist", "Full Name", "a password long enough")
 
@@ -256,7 +293,7 @@ func TestUnit_Accept_UnknownToken_ReturnsInvalidToken(t *testing.T) {
 
 func TestUnit_Accept_NewUser_Success(t *testing.T) {
 	store := newFakeStore()
-	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", openSeatQuota())
 	orgID := uuid.Must(uuid.NewV7())
 	store.repos.Org.(*fakeOrgRepo).byID[orgID] = &organization.Organization{ID: orgID, Name: "Toko ABC"}
 
@@ -285,7 +322,7 @@ func TestUnit_Accept_NewUser_Success(t *testing.T) {
 
 func TestUnit_Accept_NewUser_WeakPassword_Rejected(t *testing.T) {
 	store := newFakeStore()
-	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", openSeatQuota())
 	orgID := uuid.Must(uuid.NewV7())
 	rawToken := seedInvitation(t, store, orgID, "newbie2@example.com", tenant.RoleEmployee)
 
@@ -302,7 +339,7 @@ func TestUnit_Accept_NewUser_WeakPassword_Rejected(t *testing.T) {
 // autentikasi → 401, password tidak tersentuh."
 func TestUnit_Accept_ExistingUser_Unauthenticated_Returns401(t *testing.T) {
 	store := newFakeStore()
-	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", openSeatQuota())
 	orgID := uuid.Must(uuid.NewV7())
 
 	existing, _ := store.repos.User.(*fakeUserRepo).Create(context.Background(), uuid.Must(uuid.NewV7()), "existing@example.com", "original-hash", "Existing User")
@@ -326,7 +363,7 @@ func TestUnit_Accept_ExistingUser_Unauthenticated_Returns401(t *testing.T) {
 // must also be rejected, not silently succeed for the wrong account.
 func TestUnit_Accept_ExistingUser_AuthenticatedAsDifferentUser_Rejected(t *testing.T) {
 	store := newFakeStore()
-	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", openSeatQuota())
 	orgID := uuid.Must(uuid.NewV7())
 	rawToken := seedInvitation(t, store, orgID, "existing2@example.com", tenant.RoleEmployee)
 	_, _ = store.repos.User.(*fakeUserRepo).Create(context.Background(), uuid.Must(uuid.NewV7()), "existing2@example.com", "hash", "Existing User")
@@ -344,7 +381,7 @@ func TestUnit_Accept_ExistingUser_AuthenticatedAsDifferentUser_Rejected(t *testi
 
 func TestUnit_Accept_ExistingUser_AuthenticatedAsCorrectUser_Succeeds(t *testing.T) {
 	store := newFakeStore()
-	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", openSeatQuota())
 	orgID := uuid.Must(uuid.NewV7())
 	rawToken := seedInvitation(t, store, orgID, "existing3@example.com", tenant.RoleManager)
 	created, _ := store.repos.User.(*fakeUserRepo).Create(context.Background(), uuid.Must(uuid.NewV7()), "existing3@example.com", "hash", "Existing User")
@@ -367,7 +404,7 @@ func TestUnit_Accept_ExistingUser_AuthenticatedAsCorrectUser_Succeeds(t *testing
 
 func TestUnit_Accept_AlreadyAccepted_ReturnsSpecificCode(t *testing.T) {
 	store := newFakeStore()
-	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", openSeatQuota())
 	orgID := uuid.Must(uuid.NewV7())
 	rawToken := seedInvitation(t, store, orgID, "twice@example.com", tenant.RoleEmployee)
 
@@ -384,7 +421,7 @@ func TestUnit_Accept_AlreadyAccepted_ReturnsSpecificCode(t *testing.T) {
 
 func TestUnit_Revoke_CrossOrg_ReturnsNotFound(t *testing.T) {
 	store := newFakeStore()
-	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", openSeatQuota())
 	orgA, orgB := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	rawTokenInOrgB := seedInvitation(t, store, orgB, "cross-org@example.com", tenant.RoleEmployee)
 	_ = rawTokenInOrgB
@@ -399,7 +436,7 @@ func TestUnit_Revoke_CrossOrg_ReturnsNotFound(t *testing.T) {
 
 func TestUnit_TokenInfo_UserExists(t *testing.T) {
 	store := newFakeStore()
-	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", openSeatQuota())
 	orgID := uuid.Must(uuid.NewV7())
 	store.repos.Org.(*fakeOrgRepo).byID[orgID] = &organization.Organization{ID: orgID, Name: "Toko ABC"}
 	_, _ = store.repos.User.(*fakeUserRepo).Create(context.Background(), uuid.Must(uuid.NewV7()), "known@example.com", "hash", "Known User")
@@ -447,4 +484,76 @@ func lastCreatedInvitationID(store *fakeStore) uuid.UUID {
 		return inv.ID
 	}
 	return uuid.UUID{}
+}
+
+// --- Create: seat quota (Phase 8.5 #124) ---
+
+func TestUnit_Create_SeatOpen_Succeeds(t *testing.T) {
+	u := invitation.NewUsecase(newFakeStore(), &spyMailer{}, unitLogger(), "http://localhost:3000", openSeatQuota())
+	orgID := uuid.Must(uuid.NewV7())
+	actor := actorContext(orgID, uuid.Must(uuid.NewV7()), tenant.RoleOwner)
+
+	if _, err := u.Create(context.Background(), actor, invitation.CreateInput{Email: "invited@example.com", Role: tenant.RoleEmployee}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+}
+
+func TestUnit_Create_SeatFull_Returns403PlanSeatLimitReached(t *testing.T) {
+	u := invitation.NewUsecase(newFakeStore(), &spyMailer{}, unitLogger(), "http://localhost:3000", closedSeatQuota())
+	orgID := uuid.Must(uuid.NewV7())
+	actor := actorContext(orgID, uuid.Must(uuid.NewV7()), tenant.RoleOwner)
+
+	_, err := u.Create(context.Background(), actor, invitation.CreateInput{Email: "invited@example.com", Role: tenant.RoleEmployee})
+
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "plan_seat_limit_reached" {
+		t.Fatalf("expected plan_seat_limit_reached, got: %v", err)
+	}
+}
+
+// TestUnit_Create_RoleCheckedBeforeSeatQuota is the only way to prove
+// the ORDER of the two gates from outside (subscription TD §3.3,
+// applied here by 8.5 TD §6): a Manager-or-lower role that cannot
+// invite at all must see "forbidden", never "plan_seat_limit_reached"
+// — the latter would leak the organization's billing state to someone
+// with no standing to ask.
+func TestUnit_Create_RoleCheckedBeforeSeatQuota(t *testing.T) {
+	u := invitation.NewUsecase(newFakeStore(), &spyMailer{}, unitLogger(), "http://localhost:3000", closedSeatQuota())
+	orgID := uuid.Must(uuid.NewV7())
+	actor := actorContext(orgID, uuid.Must(uuid.NewV7()), tenant.RoleEmployee) // authz denies this role too
+
+	_, err := u.Create(context.Background(), actor, invitation.CreateInput{Email: "invited@example.com", Role: tenant.RoleEmployee})
+
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "forbidden" {
+		t.Fatalf("expected forbidden (role checked first), got: %v", err)
+	}
+}
+
+// TestUnit_Create_SeatUsed_SumsActiveAndPending is kriteria "undangan
+// pending terbukti ikut dihitung": one active membership plus one
+// pending invitation must reach the gate as used=2, not used=1 — the
+// exact miscount that would let a 2-seat organization send five
+// invitations and end up with five members.
+func TestUnit_Create_SeatUsed_SumsActiveAndPending(t *testing.T) {
+	store := newFakeStore()
+	seatQuota := openSeatQuota()
+	u := invitation.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", seatQuota)
+	orgID := uuid.Must(uuid.NewV7())
+	actor := actorContext(orgID, uuid.Must(uuid.NewV7()), tenant.RoleOwner)
+
+	// One active member (the owner themselves).
+	if _, err := store.repos.Member.Create(context.Background(), tenant.Context{OrganizationID: orgID}, uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), tenant.RoleOwner); err != nil {
+		t.Fatalf("seed active member: %v", err)
+	}
+	// One pending invitation nobody has accepted yet.
+	seedInvitation(t, store, orgID, "already-invited@example.com", tenant.RoleEmployee)
+
+	if _, err := u.Create(context.Background(), actor, invitation.CreateInput{Email: "new@example.com", Role: tenant.RoleEmployee}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if seatQuota.lastUsed != 2 {
+		t.Errorf("expected used=2 (1 active + 1 pending), got %d", seatQuota.lastUsed)
+	}
 }

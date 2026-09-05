@@ -67,6 +67,23 @@ func (r *postgresRepository) FindActiveByOrg(ctx context.Context, t tenant.Conte
 	return s, nil
 }
 
+// ChangePlan updates t.OrganizationID's subscription row — every
+// organization has exactly one (CreateFree at registration, nothing yet
+// creates a second), so this targets it by organization_id alone rather
+// than filtering on status: an admin fixing a past_due organization's
+// plan must be able to, not just an active one.
+func (r *postgresRepository) ChangePlan(ctx context.Context, t tenant.Context, planCode string) error {
+	const q = `UPDATE subscriptions SET plan_code = $1 WHERE organization_id = $2`
+	tag, err := r.q.Exec(ctx, q, planCode, t.OrganizationID)
+	if err != nil {
+		return fmt.Errorf("subscription: change plan: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoActiveSubscription
+	}
+	return nil
+}
+
 func scanOne(row interface{ Scan(...any) error }) (*Subscription, error) {
 	var s Subscription
 	err := row.Scan(

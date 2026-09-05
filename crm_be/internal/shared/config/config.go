@@ -206,7 +206,34 @@ type Config struct {
 	// trusting nobody while actually behind a load balancer collapses
 	// every real client onto one IP and one shared limiter bucket.
 	TrustedProxies []string `env:"TRUSTED_PROXIES" envSeparator:","`
+
+	// SubscriptionAdminToken gates POST /internal/subscriptions/{id}/plan
+	// (Phase 8.5 #124) — the first surface in this product authenticated
+	// by a bearer token rather than as ANY principal (user/api_key/
+	// public_form). Empty means the route is not registered at all: a
+	// deployment that never sets it gets a 404, not a route that can
+	// never succeed — the same "don't expose a door with no working key"
+	// reasoning as WEBHOOK_SECRET_ENC_KEY being required rather than
+	// silently degrading. Compared with subtle.ConstantTimeCompare,
+	// never logged (Rule #26), never sent to any client (Rule #23).
+	SubscriptionAdminToken string `env:"SUBSCRIPTION_ADMIN_TOKEN" envDefault:""`
+
+	// SubscriptionTestCheckout gates POST /v1/subscription/test-checkout
+	// (Phase 8.5 #124) — an Owner-triggered upgrade to Pro with no real
+	// payment behind it, for exercising the paid-plan gates before
+	// payment service integration lands (prd D6). false means the route
+	// is not registered: same "not just hidden, not present" shape as
+	// SubscriptionAdminToken above. Rejected outright in production —
+	// letting every customer upgrade themselves for free is not a
+	// degraded mode, it's a hole (same reasoning as
+	// WEBHOOK_ALLOW_PRIVATE_TARGETS).
+	SubscriptionTestCheckout bool `env:"SUBSCRIPTION_TEST_CHECKOUT" envDefault:"false"`
 }
+
+// minSubscriptionAdminTokenLength mirrors WebhookSecretEncKey's own
+// minimum — long enough that guessing it is not a realistic attack,
+// short enough that generating one is a one-line `openssl rand -hex 32`.
+const minSubscriptionAdminTokenLength = 32
 
 // Load parses environment variables into a Config and validates it.
 // Callers should treat a non-nil error as fatal: log it and exit —
@@ -371,6 +398,20 @@ func (c *Config) validate() error {
 		if !validProxyEntry(p) {
 			return fmt.Errorf("config invalid: TRUSTED_PROXIES entry %q is not a valid IP or CIDR", p)
 		}
+	}
+	// A short token is a token an attacker can brute-force; a set-but-weak
+	// token is worse than the route not existing at all (empty — see the
+	// field's own doc comment). Only checked when SET: empty is the
+	// legitimate "route disabled" state, not a misconfiguration.
+	if c.SubscriptionAdminToken != "" && len(c.SubscriptionAdminToken) < minSubscriptionAdminTokenLength {
+		return fmt.Errorf("config invalid: SUBSCRIPTION_ADMIN_TOKEN must be at least %d bytes if set, got %d", minSubscriptionAdminTokenLength, len(c.SubscriptionAdminToken))
+	}
+	// A production process letting every customer upgrade themselves to
+	// Pro for free fails silently — no error, just free Pro accounts
+	// (Phase 8.5 TD §8). Same shape as CAPTCHA_PROVIDER=none and
+	// WEBHOOK_ALLOW_PRIVATE_TARGETS above.
+	if c.AppEnv == "production" && c.SubscriptionTestCheckout {
+		return fmt.Errorf(`config invalid: SUBSCRIPTION_TEST_CHECKOUT must not be true when APP_ENV=production`)
 	}
 	return nil
 }

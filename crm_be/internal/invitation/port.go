@@ -43,6 +43,25 @@ type UserRepository interface {
 
 type MembershipRepository interface {
 	Create(ctx context.Context, t tenant.Context, id, userID uuid.UUID, role tenant.Role) (*membership.Membership, error)
+
+	// CountActive is half the seat meter (Phase 8.5 #124) — the other
+	// half is Repository.CountPendingSeats below. See
+	// membership.postgresRepository.CountActive's own doc comment.
+	CountActive(ctx context.Context, t tenant.Context) (int, error)
+}
+
+// PlanSeatQuota is declared here, consumer-side (ADR-011), same shape
+// as lead.PlanQuota (#123) — invitation needs only to ask "does one
+// more seat fit", not subscription's Repository or its Usecase's other
+// methods.
+//
+// used is supplied by the CALLER (Usecase.Create sums
+// MembershipRepository.CountActive + Repository.CountPendingSeats)
+// rather than computed inside this interface's implementation, for the
+// same reason lead.PlanQuota's used is caller-supplied: the gate owns
+// the LIMIT, the domain owns the COUNT.
+type PlanSeatQuota interface {
+	AllowSeat(ctx context.Context, t tenant.Context, used int) error
 }
 
 type OrganizationRepository interface {

@@ -106,6 +106,61 @@ func (u *Usecase) RequireLeadQuota(ctx context.Context, t tenant.Context, used i
 	return nil
 }
 
+// RequireSeatLimit returns nil when used more member fits under t's
+// organization's seat limit (Phase 8.5 #124), and a 403
+// plan_seat_limit_reached *httpx.DomainError otherwise. Same shape as
+// RequireLeadQuota — the audience is the organization's own Owner/Admin
+// inviting someone, so the message names the actual number.
+func (u *Usecase) RequireSeatLimit(ctx context.Context, t tenant.Context, used int) error {
+	sub, err := u.repo.FindActiveByOrg(ctx, t)
+	if err != nil && !errors.Is(err, ErrNoActiveSubscription) {
+		return fmt.Errorf("subscription: require seat limit: %w", err)
+	}
+
+	var planCode, status string
+	if sub != nil {
+		planCode, status = sub.PlanCode, sub.Status
+	}
+
+	limits := limitsFor(planCode, status)
+	if !allows(limits.Seats, used) {
+		return planSeatLimitReachedError(limits.Seats)
+	}
+	return nil
+}
+
+// AdminChangePlan sets t.OrganizationID's plan_code (Phase 8.5 #124) —
+// called only by the two admin surfaces in cmd/api (see their own doc
+// comments for why: this is deliberately NOT a normal user-facing
+// write). Returns the plan code that was active before the change, so
+// the caller can write an audit_log entry with both old_values and
+// new_values without a second read.
+//
+// planCode is validated against planChannels — not against planLimits,
+// though the two are kept in lockstep by TestPlanLimits_EveryPlanHasEntry
+// — because "is this a plan this codebase knows about at all" is one
+// question asked once, not two. A typo here must be rejected outright,
+// never silently accepted and left to resolve as "unknown plan" behavior
+// (§2.1) the next time anything reads it back.
+func (u *Usecase) AdminChangePlan(ctx context.Context, t tenant.Context, planCode string) (previousPlanCode string, err error) {
+	if _, ok := planChannels[planCode]; !ok {
+		return "", unknownPlanCodeError()
+	}
+
+	sub, err := u.repo.FindActiveByOrg(ctx, t)
+	if err != nil && !errors.Is(err, ErrNoActiveSubscription) {
+		return "", fmt.Errorf("subscription: admin change plan: find current: %w", err)
+	}
+	if sub != nil {
+		previousPlanCode = sub.PlanCode
+	}
+
+	if err := u.repo.ChangePlan(ctx, t, planCode); err != nil {
+		return "", fmt.Errorf("subscription: admin change plan: %w", err)
+	}
+	return previousPlanCode, nil
+}
+
 // stringKeyed converts the internal Channel-keyed map to the
 // string-keyed shape every consumer-declared PlanGate interface (§3.2)
 // and GET /v1/me's JSON body (§4) expect. Channel stays unexported to
@@ -135,4 +190,16 @@ func planQuotaExceededError(limit int) error {
 		Code:    "plan_quota_exceeded",
 		Message: fmt.Sprintf("Paket Anda dibatasi %d lead per bulan. Sudah tercapai untuk bulan ini.", limit),
 	}
+}
+
+func planSeatLimitReachedError(limit int) error {
+	return &httpx.DomainError{
+		Status:  http.StatusForbidden,
+		Code:    "plan_seat_limit_reached",
+		Message: fmt.Sprintf("Paket Anda dibatasi %d anggota. Sudah tercapai batasnya.", limit),
+	}
+}
+
+func unknownPlanCodeError() error {
+	return httpx.NewValidationError(httpx.ErrorDetail{Field: "plan_code", Code: "invalid_value"})
 }

@@ -139,6 +139,21 @@ const (
 	ActionWebhookRead   Action = "webhook.read"
 	ActionWebhookUpdate Action = "webhook.update"
 	ActionWebhookDelete Action = "webhook.delete"
+
+	// ActionSubscriptionChange is Phase 8.5 #124's — gates POST
+	// /v1/subscription/test-checkout. Owner ONLY: the first Action in
+	// this codebase where Admin does not mirror Owner (every action
+	// above this line, Admin has whatever Owner has). Billing is the one
+	// decision this product reserves for Owner alone.
+	//
+	// There is deliberately NO ActionSubscriptionRead here despite TD
+	// 8.5 §11 naming one: the Langganan screen (#125) reads everything
+	// it needs from GET /v1/me, which every authenticated principal user
+	// already reaches with no Action at all (same reasoning as Phase 8
+	// §10 for plan.channels). Adding an Action with no endpoint to gate
+	// would leave it permanently uncalled — added here, not skipped
+	// silently, if #125 turns out to need a real endpoint after all.
+	ActionSubscriptionChange Action = "subscription.change"
 )
 
 // permissions mirrors docs/architecture/authorization.md's matrix
@@ -184,6 +199,10 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionWebhookRead:          true,
 		ActionWebhookUpdate:        true,
 		ActionWebhookDelete:        true,
+		// ActionSubscriptionChange deliberately absent from every OTHER
+		// role's block below — this is the first action where Admin
+		// does not mirror Owner. See its own doc comment.
+		ActionSubscriptionChange: true,
 	},
 	tenant.RoleAdmin: {
 		ActionMembershipList:       true,
