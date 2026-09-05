@@ -99,6 +99,37 @@ type PushSender interface {
 	PushToMembership(ctx context.Context, t tenant.Context, membershipID uuid.UUID, title, body string, data map[string]string) error
 }
 
+// PlanQuota is declared here, consumer-side (ADR-011), same bridging
+// role as apikey/form/webhook's own PlanGate (#113) — lead needs only
+// to ask "does one more lead fit", not subscription's Repository or
+// its Usecase's other methods.
+//
+// used is supplied by the CALLER rather than computed inside this
+// interface's implementation on purpose (Phase 8.5 TD §3): the gate
+// owns the LIMIT (it lives in internal/subscription), the domain owns
+// the COUNT (only lead knows how to count its own rows). If the gate
+// counted, it would have to import internal/lead to know how —
+// reversing the dependency direction ADR-011 sets.
+//
+// A Usecase-level field rather than part of Repos, same reasoning as
+// PlanGate: checked BEFORE Store.InTx opens, so it is never part of the
+// unit of work.
+type PlanQuota interface {
+	AllowLead(ctx context.Context, t tenant.Context, used int) error
+}
+
+// QuotaNotifier tells the organization's Owners, at most once per
+// calendar month, that the lead quota is exhausted (Phase 8.5 §5) — the
+// replacement for a rejection on the ONE path that is never rejected:
+// public form submissions never learn anything about the customer's
+// plan state (subscription TD §11's boundary, extended to quotas here).
+// Best-effort: Create discards its error deliberately (same pattern as
+// PushSender's one caller), because a failed notification must never
+// fail — or roll back — a lead that a real visitor is waiting on.
+type QuotaNotifier interface {
+	NotifyQuotaExceededOnce(ctx context.Context, t tenant.Context) error
+}
+
 // Repos bundles what a single Usecase call needs. Activity was added in
 // #21 when lead events first needed cross-table atomicity with activity
 // rows (TD §10). Notification was added in #22 for assignment (TD §11).

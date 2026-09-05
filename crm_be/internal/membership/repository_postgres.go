@@ -198,6 +198,32 @@ func (r *postgresRepository) CountActive(ctx context.Context, t tenant.Context) 
 	return n, nil
 }
 
+// FindActiveOwnerIDs is the other consumer of the seat meter's
+// neighbourhood: the recipients for Phase 8.5's quota-exceeded
+// notification. See the interface doc comment for why it returns every
+// active Owner rather than a single one.
+func (r *postgresRepository) FindActiveOwnerIDs(ctx context.Context, t tenant.Context) ([]uuid.UUID, error) {
+	const q = `SELECT id FROM memberships WHERE organization_id = $1 AND role = 'owner' AND deleted_at IS NULL`
+	rows, err := r.q.Query(ctx, q, t.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("membership: find active owner ids: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("membership: scan owner id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("membership: iterate owner ids: %w", err)
+	}
+	return ids, nil
+}
+
 // rowScanner is satisfied by both pgx.Row (QueryRow) and pgx.Rows
 // (Query), letting scanOne and the row-scanning body share one Scan call
 // shape.

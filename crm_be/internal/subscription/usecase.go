@@ -74,6 +74,38 @@ func (u *Usecase) RequireChannel(ctx context.Context, t tenant.Context, ch Chann
 	return nil
 }
 
+// RequireLeadQuota returns nil when used more lead fits under t's
+// organization's monthly quota (Phase 8.5 #123), and a 403
+// plan_quota_exceeded *httpx.DomainError otherwise.
+//
+// Unlike RequireChannel's deliberately vague message, this one names
+// the actual number. The two calls answer different questions to
+// different audiences: RequireChannel can be reached by a Manager who
+// has no business learning the organization's billing state at all
+// (subscription TD §5, "jangan menjawab pertanyaan yang penanyanya
+// tidak berhak ajukan"); RequireLeadQuota is reached by the
+// organization's OWN authenticated principal (user or api_key — never
+// public_form, TD 8.5 §5) asking about ITS OWN usage. Vagueness there
+// protects the org from an outsider; vagueness here would just leave
+// its own customer guessing.
+func (u *Usecase) RequireLeadQuota(ctx context.Context, t tenant.Context, used int) error {
+	sub, err := u.repo.FindActiveByOrg(ctx, t)
+	if err != nil && !errors.Is(err, ErrNoActiveSubscription) {
+		return fmt.Errorf("subscription: require lead quota: %w", err)
+	}
+
+	var planCode, status string
+	if sub != nil {
+		planCode, status = sub.PlanCode, sub.Status
+	}
+
+	limits := limitsFor(planCode, status)
+	if !allows(limits.LeadsPerMonth, used) {
+		return planQuotaExceededError(limits.LeadsPerMonth)
+	}
+	return nil
+}
+
 // stringKeyed converts the internal Channel-keyed map to the
 // string-keyed shape every consumer-declared PlanGate interface (§3.2)
 // and GET /v1/me's JSON body (§4) expect. Channel stays unexported to
@@ -94,5 +126,13 @@ func planUpgradeRequiredError() error {
 		Status:  http.StatusForbidden,
 		Code:    "plan_upgrade_required",
 		Message: "Paket Anda tidak mencakup kanal ini.",
+	}
+}
+
+func planQuotaExceededError(limit int) error {
+	return &httpx.DomainError{
+		Status:  http.StatusForbidden,
+		Code:    "plan_quota_exceeded",
+		Message: fmt.Sprintf("Paket Anda dibatasi %d lead per bulan. Sudah tercapai untuk bulan ini.", limit),
 	}
 }

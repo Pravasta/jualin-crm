@@ -47,7 +47,7 @@ func decodeEvent(t *testing.T, raw []byte) map[string]any {
 // fail until someone noticed deliveries had stopped.
 func TestUnit_EventNamesMatchWebhookPackage(t *testing.T) {
 	s := newFakeStore()
-	u := lead.NewUsecase(s)
+	u := lead.NewUsecase(s, openLeadQuota(), noopQuotaNotifier())
 
 	if _, _, err := u.Create(context.Background(), ownerActorCtx(), lead.CreateLeadInput{Name: "Event Name"}); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -62,7 +62,7 @@ func TestUnit_EventNamesMatchWebhookPackage(t *testing.T) {
 
 func TestUnit_Create_EnqueuesLeadCreated(t *testing.T) {
 	s := newFakeStore()
-	u := lead.NewUsecase(s)
+	u := lead.NewUsecase(s, openLeadQuota(), noopQuotaNotifier())
 	ctx := ownerActorCtx()
 
 	created, _, err := u.Create(context.Background(), ctx, lead.CreateLeadInput{
@@ -113,7 +113,7 @@ func TestUnit_Create_EnqueuesLeadCreated(t *testing.T) {
 // a webhook body that has drifted from the dashboard's lead.
 func TestUnit_Create_PayloadIsTheSameShapeAsTheAPI(t *testing.T) {
 	s := newFakeStore()
-	u := lead.NewUsecase(s)
+	u := lead.NewUsecase(s, openLeadQuota(), noopQuotaNotifier())
 
 	created, _, err := u.Create(context.Background(), ownerActorCtx(), lead.CreateLeadInput{Name: "Shape Check"})
 	if err != nil {
@@ -137,7 +137,7 @@ func TestUnit_Create_PayloadIsTheSameShapeAsTheAPI(t *testing.T) {
 
 func TestUnit_UpdateStatus_EnqueuesStatusChangedWithChanges(t *testing.T) {
 	s := newFakeStore()
-	u := lead.NewUsecase(s)
+	u := lead.NewUsecase(s, openLeadQuota(), noopQuotaNotifier())
 	ctx := ownerActorCtx()
 
 	created, _, err := u.Create(context.Background(), ctx, lead.CreateLeadInput{Name: "Status Change"})
@@ -193,7 +193,7 @@ func TestUnit_UpdateStatus_EnqueuesStatusChangedWithChanges(t *testing.T) {
 func TestUnit_Create_EnqueueFailureAbortsTheLead(t *testing.T) {
 	s := newFakeStore()
 	s.webhook.err = errors.New("webhook: enqueue failed")
-	u := lead.NewUsecase(s)
+	u := lead.NewUsecase(s, openLeadQuota(), noopQuotaNotifier())
 
 	_, _, err := u.Create(context.Background(), ownerActorCtx(), lead.CreateLeadInput{Name: "Should Fail"})
 	if err == nil {
@@ -203,7 +203,7 @@ func TestUnit_Create_EnqueueFailureAbortsTheLead(t *testing.T) {
 
 func TestUnit_UpdateStatus_EnqueueFailureAbortsTheChange(t *testing.T) {
 	s := newFakeStore()
-	u := lead.NewUsecase(s)
+	u := lead.NewUsecase(s, openLeadQuota(), noopQuotaNotifier())
 	ctx := ownerActorCtx()
 
 	created, _, err := u.Create(context.Background(), ctx, lead.CreateLeadInput{Name: "Abort Status"})
@@ -226,7 +226,7 @@ func TestUnit_UpdateStatus_EnqueueFailureAbortsTheChange(t *testing.T) {
 func TestUnit_NilEnqueuerIsANoOp(t *testing.T) {
 	s := newFakeStore()
 	s.repos.Webhook = nil
-	u := lead.NewUsecase(s)
+	u := lead.NewUsecase(s, openLeadQuota(), noopQuotaNotifier())
 
 	if _, _, err := u.Create(context.Background(), ownerActorCtx(), lead.CreateLeadInput{Name: "No Webhooks"}); err != nil {
 		t.Fatalf("Create with a nil enqueuer should succeed, got %v", err)

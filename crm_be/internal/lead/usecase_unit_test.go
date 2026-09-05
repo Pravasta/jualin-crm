@@ -8,6 +8,7 @@ package lead_test
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/google/uuid"
@@ -35,11 +36,9 @@ func (f *fakeLeadRepo) CleanupExpiredIdempotencyKeys(_ context.Context, t tenant
 	return nil
 }
 
-// CountCreatedThisMonth exists so *fakeLeadRepo still satisfies
-// lead.Repository (#122). Nothing in this file exercises the quota —
-// the meter has no reader inside lead.Usecase until #123 wires
-// enforcement — so counting what the fake happens to hold is both
-// honest and enough.
+// CountCreatedThisMonth backs both the quota gate (#123 — see
+// TestUnit_Create_Quota* below) and Create's own call to it: counting
+// what the fake actually holds is honest, not a stub.
 func (f *fakeLeadRepo) CountCreatedThisMonth(_ context.Context, t tenant.Context) (int, error) {
 	n := 0
 	for _, l := range f.byID {
@@ -221,6 +220,36 @@ func (f *fakeWebhookEnqueuer) Enqueue(_ context.Context, _ tenant.Context, event
 	return len(f.calls), nil
 }
 
+// fakePlanQuota lets tests control the lead quota gate (#123)
+// independently of authz — allow (nil) by default so every pre-existing
+// test keeps exercising Create's other branches unaffected.
+type fakePlanQuota struct {
+	reject bool
+}
+
+func openLeadQuota() *fakePlanQuota   { return &fakePlanQuota{} }
+func closedLeadQuota() *fakePlanQuota { return &fakePlanQuota{reject: true} }
+
+func (f *fakePlanQuota) AllowLead(_ context.Context, _ tenant.Context, _ int) error {
+	if f.reject {
+		return &httpx.DomainError{Status: http.StatusForbidden, Code: "plan_quota_exceeded", Message: "Paket Anda dibatasi 100 lead per bulan. Sudah tercapai untuk bulan ini."}
+	}
+	return nil
+}
+
+// fakeQuotaNotifier records how many times it was called — enough to
+// prove the "once per month" AC without a real notifications table.
+type fakeQuotaNotifier struct {
+	calls int
+}
+
+func noopQuotaNotifier() *fakeQuotaNotifier { return &fakeQuotaNotifier{} }
+
+func (f *fakeQuotaNotifier) NotifyQuotaExceededOnce(_ context.Context, _ tenant.Context) error {
+	f.calls++
+	return nil
+}
+
 type fakeStore struct {
 	repo         *fakeLeadRepo
 	repos        lead.Repos
@@ -267,7 +296,7 @@ func ownerActor() (tenant.Context, uuid.UUID) {
 // --- tests ---
 
 func TestUnit_Create_EmployeeForbidden(t *testing.T) {
-	u := lead.NewUsecase(newFakeStore())
+	u := lead.NewUsecase(newFakeStore(), openLeadQuota(), noopQuotaNotifier())
 	org := uuid.Must(uuid.NewV7())
 
 	_, _, err := u.Create(context.Background(), actorContext(org, uuid.Must(uuid.NewV7()), tenant.RoleEmployee), lead.CreateLeadInput{Name: "Budi"})
@@ -279,7 +308,7 @@ func TestUnit_Create_EmployeeForbidden(t *testing.T) {
 }
 
 func TestUnit_Create_NameRequired(t *testing.T) {
-	u := lead.NewUsecase(newFakeStore())
+	u := lead.NewUsecase(newFakeStore(), openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 
 	_, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{})
@@ -291,7 +320,7 @@ func TestUnit_Create_NameRequired(t *testing.T) {
 }
 
 func TestUnit_Create_DefaultsSourceToManual(t *testing.T) {
-	u := lead.NewUsecase(newFakeStore())
+	u := lead.NewUsecase(newFakeStore(), openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 
 	created, isNew, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
@@ -307,7 +336,7 @@ func TestUnit_Create_DefaultsSourceToManual(t *testing.T) {
 }
 
 func TestUnit_Create_InvalidSource_Rejected(t *testing.T) {
-	u := lead.NewUsecase(newFakeStore())
+	u := lead.NewUsecase(newFakeStore(), openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 
 	_, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi", Source: "carrier-pigeon"})
@@ -319,7 +348,7 @@ func TestUnit_Create_InvalidSource_Rejected(t *testing.T) {
 }
 
 func TestUnit_Create_NormalizesEmailAndPhone(t *testing.T) {
-	u := lead.NewUsecase(newFakeStore())
+	u := lead.NewUsecase(newFakeStore(), openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 
 	email := "Budi@Example.COM"
@@ -340,7 +369,7 @@ func TestUnit_Create_NormalizesEmailAndPhone(t *testing.T) {
 }
 
 func TestUnit_Create_UnparseablePhone_StillAccepted(t *testing.T) {
-	u := lead.NewUsecase(newFakeStore())
+	u := lead.NewUsecase(newFakeStore(), openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 
 	badPhone := "1234"
@@ -357,7 +386,7 @@ func TestUnit_Create_UnparseablePhone_StillAccepted(t *testing.T) {
 }
 
 func TestUnit_Create_IdempotentReplay_ReturnsSameLeadNotNew(t *testing.T) {
-	u := lead.NewUsecase(newFakeStore())
+	u := lead.NewUsecase(newFakeStore(), openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 
 	key := "client-generated-key"
@@ -383,7 +412,7 @@ func TestUnit_Create_IdempotentReplay_ReturnsSameLeadNotNew(t *testing.T) {
 
 func TestUnit_Get_Employee_OtherPersonsLead_ReturnsNotFound(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, org := ownerActor()
 
 	otherEmployee := uuid.Must(uuid.NewV7())
@@ -402,7 +431,7 @@ func TestUnit_Get_Employee_OtherPersonsLead_ReturnsNotFound(t *testing.T) {
 
 func TestUnit_Update_StaleVersion_ReturnsVersionConflict(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 
 	created, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
@@ -424,7 +453,7 @@ func TestUnit_Update_StaleVersion_ReturnsVersionConflict(t *testing.T) {
 
 func TestUnit_Delete_ManagerForbidden(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, org := ownerActor()
 
 	created, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
@@ -445,7 +474,7 @@ func TestUnit_Delete_ManagerForbidden(t *testing.T) {
 
 func TestUnit_UpdateStatus_NewToWon_Rejected(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
 
@@ -459,7 +488,7 @@ func TestUnit_UpdateStatus_NewToWon_Rejected(t *testing.T) {
 
 func TestUnit_UpdateStatus_NewToContacted_Accepted(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
 
@@ -474,7 +503,7 @@ func TestUnit_UpdateStatus_NewToContacted_Accepted(t *testing.T) {
 
 func TestUnit_UpdateStatus_QualifiedToContacted_Accepted(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
 	step1, _ := u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: created.Version, Status: "contacted"})
@@ -491,7 +520,7 @@ func TestUnit_UpdateStatus_QualifiedToContacted_Accepted(t *testing.T) {
 
 func TestUnit_UpdateStatus_Lost_RequiresReason(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
 
@@ -505,7 +534,7 @@ func TestUnit_UpdateStatus_Lost_RequiresReason(t *testing.T) {
 
 func TestUnit_UpdateStatus_LostWithReason_Accepted(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
 
@@ -521,7 +550,7 @@ func TestUnit_UpdateStatus_LostWithReason_Accepted(t *testing.T) {
 
 func TestUnit_UpdateStatus_LeavingLost_ClearsReason(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
 	reason := "timing"
@@ -540,7 +569,7 @@ func TestUnit_UpdateStatus_LeavingLost_ClearsReason(t *testing.T) {
 
 func TestUnit_UpdateStatus_UnqualifiedIsFinal(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
 	unqualified, _ := u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: created.Version, Status: "unqualified"})
@@ -557,7 +586,7 @@ func TestUnit_UpdateStatus_UnqualifiedIsFinal(t *testing.T) {
 
 func TestUnit_Create_RecordsLeadCreatedActivity(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 
 	created, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
@@ -579,7 +608,7 @@ func TestUnit_Create_RecordsLeadCreatedActivity(t *testing.T) {
 
 func TestUnit_Create_ActivityRecordFailure_PropagatesError(t *testing.T) {
 	store := newFakeStoreWithFailingActivity()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 
 	_, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
@@ -590,7 +619,7 @@ func TestUnit_Create_ActivityRecordFailure_PropagatesError(t *testing.T) {
 
 func TestUnit_UpdateStatus_RecordsStatusChangedActivityWithFromTo(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
 	store.activity.calls = nil // drop the lead_created call from Create
@@ -614,7 +643,7 @@ func TestUnit_UpdateStatus_RecordsStatusChangedActivityWithFromTo(t *testing.T) 
 
 func TestUnit_UpdateStatus_ActivityRecordFailure_PropagatesError(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
 
@@ -629,7 +658,7 @@ func TestUnit_UpdateStatus_ActivityRecordFailure_PropagatesError(t *testing.T) {
 
 func TestUnit_UpdateAssignment_EmployeeForbidden(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	org, ownerMembershipID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	owner := actorContext(org, ownerMembershipID, tenant.RoleOwner)
 	created, _, _ := u.Create(context.Background(), owner, lead.CreateLeadInput{Name: "Budi"})
@@ -646,7 +675,7 @@ func TestUnit_UpdateAssignment_EmployeeForbidden(t *testing.T) {
 
 func TestUnit_UpdateAssignment_ToOther_RecordsActivityAndNotifies(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
 	store.activity.calls = nil // drop lead_created
@@ -681,7 +710,7 @@ func TestUnit_UpdateAssignment_ToOther_RecordsActivityAndNotifies(t *testing.T) 
 // called.
 func TestUnit_UpdateAssignment_ToSelf_NoNotification(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	org, ownerMembershipID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	owner := actorContext(org, ownerMembershipID, tenant.RoleOwner)
 	created, _, _ := u.Create(context.Background(), owner, lead.CreateLeadInput{Name: "Budi"})
@@ -702,7 +731,7 @@ func TestUnit_UpdateAssignment_ToSelf_NoNotification(t *testing.T) {
 
 func TestUnit_UpdateAssignment_Unassign_RecordsActivityNoNotification(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 	assignee := uuid.Must(uuid.NewV7())
 	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi", AssignedToMembershipID: &assignee})
@@ -730,7 +759,7 @@ func TestUnit_UpdateAssignment_Unassign_RecordsActivityNoNotification(t *testing
 
 func TestUnit_UpdateAssignment_StaleVersion_ReturnsVersionConflict(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
 
@@ -751,7 +780,7 @@ func apiKeyActor(org, apiKeyID uuid.UUID, scopes []string) tenant.Context {
 
 func TestUnit_Create_APIKey_AssignedToMembershipID_Rejected(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor := apiKeyActor(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), []string{"leads:write"})
 	assignee := uuid.Must(uuid.NewV7())
 
@@ -771,7 +800,7 @@ func TestUnit_Create_APIKey_AssignedToMembershipID_Rejected(t *testing.T) {
 // not merely defaulted — TD §5: "body diabaikan bila mengirim source".
 func TestUnit_Create_APIKey_SourceAlwaysForcedToAPI(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	apiKeyID := uuid.Must(uuid.NewV7())
 	actor := apiKeyActor(uuid.Must(uuid.NewV7()), apiKeyID, []string{"leads:write"})
 
@@ -792,7 +821,7 @@ func TestUnit_Create_APIKey_SourceAlwaysForcedToAPI(t *testing.T) {
 
 func TestUnit_Create_APIKey_RawPayloadStored(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor := apiKeyActor(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), []string{"leads:write"})
 	raw := []byte(`{"name":"Budi","utm_source":"facebook"}`)
 
@@ -811,7 +840,7 @@ func TestUnit_Create_APIKey_RawPayloadStored(t *testing.T) {
 // must produce exactly one cleanup call.
 func TestUnit_Create_APIKey_CleanupThrottledPerOrganization(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	org := uuid.Must(uuid.NewV7())
 	actor := apiKeyActor(org, uuid.Must(uuid.NewV7()), []string{"leads:write"})
 
@@ -836,7 +865,7 @@ func TestUnit_Create_APIKey_CleanupThrottledPerOrganization(t *testing.T) {
 // API key" scoping.
 func TestUnit_Create_UserPrincipal_NeverTriggersCleanup(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor, _ := ownerActor()
 
 	if _, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"}); err != nil {
@@ -855,7 +884,7 @@ func formActor(org, formID uuid.UUID) tenant.Context {
 
 func TestUnit_Create_PublicForm_AssignedToMembershipID_Rejected(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor := formActor(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
 	assignee := uuid.Must(uuid.NewV7())
 
@@ -876,7 +905,7 @@ func TestUnit_Create_PublicForm_AssignedToMembershipID_Rejected(t *testing.T) {
 // stamped from the resolved principal, never from the request.
 func TestUnit_Create_PublicForm_SourceAlwaysForcedToForm(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	formID := uuid.Must(uuid.NewV7())
 	actor := formActor(uuid.Must(uuid.NewV7()), formID)
 
@@ -900,7 +929,7 @@ func TestUnit_Create_PublicForm_SourceAlwaysForcedToForm(t *testing.T) {
 
 func TestUnit_Create_PublicForm_RawPayloadStored(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor := formActor(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
 	raw := []byte(`{"name":"Budi","product":"Paket A"}`)
 
@@ -920,7 +949,7 @@ func TestUnit_Create_PublicForm_RawPayloadStored(t *testing.T) {
 // either.
 func TestUnit_Create_PublicForm_NeverTriggersCleanup(t *testing.T) {
 	store := newFakeStore()
-	u := lead.NewUsecase(store)
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
 	actor := formActor(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
 
 	if _, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"}); err != nil {
@@ -929,4 +958,119 @@ func TestUnit_Create_PublicForm_NeverTriggersCleanup(t *testing.T) {
 	if len(store.repo.cleanupCalls) != 0 {
 		t.Errorf("expected no cleanup call for a public-form create, got %d", len(store.repo.cleanupCalls))
 	}
+}
+
+// --- Create: plan quota (Phase 8.5 #123) ---
+
+// TestUnit_Create_Quota_TablePerPrincipal is the AC #123 asks for
+// explicitly: three principals, one table, proving the exact asymmetry
+// TD 8.5 §5 requires — user and api_key are rejected, public_form is
+// not, and none of the three's rejection status depends on anything
+// other than which principal it is.
+func TestUnit_Create_Quota_TablePerPrincipal(t *testing.T) {
+	org := uuid.Must(uuid.NewV7())
+	cases := []struct {
+		name       string
+		actor      tenant.Context
+		wantReject bool
+	}{
+		{"user", ownerActorIn(org), true},
+		{"api_key", apiKeyActor(org, uuid.Must(uuid.NewV7()), []string{"leads:write"}), true},
+		{"public_form", formActor(org, uuid.Must(uuid.NewV7())), false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			u := lead.NewUsecase(newFakeStore(), closedLeadQuota(), noopQuotaNotifier())
+
+			_, _, err := u.Create(context.Background(), c.actor, lead.CreateLeadInput{Name: "Budi"})
+
+			if c.wantReject {
+				var derr *httpx.DomainError
+				if !errors.As(err, &derr) || derr.Code != "plan_quota_exceeded" {
+					t.Fatalf("%s: expected plan_quota_exceeded, got: %v", c.name, err)
+				}
+			} else if err != nil {
+				t.Fatalf("%s: expected the lead to still be created, got: %v", c.name, err)
+			}
+		})
+	}
+}
+
+// TestUnit_Create_Quota_PublicForm_NotifiesOwnerOnce proves the
+// replacement for public_form's silent overage actually fires — and
+// only via the dedicated notifier, never as an error the visitor sees.
+func TestUnit_Create_Quota_PublicForm_NotifiesOwnerOnce(t *testing.T) {
+	notifier := noopQuotaNotifier()
+	u := lead.NewUsecase(newFakeStore(), closedLeadQuota(), notifier)
+	actor := formActor(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
+
+	if _, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"}); err != nil {
+		t.Fatalf("expected the lead to be created despite the exceeded quota, got: %v", err)
+	}
+	if notifier.calls != 1 {
+		t.Errorf("expected the notifier to be asked once, got %d", notifier.calls)
+	}
+}
+
+// TestUnit_Create_Quota_UserAndAPIKey_NeverNotify — the 403 IS the
+// notification for these two principals (TD 8.5 §5): a second, in-app
+// one would be redundant. The notifier must not even be asked.
+func TestUnit_Create_Quota_UserAndAPIKey_NeverNotify(t *testing.T) {
+	org := uuid.Must(uuid.NewV7())
+	for _, actor := range []tenant.Context{
+		ownerActorIn(org),
+		apiKeyActor(org, uuid.Must(uuid.NewV7()), []string{"leads:write"}),
+	} {
+		notifier := noopQuotaNotifier()
+		u := lead.NewUsecase(newFakeStore(), closedLeadQuota(), notifier)
+
+		_, _, _ = u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+
+		if notifier.calls != 0 {
+			t.Errorf("principal %v: expected the notifier never to be asked, got %d calls", actor.PrincipalType, notifier.calls)
+		}
+	}
+}
+
+// TestUnit_Create_Quota_OpenQuota_DoesNotNotify is the mirror of the
+// two tests above from the other direction — an open quota must not
+// spuriously notify anyone, for any principal.
+func TestUnit_Create_Quota_OpenQuota_DoesNotNotify(t *testing.T) {
+	notifier := noopQuotaNotifier()
+	u := lead.NewUsecase(newFakeStore(), openLeadQuota(), notifier)
+	actor := formActor(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
+
+	if _, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if notifier.calls != 0 {
+		t.Errorf("expected no notification when the quota is open, got %d calls", notifier.calls)
+	}
+}
+
+// TestUnit_Create_Quota_RoleCheckedBeforeQuota is the only way to prove
+// the ORDER of the two gates from outside (subscription TD §3.3,
+// applied to quota by 8.5 TD §3): a Manager who cannot create leads at
+// all must see "forbidden", never "plan_quota_exceeded" — the latter
+// would leak the organization's billing state to someone with no
+// standing to ask.
+func TestUnit_Create_Quota_RoleCheckedBeforeQuota(t *testing.T) {
+	u := lead.NewUsecase(newFakeStore(), closedLeadQuota(), noopQuotaNotifier())
+	org := uuid.Must(uuid.NewV7())
+	actor := actorContext(org, uuid.Must(uuid.NewV7()), tenant.RoleEmployee) // authz denies Employee lead creation too? see below
+
+	_, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+
+	var derr *httpx.DomainError
+	if errors.As(err, &derr) && derr.Code == "plan_quota_exceeded" {
+		t.Fatalf("expected the role gate to fire first when it also denies, got plan_quota_exceeded")
+	}
+}
+
+// ownerActorIn is ownerActor with a caller-supplied organization, so
+// several principals can be compared within the SAME organization in
+// one table (ownerActor always mints a fresh one).
+func ownerActorIn(org uuid.UUID) tenant.Context {
+	return actorContext(org, uuid.Must(uuid.NewV7()), tenant.RoleOwner)
 }

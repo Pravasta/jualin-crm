@@ -42,6 +42,30 @@ func (r *postgresRepository) Notify(ctx context.Context, t tenant.Context, recip
 	return nil
 }
 
+// ExistsThisMonth reports whether notifType already fired for t's
+// organization since the start of the current calendar month, cut in
+// the ORGANIZATION'S OWN TIMEZONE (Rule #13) — same window
+// lead.Repository.CountCreatedThisMonth uses, so "this month" means the
+// same thing on both sides of the threshold it gates.
+func (r *postgresRepository) ExistsThisMonth(ctx context.Context, t tenant.Context, notifType string) (bool, error) {
+	const q = `
+		WITH org AS (
+			SELECT timezone FROM organizations WHERE id = $1
+		)
+		SELECT EXISTS (
+			SELECT 1 FROM notifications, org
+			 WHERE notifications.organization_id = $1
+			   AND notifications.type = $2
+			   AND notifications.created_at >= date_trunc('month', now() AT TIME ZONE org.timezone) AT TIME ZONE org.timezone
+		)`
+
+	var exists bool
+	if err := r.q.QueryRow(ctx, q, t.OrganizationID, notifType).Scan(&exists); err != nil {
+		return false, fmt.Errorf("notification: exists this month: %w", err)
+	}
+	return exists, nil
+}
+
 // FindAllByRecipient is UNCONDITIONALLY scoped to t.MembershipID,
 // regardless of role — this is the one resource in the codebase where
 // even Owner/Admin get no broader access (TD §8): a notification

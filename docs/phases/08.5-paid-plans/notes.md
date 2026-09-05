@@ -88,3 +88,76 @@ sementara `FindByOrgPending` sengaja tetap menampilkannya supaya layar bisa mena
   #112's `RequireChannel`, `apikey.FindByKeyID` (#46), `form.FindByPublicKey` (#85).
 
 `go test -race ./...` bersih, `golangci-lint run` 0 issues, tanpa migration.
+
+---
+
+## #123 — Kuota lead: satu titik penegakan untuk tiga jalur + `plan_quota_exceeded`
+
+Mengikuti TD §3, §4, §5 setelah D3 ditutup (5 September 2026: form publik saat kuota habis **tetap
+menerima**). Satu penyimpangan besar dari klaim awal phase ini, satu keputusan desain yang tidak
+eksplisit ditulis TD, dan satu catatan verifikasi.
+
+### Penyimpangan — TD §1 keliru: phase ini **butuh** satu migration
+
+Ditemukan sebelum kode ditulis, dilaporkan ke pemilik produk (Aturan #30), bukan diam-diam
+diselesaikan: `notifications.type` punya `CONSTRAINT ck_notifications_type CHECK (type IN
+('lead_assigned','task_assigned'))` sejak `0004_notifications.sql`. TD §5 menjanjikan notifikasi Owner
+lewat `internal/notification` yang sudah ada — tapi tipe ketiga butuh migration untuk masuk daftar
+yang diizinkan. Tiga jalan diajukan ke pemilik produk; **migration kecil** dipilih.
+**`migrations/0010_notification_plan_quota.sql`** menambah `'plan_quota_exceeded'` ke constraint.
+`td.md` §1 dikoreksi di tempat — bukan dihapus diam-diam — supaya pembaca berikutnya tahu klaim
+"tanpa migration" sempat salah dan kenapa.
+
+### Bentuk implementasi
+
+- **`lead.PlanQuota`** (consumer-declared, ADR-011) — `AllowLead(ctx, t, used) error`. `used` datang
+  dari **pemanggil** (lead menghitung lewat `CountCreatedThisMonth` #122), bukan dihitung di dalam
+  gate — gate memiliki **batas**, domain memiliki **angka**; kalau gate yang menghitung, ia harus
+  mengimpor `internal/lead`, membalik arah dependensi.
+- **`subscription.Usecase.RequireLeadQuota`** — bentuk sama `RequireChannel`, tapi **pesannya
+  menyebut angka** (`"Paket Anda dibatasi 100 lead per bulan"`), sengaja beda dari `RequireChannel`
+  yang kabur: audiens `RequireChannel` bisa jadi Manager yang tidak berhak tahu apa pun soal paket;
+  audiens `RequireLeadQuota` selalu principal organization itu sendiri (`user`/`api_key`, **tidak
+  pernah** `public_form`) bertanya soal jatahnya sendiri.
+- **Titik pasang tunggal**: `lead.Usecase.Create`, diverifikasi (bukan diasumsikan) sebelum kode
+  ditulis bahwa `cmd/api/form_store.go`'s `leadCreatorAdapter.CreateFromForm` memanggil
+  `usecase.Create` yang sama dengan jalur `user`/`api_key`.
+- **Urutan**: `authz.Require` → `CountCreatedThisMonth` → `AllowLead` — kuota dihitung untuk
+  **ketiga** principal (murah, dan relevan untuk semuanya), tapi hanya **ditegakkan** untuk
+  `user`/`api_key`; `public_form` yang gagal kuota tetap lanjut membuat lead, lalu memicu notifikasi.
+- **`lead.QuotaNotifier.NotifyQuotaExceededOnce`** — bridge di composition root
+  (`cmd/api/quota_notifier.go`) yang menggabungkan `membership.FindActiveOwnerIDs` (baru) +
+  `notification.ExistsThisMonth` (baru) + `notification.Notifier.Notify` yang sudah ada. **Ambang
+  dicek dulu, baru cari Owner** — kasus umum (sudah pernah diberi tahu bulan ini) membayar satu query,
+  bukan satu query plus N insert yang dibatalkan.
+- **Ambang organization-wide, bukan per-owner** — co-owner (diizinkan sejak `authorization.md`
+  Aturan #4) berbagi satu ambang; menambah Owner kedua di tengah bulan tidak me-reset hitungannya.
+  `ExistsThisMonth` memotong bulan di **timezone organization**, konsisten dengan
+  `CountCreatedThisMonth` (#122) — "bulan ini" berarti hal yang sama di kedua sisi ambang.
+- **Best-effort, tidak pernah gagal atas nama lead** — `_ = u.quotaNotifier.NotifyQuotaExceededOnce(...)`,
+  pola persis `_ = push.PushToMembership(...)` yang sudah ada (Phase 5 #68): kegagalan mengirim
+  notifikasi tidak boleh membatalkan atau menggagalkan lead yang pengunjung situs sedang tunggu.
+
+### Keputusan yang TD tidak eksplisit tutup
+
+**Notifikasi hanya untuk `public_form`, tidak untuk `user`/`api_key` yang ditolak.** TD §5 menulis
+notifikasi sebagai *"pengganti penolakan di jalur publik"*, tapi tidak eksplisit melarang mengirim
+notifikasi juga saat `user`/`api_key` ditolak. Diputuskan: **tidak** — `403` yang mereka terima
+**adalah** notifikasinya; notifikasi in-app kedua untuk hal yang sudah mereka lihat sendiri hanya
+kebisingan. Dikunci test (`TestUnit_Create_Quota_UserAndAPIKey_NeverNotify`).
+
+### Verifikasi — dijalankan, bukan diasumsikan
+
+`cmd/api/plan_quota_test.go` terhadap router produksi asli, peta `planLimits` asli:
+- Tiga principal di satu organization, tepat di batas kuota — `user`/`api_key` `403
+  plan_quota_exceeded`, `public_form` tetap `201` (`TestPlanQuota_AtLimit_ThreePrincipalsBehaveDifferently`)
+- **Notifikasi sungguhan dibaca lewat `GET /v1/notifications`**, bukan fake yang diasumsikan terpanggil:
+  dua submit form melewati kuota → **tepat satu** notifikasi `plan_quota_exceeded`
+  (`TestPlanQuota_PublicForm_NotifiesOwnerOnceNotTwice`)
+- `GET`/`PATCH` lead yang sudah ada tetap jalan saat kuota habis (D4-nya kuota)
+- **Terbukti bisa gagal**: organization di batas → `403`; `plan_code` dinaikkan ke `enterprise`
+  (tanpa batas) lewat SQL langsung → `201` — jalur kode yang sama membuktikan dua arah, tanpa
+  menyabotase kode yang di-commit (`TestPlanQuota_ProvenToFail`)
+
+`go test -race ./...` bersih, `golangci-lint run` 0 issues. Kuota terlampaui di bawah konkurensi
+(1–2 baris) **tidak dikunci** — sesuai prd D2, diterima secara sadar, tidak diuji sebagai kegagalan.

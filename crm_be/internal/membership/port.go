@@ -25,6 +25,12 @@ type Repository interface {
 	// implementation's doc comment for why the other half lives in
 	// internal/invitation.
 	CountActive(ctx context.Context, t tenant.Context) (int, error)
+
+	// FindActiveOwnerIDs lists who to tell when a plan's lead quota runs
+	// out (Phase 8.5 #123). Plural: co-owners are allowed (Aturan #4's
+	// own note on UpdateRole), so every active Owner is notified, not
+	// just one arbitrarily chosen.
+	FindActiveOwnerIDs(ctx context.Context, t tenant.Context) ([]uuid.UUID, error)
 }
 
 // AuditRepository is declared locally (not imported from internal/auditlog)

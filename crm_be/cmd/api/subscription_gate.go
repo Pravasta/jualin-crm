@@ -38,3 +38,10 @@ func (g *planGate) RequireChannel(ctx context.Context, t tenant.Context, ch stri
 	}
 	return g.usecase.RequireChannel(ctx, t, parsed)
 }
+
+// AllowLead bridges *subscription.Usecase.RequireLeadQuota (#123) to
+// lead.PlanQuota — the same planGate value wired for the three channel
+// gates above satisfies this interface too, structurally.
+func (g *planGate) AllowLead(ctx context.Context, t tenant.Context, used int) error {
+	return g.usecase.RequireLeadQuota(ctx, t, used)
+}

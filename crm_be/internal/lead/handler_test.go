@@ -105,7 +105,7 @@ func newTestRouterWithAPIKey(t *testing.T, limiter *ratelimit.FixedWindow) (*gin
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	pool := dbtest.NewPool(t)
-	u := lead.NewUsecase(newTestStore(pool))
+	u := lead.NewUsecase(newTestStore(pool), openLeadQuota(), noopQuotaNotifier())
 	resolver := newFakeAPIKeyResolver()
 
 	r := gin.New()

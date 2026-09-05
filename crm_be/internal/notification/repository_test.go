@@ -168,3 +168,84 @@ func seedMembership(t *testing.T, ctx context.Context, pool *pgxpool.Pool, org u
 	}
 	return membershipID
 }
+
+// --- ExistsThisMonth (Phase 8.5 #123) ---
+
+func TestRepository_ExistsThisMonth_TrueAfterOneNotification(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := notification.New(pool)
+	notifier := notification.NewNotifier(pool)
+
+	org := seedOrganization(t, ctx, pool)
+	owner := seedMembership(t, ctx, pool, org, "owner@example.com", tenant.RoleOwner)
+	t1 := tenant.Context{OrganizationID: org}
+
+	before, err := repo.ExistsThisMonth(ctx, t1, "plan_quota_exceeded")
+	if err != nil {
+		t.Fatalf("exists before: %v", err)
+	}
+	if before {
+		t.Fatal("expected false before any notification exists")
+	}
+
+	body := "Kuota habis"
+	if err := notifier.Notify(ctx, t1, owner, "plan_quota_exceeded", nil, nil, "Kuota lead bulanan habis", &body); err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+
+	after, err := repo.ExistsThisMonth(ctx, t1, "plan_quota_exceeded")
+	if err != nil {
+		t.Fatalf("exists after: %v", err)
+	}
+	if !after {
+		t.Error("expected true after one notification of the same type")
+	}
+}
+
+func TestRepository_ExistsThisMonth_DoesNotMatchDifferentType(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := notification.New(pool)
+	notifier := notification.NewNotifier(pool)
+
+	org := seedOrganization(t, ctx, pool)
+	owner := seedMembership(t, ctx, pool, org, "owner@example.com", tenant.RoleOwner)
+	t1 := tenant.Context{OrganizationID: org}
+
+	if err := notifier.Notify(ctx, t1, owner, "task_assigned", nil, nil, "Tugas baru", nil); err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+
+	exists, err := repo.ExistsThisMonth(ctx, t1, "plan_quota_exceeded")
+	if err != nil {
+		t.Fatalf("exists: %v", err)
+	}
+	if exists {
+		t.Error("expected false — the only notification on record is a different type")
+	}
+}
+
+func TestRepository_ExistsThisMonth_TenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := notification.New(pool)
+	notifier := notification.NewNotifier(pool)
+
+	orgA := seedOrganization(t, ctx, pool)
+	orgB := seedOrganization(t, ctx, pool)
+	ownerB := seedMembership(t, ctx, pool, orgB, "owner-b@example.com", tenant.RoleOwner)
+
+	body := "Kuota habis"
+	if err := notifier.Notify(ctx, tenant.Context{OrganizationID: orgB}, ownerB, "plan_quota_exceeded", nil, nil, "x", &body); err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+
+	exists, err := repo.ExistsThisMonth(ctx, tenant.Context{OrganizationID: orgA}, "plan_quota_exceeded")
+	if err != nil {
+		t.Fatalf("exists: %v", err)
+	}
+	if exists {
+		t.Error("expected org A to see nothing from org B's notification")
+	}
+}

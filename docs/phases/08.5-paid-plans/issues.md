@@ -60,5 +60,4 @@ Yang di luar batas ini ada di [`prd.md`](./prd.md) bagian *Di luar cakupan*, dan
 
 | Yang belum ditutup | Memblokir | Siapa |
 |---|---|---|
-| **prd D3** — form publik saat kuota habis (rekomendasi: tetap diterima) | Seluruh TD §5, dan baris ketiga tabel principal di #123 | Pemilik produk |
-| **Angka provisional** — kuota Free/Pro, batas seat, kanal per paket, harga Pro | **Rilis**, bukan implementasi. `planLimits` memakai `TODO` sampai diisi, dan #126 punya AC yang gagal kalau masih placeholder | Pemilik produk |
+| **Angka provisional final** — kuota Free/Pro, batas seat, kanal per paket, harga Pro | **Rilis**, bukan implementasi. `planLimits` (#122) sudah berisi angka sementara (100/2.000 lead, 2/10 seat) yang ditandai `LimitsAreProvisional = true`; produksi menolak boot selama flag itu `true`. #126 memflipkannya bersama angka final dari pemilik produk | Pemilik produk |
