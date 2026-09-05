@@ -193,6 +193,75 @@ seluruh permukaannya, dan tabel-atas-seluruh-`Action` yang sudah ada membuktikan
 
 ---
 
+## Matriks (Phase 8.5) — issue #124/#125
+
+| Action | Owner | Admin | Manager | Employee |
+|---|---|---|---|---|
+| `subscription.read` | ✅ | ✅ | — | — |
+| `subscription.change` | ✅ | **—** | — | — |
+
+**`subscription.change` adalah `Action` pertama di codebase ini yang Admin TIDAK warisi dari Owner.**
+Setiap `Action` di atas garis ini, apa pun yang Owner punya, Admin punya juga — jadi baris ini pantas
+dibaca dua kali sebelum ditiru. Alasannya bukan kepercayaan melainkan kepemilikan: mengubah paket
+adalah mengubah apa yang ditagih ke kartu **pemilik usaha**, dan itu bukan wewenang yang datang
+bersama tugas mengelola operasional harian.
+
+`subscription.read` **memang** diberikan ke Admin, dan pemisahan itu justru intinya: Admin-lah yang
+menabrak `plan_seat_limit_reached` saat mengundang orang dan `plan_quota_exceeded` saat kuota habis.
+Menyembunyikan **kenapa** dari orang yang menerima penolakannya hanya memindahkan kebingungan, bukan
+melindungi apa pun.
+
+| Yang digerbangi | Action |
+|---|---|
+| `GET /v1/plans` (katalog paket, #125) | `subscription.read` |
+| `POST /v1/subscription/test-checkout` (#124) | `subscription.change` |
+
+Paket **organization sendiri** (`plan.code`/`channels`/`limits`/`usage` di `GET /v1/me`) sengaja
+**tidak** butuh `Action` apa pun — setiap principal user melihatnya, sama seperti `plan.channels` sejak
+Phase 8. Batas organization sendiri bukan rahasia dari anggotanya; yang dijaga adalah katalog paket
+lain dan tindakan mengubahnya.
+
+> **Catatan urutan (Aturan #30).** `subscription.read` sengaja **tidak dibuat** di #124 meski TD 8.5
+> §11 menamainya, karena saat itu tidak ada satu pun endpoint yang memanggilnya — `Action` tanpa
+> pemanggil adalah utang yang terlihat seperti kelengkapan (Aturan #27/#28). Ia dibuat di #125 begitu
+> `GET /v1/plans` ada. Dicatat karena urutan itu disengaja, bukan kelalaian yang di-backfill.
+
+---
+
+## Permukaan `/internal/` — terautentikasi token, bukan principal (Phase 8.5, issue #124)
+
+`POST /internal/subscriptions/{organization_id}/plan` adalah **yang pertama di produk ini**: sebuah
+endpoint yang terautentikasi tanpa menjadi principal manapun di dalam organization.
+
+Tiga jalur autentikasi yang sudah ada (Aturan #24) semuanya menjawab *"siapa di dalam organization
+ini"* — user session, API key, form publik. Endpoint ini tidak menjawab pertanyaan itu sama sekali:
+**pemanggilnya adalah pemilik produk, dari luar aplikasi**, mengubah paket pelanggan yang baru saja
+membayar lewat transfer. Ia bukan anggota organization mana pun, dan tidak seharusnya menjadi satu
+hanya agar bisa menekan tombol.
+
+| | Bagaimana |
+|---|---|
+| Autentikasi | Bearer `SUBSCRIPTION_ADMIN_TOKEN`, dibandingkan `subtle.ConstantTimeCompare` (Aturan #20) |
+| Otorisasi | **Tidak ada matriks role** — token itu sendiri adalah seluruh otorisasinya |
+| `tenant.Context` | `PrincipalType: system`, tanpa `Role`, tanpa `MembershipID` |
+| `organization_id` | dari **path**, bukan dari principal — satu-satunya tempat di produk ini di mana itu benar |
+| Kalau token tidak diset | route **tidak didaftarkan sama sekali** → `404`, bukan `401` |
+| Jejak | `audit_logs` dengan `actor_membership_id` **`NULL`** — tidak ada membership yang melakukannya |
+
+**`organization_id` dari path melanggar Aturan #5 secara harfiah, dan itu disengaja** — Aturan #5
+melindungi principal *di dalam* organization dari menyentuh organization lain dengan menukar sebuah
+ID. Di sini tidak ada "di dalam": pemanggilnya berada di luar seluruh model tenant, dan kemampuan
+menyebut organization mana pun **adalah** fungsinya. Yang menggantikan perlindungan Aturan #5 adalah
+tokennya sendiri — karena itu ia wajib ≥32 byte, dibandingkan dengan waktu tetap, tidak pernah
+di-log (Aturan #26), dan tidak pernah hadir di sisi klien (Aturan #23).
+
+Ini bukan preseden untuk "endpoint admin" secara umum. Ia lahir untuk satu tindakan yang jarang,
+manual, dan tidak punya rumah lain sampai payment service tersambung (prd 8.5 D5/D6); permukaan
+`/internal/` yang tumbuh butuh keputusan arsitektur tersendiri, bukan penambahan diam-diam ke pola
+ini.
+
+---
+
 ## Otorisasi berbasis scope — principal tanpa role (Phase 4, issue #47)
 
 Matriks role di atas menjawab pertanyaan **"role apa boleh action apa"** — tapi principal `api_key`

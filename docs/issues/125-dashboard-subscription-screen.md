@@ -4,13 +4,18 @@
 > berkas ini mengumpulkan poin yang perlu **dicek ulang saat #126** menutup Phase 8.5. Detail lengkap ada
 > di `docs/phases/08.5-paid-plans/notes.md` bagian `## #125`.
 
-## Deviasi dari issue (bukan hanya TD)
+> **Ditinjau di #126 (5 September 2026).** Dua poin ditutup; tiga sisanya dinyatakan ulang dengan
+> pemicu eksplisit.
 
-- [ ] **#125 berlabel `dashboard`, tapi ikut menyentuh Go.** Konsekuensi langsung dari keputusan
+## Deviasi dari issue (bukan hanya TD) — ✅ ditutup di #126
+
+- [x] **#125 berlabel `dashboard`, tapi ikut menyentuh Go.** Konsekuensi langsung dari keputusan
       katalog di bawah — `GET /v1/plans` (endpoint baru) dan `authz.ActionSubscriptionRead` (Action
-      yang #124 sengaja tolak buat) keduanya lahir di issue ini. **Dicek ulang di #126**: pastikan
-      `docs/phases/08.5-paid-plans/td.md` §9 mencerminkan bahwa perbandingan paket punya endpoint
-      sendiri, bukan hanya `GET /v1/me`.
+      yang #124 sengaja tolak buat) keduanya lahir di issue ini.
+      **→ Ditutup #126:** `td.md` §9 dikoreksi di tempat dengan callout ⚠️ (bukan dihapus), dan
+      `api.md` mendapat bagian *`GET /v1/plans` — katalog, bukan keadaan organization* yang
+      menjelaskan kenapa ia endpoint terpisah dari `/v1/me`. `authorization.md` mencatat Action-nya
+      beserta urutan "lahir bersama pemanggil pertamanya".
 
 ## Keputusan yang perlu dicek ulang
 
@@ -20,13 +25,20 @@
       peninjauan: tidak ada** — ini bentuk yang benar secara arsitektur, bukan kompromi sementara.
 
 - [ ] **Tombol Enterprise belum ada — hanya teks "Hubungi kami untuk diskusi harga".** Nomor
-      WhatsApp/email kontak Enterprise masih placeholder (prd 8.5, tabel *Angka provisional*).
-      **Pemicu peninjauan: begitu pemilik produk memberi kontak sebenarnya** — satu baris di
-      `planDisplay` (atau field kontak baru) diisi, tombol/tautan dirender.
+      WhatsApp/email kontak Enterprise **tetap belum diisi setelah #126** — satu-satunya baris tabel
+      *Angka provisional* yang masih kosong setelah phase ini ditutup (empat baris lainnya diisi
+      5 September 2026). Ditinjau ulang di #126 dan **sengaja dibiarkan terbuka**: kartu tanpa tombol
+      lebih jujur daripada tombol yang tidak menuju ke mana pun (AC #125 melarang "tombol mati").
+      **Pemicu peninjauan: pemilik produk memberi nomor/alamat sebenarnya** — satu baris di
+      `planDisplay` (atau satu field kontak baru di sebelahnya) diisi, dan `subscription-screen.tsx`
+      merender tautannya. Pekerjaan setengah jam, tidak memblokir apa pun selain Enterprise itu
+      sendiri.
 
-- [ ] **Label harga Pro masih `"Segera"`, bukan angka.** Menunggu keputusan pemilik produk yang sama
-      dengan `LimitsAreProvisional` (`docs/issues/122`). **Pemicu peninjauan: sama dengan #122/#124**
-      — angka provisional final diisi (kuota Free/Pro, batas seat, harga Pro sekaligus).
+- [x] **Label harga Pro masih `"Segera"`, bukan angka.** **→ Ditutup #126:** pemilik produk mengisi
+      **`Rp99.000/bulan`**, bersamaan dengan seluruh angka lain. `LimitsAreProvisional` jadi `false`,
+      dan `TestPlanDisplay_NoPlaceholderPriceLabels` menjaga agar placeholder tidak bisa lolos lagi.
+      Kewajiban meninjau ulang harga setelah 3–5 pelanggan berbayar pertama tetap hidup di `STATUS.md`
+      (ADR-014 ketentuan 2) — itu poin terbuka milik ADR-014, bukan milik berkas ini.
 
 - [ ] **`useSessionRefresh` ditambahkan ke `session-context.tsx` — satu-satunya pemanggilnya adalah
       layar ini**, untuk menampilkan plan baru seketika setelah test checkout. **Pemicu peninjauan:

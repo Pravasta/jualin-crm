@@ -83,21 +83,38 @@ Phase 8.5 selesai bila **semuanya** terpenuhi:
 
 ---
 
-## Angka provisional — **belum diisi**
+## Angka provisional — ✅ **diisi 5 September 2026 (#126)**
 
-Bentuk tabelnya ditetapkan phase ini; isinya keputusan pemilik produk sebelum rilis. Sampai diisi,
-`planLimits` memakai nilai sementara yang **ditandai jelas di kode** sebagai belum final.
+Ditetapkan pemilik produk. Sumber kebenarannya adalah `planLimits` + `planDisplay` di
+`crm_be/internal/subscription/plan.go` (D7); tabel ini cerminannya, bukan salinan kedua yang berdiri
+sendiri.
 
 | | Free | Pro | Enterprise |
 |---|---|---|---|
-| Lead / bulan | _(?)_ | _(?)_ | _(?)_ atau tanpa batas |
-| Seat (anggota aktif) | _(?)_ | _(?)_ | _(?)_ atau tanpa batas |
-| Kanal | Formulir _(?)_ | ketiganya _(?)_ | ketiganya |
-| Harga | Rp0 | _(?)_ /bulan | negosiasi |
+| Lead / bulan | **100** | **2.000** | **tanpa batas** |
+| Seat (anggota aktif) | **2** | **10** | **tanpa batas** |
+| Kanal | **ketiganya** | **ketiganya** | **ketiganya** |
+| Harga | **Rp0** | **Rp99.000/bulan** | **negosiasi** |
 
-**Yang mengunci angka ini bukan kode, melainkan keputusan.** ADR-014 mencatat bahwa angka pertama
-ditetapkan tanpa data pengguna, dan **wajib ditinjau ulang setelah 3–5 pelanggan pertama** — kewajiban
-itu tidak hilang hanya karena gate-nya dilewati.
+Tiga hal yang perlu dibaca bersama angkanya:
+
+**Kanal tidak membedakan paket, dan itu keputusan — bukan kolom yang lupa diisi.** Pembedanya kuota
+dan seat. Menutup kanal yang Free hari ini sudah buka berarti mengambil sesuatu dari organization yang
+sudah memakainya, dan jalur downgrade untuk itu tidak ada (Phase 8 D4). Kanal **keempat**, kalau kelak
+dibangun, bisa lahir Pro-only sejak hari pertama tanpa biaya itu.
+
+**Free sengaja ketat.** ADR-014 mencatat asimetrinya: melonggarkan batas aman kapan saja dan tidak
+menyakiti siapa pun; mengetatkannya adalah downgrade terhadap pengguna yang sudah ada. Salah di sisi
+ketat bisa diperbaiki, salah di sisi longgar tidak.
+
+**Angka ini boleh dirilis — bukan berarti sudah terbukti benar.** ADR-014 ketentuan 2 tetap berlaku:
+**wajib ditinjau ulang setelah 3–5 pelanggan _berbayar_ pertama**, keempatnya sekaligus (kuota Free,
+kuota Pro, harga Pro, batas seat). Kewajiban itu hidup di `docs/STATUS.md` bagian *Keputusan Belum
+Diambil*, bukan hanya di sini.
+
+`LimitsAreProvisional` di `plan.go` kini `false`; dua test (`TestLimitsAreNoLongerProvisional`,
+`TestPlanDisplay_NoPlaceholderPriceLabels`) menjaga agar putaran angka berikutnya tidak bisa
+diam-diam dinyatakan selesai dengan placeholder.
 
 ---
 

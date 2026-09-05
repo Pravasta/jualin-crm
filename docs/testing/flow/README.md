@@ -31,15 +31,17 @@ dashboard sebagai gantinya. Phase 0–5 sudah selesai (`docs/STATUS.md`); pandua
 | 6 | [`06-checklist-akhir.md`](./06-checklist-akhir.md) | Rekap satu halaman — centang semua sebelum bilang "beres" |
 | 7 | [`07-mobile-android.md`](./07-mobile-android.md) | Login+biometric, mode pesawat, telepon/WhatsApp dengan auto-Activity, ubah status, catatan, Tugas Saya, push+deeplink (3 keadaan), kehilangan akses, uninstall — **butuh HP Android fisik** |
 | 8 | [`08-formulir-embed.md`](./08-formulir-embed.md) | Buat & kelola formulir dari dashboard, ubah label, allowlist domain, **tempel snippet ke halaman HTML kosong lalu isi dari browser** → lead masuk, domain di luar allowlist ditolak, gerbang role, nonaktifkan (Phase 6) |
-| 9 | [`09-webhook.md`](./09-webhook.md) | Daftarkan endpoint dari dashboard, **jalankan server penerima lokal**, buat lead → request sungguhan sampai, **verifikasi signature dari sisi penerima dengan contoh dari halaman docs**, payload diubah satu byte → ditolak, endpoint mati → retry + kirim ulang manual, URL privat ditolak (SSRF), gerbang role (Phase 7); **§9.10 gerbang paket** — `planChannels` dibalik → `403 plan_upgrade_required` + kartu terkunci di browser (Phase 8) |
+| 9 | [`09-webhook.md`](./09-webhook.md) | Daftarkan endpoint dari dashboard, **jalankan server penerima lokal**, buat lead → request sungguhan sampai, **verifikasi signature dari sisi penerima dengan contoh dari halaman docs**, payload diubah satu byte → ditolak, endpoint mati → retry + kirim ulang manual, URL privat ditolak (SSRF), gerbang role (Phase 7); **§9.10 gerbang paket** — `planChannels` dibalik → `403 plan_upgrade_required` + kartu terkunci di browser (Phase 8); **§9.11 kuota & seat** — turunkan `planLimits` + ubah paket lewat `/internal/` → `user`/`api_key` ditolak sementara **form publik tetap diterima**, layar Langganan (Phase 8.5) |
 
 Kerjakan berurutan — setiap berkas mengasumsikan data dari berkas sebelumnya masih ada (org yang sama,
 lead yang sama, dst). `07` dikerjakan setelah `03` (butuh lead untuk ditugaskan) dan `02` (butuh
 employee aktif) — sebelum `06` (rekap akhir). `08` (Phase 6, di luar kalimat inti MVP) butuh sesi
 Owner dan satu Employee aktif (`01` + `02`); ia **tidak** bergantung pada `07`, jadi bisa dikerjakan
-tanpa HP Android. `09` (Phase 7 **dan** Phase 8, di luar kalimat inti MVP) butuh `01`–`03` dan satu
-server penerima lokal (`python3`) untuk bagian Phase 7-nya; **tidak** bergantung pada `07` maupun
-`08`. Bagian §9.10 (gerbang paket, Phase 8) tidak butuh server penerima — hanya `curl` + browser.
+tanpa HP Android. `09` (Phase 7, Phase 8 **dan** Phase 8.5, di luar kalimat inti MVP) butuh `01`–`03` dan satu
+server penerima lokal (`python3`) untuk bagian Phase 7-nya; **tidak** bergantung pada `07`.
+Bagian §9.10 (gerbang paket, Phase 8) tidak butuh server penerima — hanya `curl` + browser.
+Bagian §9.11 (kuota & seat, Phase 8.5) juga tanpa server penerima, tapi **butuh `08` sudah dikerjakan**:
+membuktikan "form publik tetap diterima saat kuota habis" perlu satu formulir yang benar-benar ada.
 
 ## Yang perlu disiapkan dulu
 

@@ -302,7 +302,179 @@ curl -s http://localhost:8080/v1/webhook-endpoints -b "$COOKIES"
 Detail keputusan desain gerbang ini ada di `architecture/api.md` bagian *Gerbang Paket* dan
 `architecture/authorization.md` bagian *Dua pertanyaan berbeda*.
 
-## 9.11 Bersihkan
+## 9.11 Kuota lead & batas seat (Phase 8.5, issue #122–#126) — penolakan **dan** penerimaan
+
+Bagian ini membuktikan hal yang tidak bisa dilihat dari UI mana pun: saat kuota habis, **dua jalur
+ditolak dan satu jalur sengaja tetap diterima** (`architecture/api.md` bagian *Kuota*). Kalau ketiganya
+ditolak, formulir di situs pelanggan berhenti bekerja — dan itu justru kegagalan yang keputusan D3
+dibangun untuk mencegah.
+
+Kuota Free sungguhan adalah **100 lead/bulan**; membuatnya dengan tangan tidak masuk akal. Jadi
+batasnya diturunkan sementara — pola yang sama dengan §9.10, dan **jangan pernah commit dalam keadaan
+diturunkan.**
+
+### Persiapan
+
+1. Di `crm_be/internal/subscription/plan.go`, ubah baris `PlanFree` di `planLimits` sementara:
+   ```go
+   PlanFree: {LeadsPerMonth: 2, Seats: 1},
+   ```
+2. Pastikan token admin terisi (`.env` / `docker-compose.yml` service `api`), minimal 32 byte:
+   ```bash
+   export ADMIN_TOKEN="token-uji-minimal-32-byte-supaya-lolos-validasi"
+   ```
+   Boot **gagal** kalau token diisi tapi lebih pendek dari 32 byte — itu memang perilakunya.
+3. `docker compose up -d api` (restart dengan env baru), lalu siapkan API key baru (§5.8 sudah
+   mencabut yang lama):
+   ```bash
+   # buat lewat /connect/api di browser, salin secret-nya
+   export JUALIN_KEY="jln_live_....."
+   export ORG_ID=$(curl -s http://localhost:8080/v1/me -b "$COOKIES" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["organization_id"])')
+   ```
+
+### Langkah 1 — pastikan organization ada di paket `free`, lewat permukaan `/internal/`
+
+```bash
+curl -s -w "\n%{http_code}\n" -X POST \
+  "http://localhost:8080/internal/subscriptions/$ORG_ID/plan" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"plan_code":"free"}'
+# harus: 200 {"data":{"organization_id":"...","plan_code":"free"}}
+```
+
+Sekalian buktikan penjaganya nyata — **tanpa token** dan **dengan token salah** harus sama-sama `401`,
+dan tidak satu pun boleh menyentuh data:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  "http://localhost:8080/internal/subscriptions/$ORG_ID/plan" \
+  -H "Content-Type: application/json" -d '{"plan_code":"pro"}'          # harus: 401
+
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  "http://localhost:8080/internal/subscriptions/$ORG_ID/plan" \
+  -H "Authorization: Bearer token-salah-tapi-panjangnya-cukup-32byte" \
+  -H "Content-Type: application/json" -d '{"plan_code":"pro"}'          # harus: 401
+```
+
+### Langkah 2 — habiskan kuota, lalu buktikan **dua jalur ditolak**
+
+Buat lead sampai melewati 2 (batas sementara). Lewat dashboard (principal `user`):
+
+```bash
+for i in 1 2 3; do
+  curl -s -o /dev/null -w "user   #$i → %{http_code}\n" -X POST http://localhost:8080/v1/leads \
+    -b "$COOKIES" -H "Content-Type: application/json" -H "X-CSRF-Token: $CSRF" \
+    -d "{\"name\":\"Kuota User $i\"}"
+done
+# harus: 201, 201, lalu 403
+```
+
+Lewat API key (principal `api_key`) — kuota berlaku sama:
+
+```bash
+curl -s -X POST http://localhost:8080/v1/leads \
+  -H "Authorization: Bearer $JUALIN_KEY" -H "Content-Type: application/json" \
+  -d '{"name":"Kuota API Key"}'
+# harus: 403 {"error":{"code":"plan_quota_exceeded",
+#          "message":"Paket Anda dibatasi 2 lead per bulan. Sudah tercapai untuk bulan ini."}}
+```
+
+Perhatikan pesannya **menyebut angkanya** — beda sengaja dari `plan_upgrade_required` yang kabur:
+penanya di sini adalah organization itu sendiri, bertanya soal jatahnya sendiri.
+
+### Langkah 3 — jalur yang **sengaja tetap diterima**: formulir publik ← inti bagian ini
+
+Pakai `public_key` formulir dari [`08-formulir-embed.md`](./08-formulir-embed.md) (`/connect/form`,
+buka formulir uji, salin public key):
+
+```bash
+export FORM_KEY="....."   # public_key formulir dari §8
+
+# ambil form_token dari halaman embed (time-trap, §8) lalu submit:
+curl -s -w "\n%{http_code}\n" -X POST \
+  "http://localhost:8080/v1/forms/$FORM_KEY/submit" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "name=Pengunjung Saat Kuota Habis" \
+  --data-urlencode "email=pengunjung@example.com" \
+  --data-urlencode "form_token=$FORM_TOKEN"
+# harus: 201 — BUKAN 403
+```
+
+**Ini baris terpenting di seluruh bagian ini.** Pengunjung situs pelanggan tidak pernah melihat
+keadaan penagihan pelanggan; lead-nya tetap masuk.
+
+Lalu konfirmasi Owner benar-benar diberi tahu, **sekali saja**:
+
+```bash
+# submit sekali lagi lewat form (ambil form_token baru dulu)
+curl -s http://localhost:8080/v1/notifications -b "$COOKIES" | grep -c plan_quota_exceeded
+# harus: 1 — dua submit melewati kuota, tetap SATU notifikasi bulan ini
+```
+
+### Langkah 4 — naikkan paket lewat `/internal/`, penolakan hilang
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  "http://localhost:8080/internal/subscriptions/$ORG_ID/plan" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"plan_code":"pro"}'                                              # harus: 200
+
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8080/v1/leads \
+  -H "Authorization: Bearer $JUALIN_KEY" -H "Content-Type: application/json" \
+  -d '{"name":"Setelah Naik Paket"}'                                    # harus: 201
+```
+
+Jalur kode yang **sama persis** memberi `403` lalu `201` — hanya barisan `plan_code` di database yang
+berubah. Itu bukti gerbangnya benar-benar membaca paket, bukan kebetulan hijau.
+
+Cek juga `plan_code` lama tercatat di audit:
+
+```bash
+docker compose exec db psql -U jualin -d jualin -c \
+  "SELECT action, old_values, new_values, actor_membership_id FROM audit_logs WHERE action='subscription.plan_changed' ORDER BY created_at DESC LIMIT 2;"
+# harus: old_values {"plan_code":"free"} → new_values {"plan_code":"pro"},
+#        actor_membership_id NULL (tidak ada membership yang melakukannya)
+```
+
+### Langkah 5 — batas seat
+
+Kembalikan ke `free` lewat `/internal/` (batas sementara: 1 seat, dan Owner sudah memakainya), lalu:
+
+```bash
+curl -s -X POST http://localhost:8080/v1/invitations -b "$COOKIES" \
+  -H "Content-Type: application/json" -H "X-CSRF-Token: $CSRF" \
+  -d '{"email":"orang-baru@test.local","role":"employee"}'
+# harus: 403 {"error":{"code":"plan_seat_limit_reached",
+#          "message":"Paket Anda dibatasi 1 anggota. Sudah tercapai batasnya."}}
+```
+
+Di browser, buka `/team` → **Undang anggota**, kirim undangan yang sama: pesan yang **sama persis**
+tampil di dalam dialog, dengan tautan **"Lihat paket & pemakaian"** menuju `/subscription`.
+
+### Langkah 6 — layar Langganan
+
+Buka `/subscription` sebagai Owner:
+
+- Paket aktif tampil sebagai nama (**Free**), bukan kode mentah
+- Pemakaian lead & anggota menunjukkan angka yang sesuai — dan **boleh melebihi batas** (formulir
+  publik tadi menambah lead setelah kuota habis); bar tidak boleh melewati 100%
+- Tiga kolom paket tampil terurut **Free → Pro → Enterprise**, dengan harga `Rp0` /
+  `Rp99.000/bulan` / `Negosiasi`
+- Kolom Enterprise **tidak punya tombol beli** — teks "Hubungi kami untuk diskusi harga"
+
+Lalu login sebagai **Manager** atau **Employee**, buka `/subscription`:
+
+- "Langganan tidak tersedia untuk role Anda"
+- Tab **Network** browser: **nol** panggilan ke `/v1/plans`
+
+### Langkah 7 — kembalikan
+
+1. Kembalikan `planLimits[PlanFree]` ke `{LeadsPerMonth: 100, Seats: 2}`.
+2. Kembalikan paket organization ke `free` lewat `/internal/` bila masih di `pro`.
+3. `docker compose up -d api`, lalu `git diff` — **harus kosong** di `plan.go`.
+
+## 9.12 Bersihkan
 
 1. Login lagi sebagai Owner. Hapus endpoint uji (blok merah **Hapus endpoint** di detail, atau
    nonaktifkan saja bila ingin menyimpan riwayat).

@@ -34,18 +34,19 @@ const (
 // planChannels is THE map (prd D3). Opening or closing a channel for a
 // plan is a one-line change here and nowhere else (kriteria #2).
 //
-// Every channel is open on `free` today. That is not a placeholder: it
-// is the honest state of the product until pricing exists (ADR-012 §4,
-// prd kriteria #9). The mechanism is what ships now; the numbers
-// replace this literal later (TD §16).
-// Every channel is open on every plan TODAY, including free. That is
-// deliberate and not an oversight: closing a channel that free already
-// opens would take something away from organizations already using it,
-// which is the downgrade behaviour Phase 8 D4 refused to build. Which
-// channels each paid plan actually distinguishes is part of the
-// provisional-numbers decision still owed by the product owner
-// (08.5-paid-plans/prd.md, tabel *Angka provisional*) — until then the
-// only real differentiator is planLimits below.
+// Every channel is open on every plan, free included — and since #126
+// that is a DECIDED answer, not a pending one: the product owner chose
+// it explicitly (5 September 2026, prd 8.5 tabel *Angka provisional*).
+// Plans are differentiated by planLimits (quantity), not by channel
+// (capability).
+//
+// The reason is the same asymmetry planLimits records: closing a
+// channel free already opens would take something away from
+// organizations already using it, and that downgrade path does not
+// exist (Phase 8 D4). A FOURTH channel, if one is ever built, can be
+// born Pro-only from day one at no such cost — nobody will have had it
+// to lose. That is the shape to reach for, rather than reclaiming one
+// of these three.
 var planChannels = map[string]map[Channel]bool{
 	PlanFree:       {ChannelAPIKey: true, ChannelForm: true, ChannelWebhook: true},
 	PlanPro:        {ChannelAPIKey: true, ChannelForm: true, ChannelWebhook: true},
@@ -74,17 +75,31 @@ type Limits struct {
 //
 // TD 8.5 §14 originally proposed a deliberately failing test for this.
 // A red test in CI trains people to ignore red; a boot that refuses
-// production cannot be ignored and cannot be forgotten. Flipped to
-// false in the closing issue (#126), together with the real numbers.
-const LimitsAreProvisional = true
+// production cannot be ignored and cannot be forgotten.
+//
+// FALSE since #126 (5 September 2026): the product owner chose every
+// number below and the price label in planDisplay. The guard itself
+// stays wired — set this back to true alongside any future round of
+// numbers nobody has committed to yet, and production stops booting
+// again.
+const LimitsAreProvisional = false
 
 // planLimits is THE map for quantities. Adding a plan or changing a
 // quota is a one-line change here and nowhere else.
 //
-// ⚠️ ANGKA DI BAWAH PROVISIONAL — dipilih tanpa data pengguna nyata
-// (ADR-014). Wajib ditinjau ulang setelah 3–5 pelanggan berbayar
-// pertama, keempatnya bersama-sama: kuota Free, kuota Pro, harga Pro,
-// batas seat.
+// Chosen by the product owner (#126, 5 September 2026). They are FINAL
+// in the sense that shipping them is now allowed — not in the sense
+// that they are known to be right: ADR-014 ketentuan 2 still obliges a
+// review after the FIRST 3–5 PAYING customers, all four together (kuota
+// Free, kuota Pro, harga Pro, batas seat). That obligation lives in
+// docs/STATUS.md's "Keputusan Belum Diambil", which is where it will be
+// looked for.
+//
+// The asymmetry worth remembering when that review happens (ADR-014's
+// own consequence table): LOOSENING a limit is safe at any time and
+// hurts nobody; TIGHTENING one takes something away from organizations
+// already using it, and the downgrade path for that does not exist
+// (Phase 8 D4). Free was therefore set on the tight side deliberately.
 var planLimits = map[string]Limits{
 	PlanFree:       {LeadsPerMonth: 100, Seats: 2},
 	PlanPro:        {LeadsPerMonth: 2000, Seats: 10},
@@ -103,13 +118,15 @@ var planOrder = []string{PlanFree, PlanPro, PlanEnterprise}
 // place price text lives (prd 8.5 D7: "satu peta Go + satu tabel
 // dokumen", never TypeScript).
 //
-// ⚠️ PriceLabel below is a placeholder, not a real price: Pro's number
-// is still "(?)" in prd 8.5's angka provisional table, and Enterprise
-// is a negotiated conversation, never a checkout (prd D4). Both are
-// worded so they read honestly on the pricing screen rather than as a
-// number nobody chose — the LimitsAreProvisional boot guard already
-// stops this state from reaching a production deploy silently, but a
-// vague label is still safer than a plausible-looking fake number.
+// PriceLabel is a LABEL, not an amount the CRM ever computes with:
+// ADR-012 §2 keeps every real money operation (checkout, invoice,
+// refund, proration) in the payment service. Nothing here adds, taxes,
+// or converts it — it is rendered as-is on the Langganan screen and
+// nowhere else. That is why a plain string is the right type and a
+// numeric currency field would be the wrong one.
+//
+// Enterprise stays a negotiated conversation, never a checkout (prd
+// D4) — hence a word, not a number.
 type PlanDisplay struct {
 	Name       string
 	PriceLabel string
@@ -117,7 +134,7 @@ type PlanDisplay struct {
 
 var planDisplay = map[string]PlanDisplay{
 	PlanFree:       {Name: "Free", PriceLabel: "Rp0"},
-	PlanPro:        {Name: "Pro", PriceLabel: "Segera"},
+	PlanPro:        {Name: "Pro", PriceLabel: "Rp99.000/bulan"},
 	PlanEnterprise: {Name: "Enterprise", PriceLabel: "Negosiasi"},
 }
 

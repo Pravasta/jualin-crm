@@ -15,11 +15,17 @@ import {
   usageRatio,
 } from "./plan";
 
+// Deliberately NOT the real Free-plan numbers (100/2). These tests care
+// about channel logic, not quantities, and a fixture that mirrored the
+// real plan table would read as a second copy of it — exactly what prd
+// 8.5 kriteria #9 forbids ("angka hidup hanya di satu peta Go dan satu
+// berkas dokumen"). Anything that must know the real numbers reads them
+// from the backend at runtime.
 function planWith(channels: Record<string, boolean>): MeResponse["plan"] {
   return {
     code: "free",
     channels,
-    limits: { leads_per_month: 100, seats: 2 },
+    limits: { leads_per_month: 7, seats: 3 },
     usage: { leads_this_month: 0, seats_used: 0 },
     test_checkout_available: false,
   };
