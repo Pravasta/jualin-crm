@@ -111,7 +111,7 @@ func seedOwnerMembership(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 func TestUsecase_Create_DuplicatePending_ReturnsConflict(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
-	u := invitation.NewUsecase(newTestStore(pool), &linkSpyMailer{}, testLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(newTestStore(pool), &linkSpyMailer{}, testLogger(), "http://localhost:3000", openSeatQuota())
 
 	orgID := seedOrg(t, ctx, pool, "Toko Dup")
 	ownerMembershipID := seedOwnerMembership(t, ctx, pool, orgID, "dup-owner@example.com")
@@ -132,7 +132,7 @@ func TestUsecase_AcceptNewUser_CreatesUserMembershipAndMarksAccepted(t *testing.
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &linkSpyMailer{}
-	u := invitation.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", openSeatQuota())
 
 	orgID := seedOrg(t, ctx, pool, "Toko Accept")
 	ownerMembershipID := seedOwnerMembership(t, ctx, pool, orgID, "accept-owner@example.com")
@@ -183,7 +183,7 @@ func TestUsecase_AcceptExistingUser_RequiresMatchingAuthenticatedUser(t *testing
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &linkSpyMailer{}
-	u := invitation.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", openSeatQuota())
 
 	orgID := seedOrg(t, ctx, pool, "Toko Existing")
 	ownerMembershipID := seedOwnerMembership(t, ctx, pool, orgID, "existing-owner@example.com")
@@ -236,7 +236,7 @@ func TestUsecase_Revoke_MarksRevokedAndPreventsAccept(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.NewPool(t)
 	m := &linkSpyMailer{}
-	u := invitation.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000")
+	u := invitation.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", openSeatQuota())
 
 	orgID := seedOrg(t, ctx, pool, "Toko Revoke")
 	ownerMembershipID := seedOwnerMembership(t, ctx, pool, orgID, "revoke-owner@example.com")

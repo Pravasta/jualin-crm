@@ -157,12 +157,20 @@ type fakePlanRepo struct{}
 // would make a passing test say nothing about whether it did.
 type fakeCounters struct{}
 
-func (fakeCounters) CountCreatedThisMonth(context.Context, tenant.Context) (int, error) { return 7, nil }
-func (fakeCounters) CountActive(context.Context, tenant.Context) (int, error)           { return 2, nil }
-func (fakeCounters) CountPendingSeats(context.Context, tenant.Context) (int, error)     { return 1, nil }
+func (fakeCounters) CountCreatedThisMonth(context.Context, tenant.Context) (int, error) {
+	return 7, nil
+}
+func (fakeCounters) CountActive(context.Context, tenant.Context) (int, error)       { return 2, nil }
+func (fakeCounters) CountPendingSeats(context.Context, tenant.Context) (int, error) { return 1, nil }
 
 func (f *fakePlanRepo) FindActiveByOrg(_ context.Context, t tenant.Context) (*subscription.Subscription, error) {
 	return &subscription.Subscription{OrganizationID: t.OrganizationID, PlanCode: subscription.PlanFree, Status: "active"}, nil
+}
+
+// ChangePlan exists so *fakePlanRepo still satisfies
+// subscription.Repository (#124) — nothing in this file exercises it.
+func (f *fakePlanRepo) ChangePlan(_ context.Context, _ tenant.Context, _ string) error {
+	return nil
 }
 
 type fakeVerifyToken struct {

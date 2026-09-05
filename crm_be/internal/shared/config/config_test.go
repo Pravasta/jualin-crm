@@ -358,6 +358,90 @@ func TestLoad_WebhookAllowPrivateTargets_DefaultFalse(t *testing.T) {
 	}
 }
 
+// TestLoad_ProductionRejectsSubscriptionTestCheckout is Phase 8.5
+// #124's acceptance criterion — same shape as
+// TestLoad_ProductionRejectsWebhookAllowPrivateTargets above: a
+// production process letting every customer upgrade themselves to Pro
+// for free fails silently without this guard.
+func TestLoad_ProductionRejectsSubscriptionTestCheckout(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
+	t.Setenv("TRUSTED_PROXIES", "none")
+	t.Setenv("MAIL_PROVIDER", "smtp")
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("PUSH_PROVIDER", "fcm")
+	t.Setenv("FCM_PROJECT_ID", "test-project")
+	t.Setenv("FCM_CREDENTIALS_FILE", "/tmp/fcm-creds.json")
+	t.Setenv("CAPTCHA_PROVIDER", "turnstile")
+	t.Setenv("TURNSTILE_SITE_KEY", "test-site-key")
+	t.Setenv("TURNSTILE_SECRET_KEY", "test-secret-key")
+	t.Setenv("SUBSCRIPTION_TEST_CHECKOUT", "true")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error when APP_ENV=production and SUBSCRIPTION_TEST_CHECKOUT=true, got nil")
+	}
+	if !strings.Contains(err.Error(), "SUBSCRIPTION_TEST_CHECKOUT") {
+		t.Errorf("expected error to mention SUBSCRIPTION_TEST_CHECKOUT, got: %v", err)
+	}
+}
+
+func TestLoad_SubscriptionTestCheckout_DefaultFalse(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SubscriptionTestCheckout {
+		t.Error("expected SubscriptionTestCheckout to default to false")
+	}
+}
+
+// TestLoad_SubscriptionAdminToken_EmptyIsValid proves empty is a
+// legitimate value (route disabled), not a misconfiguration — unlike
+// WebhookSecretEncKey, this one has no `required` tag.
+func TestLoad_SubscriptionAdminToken_EmptyIsValid(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SubscriptionAdminToken != "" {
+		t.Errorf("expected SubscriptionAdminToken to default to empty, got %q", cfg.SubscriptionAdminToken)
+	}
+}
+
+func TestLoad_SubscriptionAdminToken_TooShort_Rejected(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("SUBSCRIPTION_ADMIN_TOKEN", "too-short")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for a SUBSCRIPTION_ADMIN_TOKEN shorter than the minimum, got nil")
+	}
+	if !strings.Contains(err.Error(), "SUBSCRIPTION_ADMIN_TOKEN") {
+		t.Errorf("expected error to mention SUBSCRIPTION_ADMIN_TOKEN, got: %v", err)
+	}
+}
+
+func TestLoad_SubscriptionAdminToken_LongEnough_Accepted(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+	t.Setenv("SUBSCRIPTION_ADMIN_TOKEN", strings.Repeat("a", 32))
+
+	if _, err := config.Load(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestLoad_TurnstileRequiresSiteKey(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("JWT_SECRET", validJWTSecret)

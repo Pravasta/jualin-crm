@@ -45,3 +45,10 @@ func (g *planGate) RequireChannel(ctx context.Context, t tenant.Context, ch stri
 func (g *planGate) AllowLead(ctx context.Context, t tenant.Context, used int) error {
 	return g.usecase.RequireLeadQuota(ctx, t, used)
 }
+
+// AllowSeat bridges *subscription.Usecase.RequireSeatLimit (#124) to
+// invitation.PlanSeatQuota — the same planGate value satisfies this
+// interface too, structurally.
+func (g *planGate) AllowSeat(ctx context.Context, t tenant.Context, used int) error {
+	return g.usecase.RequireSeatLimit(ctx, t, used)
+}

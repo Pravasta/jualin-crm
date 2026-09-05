@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/activity"
+	"github.com/Pravasta/jualin-crm/crm_be/internal/auditlog"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/apikey"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/auth"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/customer"
@@ -203,27 +204,30 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	authMW := authn.Middleware(authUsecase)
 	optionalAuthMW := authn.OptionalMiddleware(authUsecase)
 
-	// TestCheckoutAvailable is hardcoded false here: the endpoint it
-	// advertises (POST /v1/subscription/test-checkout) and the config
-	// flag that gates it both arrive in #124. Wiring the field now keeps
-	// GET /v1/me's shape stable for the dashboard (#125) without
-	// pretending a route exists.
-	auth.NewHandler(authUsecase, cookieCfg, auth.MeConfig{TestCheckoutAvailable: false}).RegisterRoutes(r, authMW)
+	// plan is wired here, ahead of everything that gates on it
+	// (invitation's seats below, apikey/form/webhook's channels, lead's
+	// lead quota) — subscription itself has no Store (read-only reads +
+	// single-row writes, TD 8.5 §1), so it's built directly from pool,
+	// same as metricsUsecase below. planGate bridges *subscription.Usecase
+	// to each domain's own PlanGate/PlanSeatQuota/PlanQuota interface
+	// (ADR-011) without any of them importing internal/subscription.
+	planUsecase := subscription.NewUsecase(subscription.New(pool))
+	plan := newPlanGate(planUsecase, log)
+
+	auth.NewHandler(authUsecase, cookieCfg, auth.MeConfig{TestCheckoutAvailable: cfg.SubscriptionTestCheckout}).RegisterRoutes(r, authMW)
 
 	membershipUsecase := membership.NewUsecase(newMembershipStore(pool))
 	membership.NewHandler(membershipUsecase).RegisterRoutes(r, authMW)
 
-	invitationUsecase := invitation.NewUsecase(newInvitationStore(pool), mail, log, cfg.AppBaseURL)
+	invitationUsecase := invitation.NewUsecase(newInvitationStore(pool), mail, log, cfg.AppBaseURL, plan)
 	invitation.NewHandler(invitationUsecase).RegisterRoutes(r, authMW, optionalAuthMW)
 
-	// plan is wired ahead of apikey/form/webhook — all three gate their
-	// Create on it (subscription #113). subscription itself has no Store
-	// (read-only, TD §6), so it's built directly from pool, same as
-	// metricsUsecase below. planGate bridges *subscription.Usecase to
-	// each domain's own PlanGate interface (ADR-011) without any of them
-	// importing internal/subscription.
-	planUsecase := subscription.NewUsecase(subscription.New(pool))
-	plan := newPlanGate(planUsecase, log)
+	// Phase 8.5 #124's two admin surfaces — neither is a normal domain
+	// handler, both live directly on r rather than behind a Handler type
+	// (see subscription_admin.go's own doc comments for why each is
+	// gated the way it is).
+	registerSubscriptionAdminRoutes(r, planUsecase, auditlog.New(pool), cfg.SubscriptionAdminToken)
+	registerTestCheckoutRoute(r, authMW, planUsecase, auditlog.New(pool), cfg.SubscriptionTestCheckout)
 
 	// apikey is wired here, ahead of lead, because lead's public create
 	// route (below) needs apikeyUsecase to build its own middleware —

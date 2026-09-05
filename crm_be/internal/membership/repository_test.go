@@ -3,6 +3,7 @@ package membership_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -204,5 +205,80 @@ func TestRepository_FindActiveOwnerIDs_TenantIsolation(t *testing.T) {
 	}
 	if len(ids) != 0 {
 		t.Errorf("expected org A to see 0 of org B's owners, got %v", ids)
+	}
+}
+
+// --- CountActive (#122, closing the coverage gap #124 depends on) ---
+
+func TestRepository_CountActive_CountsAcrossRoles(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := membership.New(pool)
+
+	org := seedOrganization(t, ctx, pool)
+	t1 := tenant.Context{OrganizationID: org}
+
+	roles := []tenant.Role{tenant.RoleOwner, tenant.RoleAdmin, tenant.RoleManager, tenant.RoleEmployee}
+	for i, role := range roles {
+		if _, err := repo.Create(ctx, t1, uuid.Must(uuid.NewV7()), seedUser(t, ctx, pool, fmt.Sprintf("member-%d@example.com", i)), role); err != nil {
+			t.Fatalf("seed %s: %v", role, err)
+		}
+	}
+
+	n, err := repo.CountActive(ctx, t1)
+	if err != nil {
+		t.Fatalf("count active: %v", err)
+	}
+	if n != len(roles) {
+		t.Errorf("expected %d active memberships across every role, got %d", len(roles), n)
+	}
+}
+
+func TestRepository_CountActive_ExcludesDeactivated(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := membership.New(pool)
+
+	org := seedOrganization(t, ctx, pool)
+	t1 := tenant.Context{OrganizationID: org}
+
+	active := uuid.Must(uuid.NewV7())
+	if _, err := repo.Create(ctx, t1, active, seedUser(t, ctx, pool, "active@example.com"), tenant.RoleEmployee); err != nil {
+		t.Fatalf("seed active: %v", err)
+	}
+	deactivated := uuid.Must(uuid.NewV7())
+	if _, err := repo.Create(ctx, t1, deactivated, seedUser(t, ctx, pool, "gone@example.com"), tenant.RoleEmployee); err != nil {
+		t.Fatalf("seed deactivated: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE memberships SET deleted_at = now() WHERE id = $1`, deactivated); err != nil {
+		t.Fatalf("deactivate: %v", err)
+	}
+
+	n, err := repo.CountActive(ctx, t1)
+	if err != nil {
+		t.Fatalf("count active: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 active membership, got %d", n)
+	}
+}
+
+func TestRepository_CountActive_TenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := membership.New(pool)
+
+	orgA := seedOrganization(t, ctx, pool)
+	orgB := seedOrganization(t, ctx, pool)
+	if _, err := repo.Create(ctx, tenant.Context{OrganizationID: orgB}, uuid.Must(uuid.NewV7()), seedUser(t, ctx, pool, "member-b@example.com"), tenant.RoleEmployee); err != nil {
+		t.Fatalf("seed org B member: %v", err)
+	}
+
+	n, err := repo.CountActive(ctx, tenant.Context{OrganizationID: orgA})
+	if err != nil {
+		t.Fatalf("count active: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected org A to count 0 of org B's members, got %d", n)
 	}
 }

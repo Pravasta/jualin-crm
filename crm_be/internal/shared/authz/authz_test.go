@@ -53,6 +53,7 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleOwner, authz.ActionWebhookRead, true},
 		{tenant.RoleOwner, authz.ActionWebhookUpdate, true},
 		{tenant.RoleOwner, authz.ActionWebhookDelete, true},
+		{tenant.RoleOwner, authz.ActionSubscriptionChange, true},
 
 		{tenant.RoleAdmin, authz.ActionMembershipList, true},
 		{tenant.RoleAdmin, authz.ActionMembershipUpdateRole, true},
@@ -92,6 +93,7 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleAdmin, authz.ActionWebhookRead, true},
 		{tenant.RoleAdmin, authz.ActionWebhookUpdate, true},
 		{tenant.RoleAdmin, authz.ActionWebhookDelete, true},
+		{tenant.RoleAdmin, authz.ActionSubscriptionChange, false}, // Owner-only — the first action Admin does NOT mirror Owner on
 
 		{tenant.RoleManager, authz.ActionMembershipList, true},
 		{tenant.RoleManager, authz.ActionMembershipUpdateRole, false},
@@ -131,6 +133,7 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleManager, authz.ActionWebhookRead, false},
 		{tenant.RoleManager, authz.ActionWebhookUpdate, false},
 		{tenant.RoleManager, authz.ActionWebhookDelete, false},
+		{tenant.RoleManager, authz.ActionSubscriptionChange, false},
 
 		{tenant.RoleEmployee, authz.ActionMembershipList, false},
 		{tenant.RoleEmployee, authz.ActionMembershipUpdateRole, false},
@@ -170,6 +173,7 @@ func TestRequire(t *testing.T) {
 		{tenant.RoleEmployee, authz.ActionWebhookRead, false},
 		{tenant.RoleEmployee, authz.ActionWebhookUpdate, false},
 		{tenant.RoleEmployee, authz.ActionWebhookDelete, false},
+		{tenant.RoleEmployee, authz.ActionSubscriptionChange, false},
 	}
 
 	for _, c := range cases {
@@ -216,6 +220,7 @@ var allActions = []authz.Action{
 	authz.ActionDeviceTokenRegister, authz.ActionDeviceTokenDelete,
 	authz.ActionFormCreate, authz.ActionFormList, authz.ActionFormRead, authz.ActionFormUpdate, authz.ActionFormDelete,
 	authz.ActionWebhookCreate, authz.ActionWebhookList, authz.ActionWebhookRead, authz.ActionWebhookUpdate, authz.ActionWebhookDelete,
+	authz.ActionSubscriptionChange,
 }
 
 // TestRequire_APIKeyPrincipal_OnlyLeadCreateAllowed is issue #47's
