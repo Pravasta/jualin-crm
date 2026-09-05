@@ -108,3 +108,50 @@ func TestUnit_ResolvePlan_NoActiveSubscription_AllChannelsClosedNoError(t *testi
 		}
 	}
 }
+
+// --- RequireLeadQuota (Phase 8.5 #123) ---
+
+func TestUnit_RequireLeadQuota_UnderLimit_ReturnsNil(t *testing.T) {
+	u := subscription.NewUsecase(&fakeRepo{sub: &subscription.Subscription{PlanCode: subscription.PlanFree, Status: "active"}})
+
+	if err := u.RequireLeadQuota(context.Background(), testTenant(), 0); err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+}
+
+func TestUnit_RequireLeadQuota_AtLimit_Returns403PlanQuotaExceeded(t *testing.T) {
+	u := subscription.NewUsecase(&fakeRepo{sub: &subscription.Subscription{PlanCode: subscription.PlanFree, Status: "active"}})
+
+	// The free plan's own configured limit — read from the map itself
+	// rather than hardcoded, so this test does not need updating every
+	// time the provisional number changes.
+	err := u.RequireLeadQuota(context.Background(), testTenant(), quotaTestFreeLeadLimit(t))
+
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Status != 403 || derr.Code != "plan_quota_exceeded" {
+		t.Fatalf("expected 403 plan_quota_exceeded, got %v", err)
+	}
+}
+
+func TestUnit_RequireLeadQuota_NoActiveSubscription_FallsBackToFreeLimit(t *testing.T) {
+	u := subscription.NewUsecase(&fakeRepo{err: subscription.ErrNoActiveSubscription})
+
+	// Well under any plausible limit — proves the fallback still allows
+	// SOME usage (free-tier limits, not zero), per TD 8.5 §2.1.
+	if err := u.RequireLeadQuota(context.Background(), testTenant(), 0); err != nil {
+		t.Fatalf("expected the free-tier fallback to allow usage 0, got %v", err)
+	}
+}
+
+// quotaTestFreeLeadLimit reads subscription.PlanFree's own configured
+// LeadsPerMonth via ResolvePlan, rather than hardcoding the provisional
+// number in this test file a second time.
+func quotaTestFreeLeadLimit(t *testing.T) int {
+	t.Helper()
+	u := subscription.NewUsecase(&fakeRepo{sub: &subscription.Subscription{PlanCode: subscription.PlanFree, Status: "active"}})
+	_, _, limits, err := u.ResolvePlan(context.Background(), testTenant())
+	if err != nil {
+		t.Fatalf("resolve plan: %v", err)
+	}
+	return limits.LeadsPerMonth
+}

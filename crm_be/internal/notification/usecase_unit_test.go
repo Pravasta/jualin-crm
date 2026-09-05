@@ -62,6 +62,14 @@ func (f *fakeNotificationRepo) MarkAllRead(_ context.Context, t tenant.Context) 
 	return nil
 }
 
+// ExistsThisMonth exists so *fakeNotificationRepo still satisfies
+// notification.Repository (#123). Nothing in this file exercises the
+// quota-notification threshold — that lives in cmd/api's composition
+// root — so always-false is both honest and enough.
+func (f *fakeNotificationRepo) ExistsThisMonth(_ context.Context, _ tenant.Context, _ string) (bool, error) {
+	return false, nil
+}
+
 type fakeStore struct{ repo *fakeNotificationRepo }
 
 func newFakeStore() *fakeStore {

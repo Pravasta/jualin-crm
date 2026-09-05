@@ -5,10 +5,16 @@
 
 ---
 
-## 1. Schema — **tidak ada migration di phase ini**
+## 1. Schema — **satu migration kecil, ditemukan saat #123 dikerjakan**
 
-**Phase ketiga tanpa migration sama sekali**, setelah Phase 3 dan Phase 8. Kolom yang dibutuhkan sudah
-ada seluruhnya:
+> ⚠️ **Koreksi atas klaim awal phase ini (Aturan #30).** Saat PRD/TD ditulis, bagian ini menyatakan
+> *"phase ketiga tanpa migration sama sekali"*. Itu keliru: `notifications.type` punya
+> `CONSTRAINT ck_notifications_type CHECK (type IN ('lead_assigned','task_assigned'))`
+> (`0004_notifications.sql`), dan §5 di bawah butuh nilai ketiga untuk memberi tahu Owner saat kuota
+> habis. Ketahuan saat #123 dikerjakan, sebelum kode ditulis — bukan setelah migration terlanjur
+> dilewati. Klaim ini diperbaiki di sini, bukan didiamkan.
+
+Kolom yang dibutuhkan **selain notifikasi** sudah ada seluruhnya, tanpa migration:
 
 | Yang dibutuhkan | Sudah ada di |
 |---|---|
@@ -17,6 +23,12 @@ ada seluruhnya:
 | `leads.organization_id` + `created_at` + `deleted_at` | `0003_crm_core.sql` |
 | Index `ix_leads_org_created (organization_id, created_at DESC) WHERE deleted_at IS NULL` | `0003` — **lihat §4.2, ada catatan penting** |
 | `audit_log` | `0002` — perubahan paket dicatat di sini |
+
+**`migrations/0010_notification_plan_quota.sql`** — satu baris: `ALTER TABLE notifications DROP
+CONSTRAINT ck_notifications_type, ADD CONSTRAINT ck_notifications_type CHECK (type IN
+('lead_assigned','task_assigned','plan_quota_exceeded'))`. `down` mengembalikan constraint lama —
+aman hanya jika tidak ada baris `plan_quota_exceeded` yang sudah ditulis, sama seperti setiap
+`down` di produk ini yang mengasumsikan rollback terjadi sebelum data baru terpakai secara luas.
 
 **Tidak ada `usage_counters`** (prd D1). Kewajiban Phase 8 D1 (*"dievaluasi ulang bersamaan dengan
 mendaratnya angka limit"*) dengan ini **terjawab, bukan ditunda lagi**: angkanya mendarat, evaluasinya
@@ -173,8 +185,7 @@ pelanggan di Asia/Jakarta yang jatahnya reset jam 07:00 tanggal 1 akan mengangga
 
 ## 5. Saat kuota habis — perilakunya **bergantung siapa yang memanggil**
 
-> ⚠️ **Bergantung prd D3 yang belum ditutup.** §5 ini menulis rekomendasinya; kalau pemilik produk
-> memutuskan lain, bagian inilah yang berubah — sisanya tidak.
+> ✅ **prd D3 ditutup 5 September 2026.** §5 di bawah adalah keputusan yang berlaku, bukan lagi rekomendasi.
 
 | Principal | Jalur | Saat kuota habis |
 |---|---|---|

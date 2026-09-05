@@ -17,6 +17,13 @@ type Repository interface {
 	FindAllByRecipient(ctx context.Context, t tenant.Context, unreadOnly bool) ([]*Notification, error)
 	MarkRead(ctx context.Context, t tenant.Context, id uuid.UUID) error
 	MarkAllRead(ctx context.Context, t tenant.Context) error
+
+	// ExistsThisMonth is Phase 8.5's "already told the Owner this
+	// month" threshold (#123, TD §5) — read from this table itself
+	// rather than a new counter column, and organization-wide rather
+	// than per-recipient so adding a second Owner mid-month does not
+	// reset it.
+	ExistsThisMonth(ctx context.Context, t tenant.Context, notifType string) (bool, error)
 }
 
 // Notifier is the narrow surface other domains (lead, eventually task)

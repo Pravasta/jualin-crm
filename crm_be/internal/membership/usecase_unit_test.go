@@ -107,6 +107,19 @@ func (f *fakeRepo) CountActive(_ context.Context, t tenant.Context) (int, error)
 	return n, nil
 }
 
+// FindActiveOwnerIDs exists so *fakeRepo still satisfies
+// membership.Repository (#123). No test in this file reads it yet —
+// notification is exercised where the composition root wires it.
+func (f *fakeRepo) FindActiveOwnerIDs(_ context.Context, t tenant.Context) ([]uuid.UUID, error) {
+	var ids []uuid.UUID
+	for _, m := range f.byID {
+		if m.OrganizationID == t.OrganizationID && m.Role == tenant.RoleOwner && m.DeletedAt == nil {
+			ids = append(ids, m.ID)
+		}
+	}
+	return ids, nil
+}
+
 type fakeAuditRepo struct{ actions []string }
 
 func (f *fakeAuditRepo) Record(_ context.Context, _ tenant.Context, _ *uuid.UUID, action string) error {

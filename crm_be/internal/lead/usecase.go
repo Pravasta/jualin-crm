@@ -34,7 +34,9 @@ var validSources = map[string]bool{"manual": true, "api": true, "form": true, "w
 // pgx.Tx directly (ADR-011). No mailer, no logger — leads don't send
 // email.
 type Usecase struct {
-	store Store
+	store         Store
+	quota         PlanQuota
+	quotaNotifier QuotaNotifier
 
 	// idempotencyCleanupThrottle is an in-memory map[organization_id]
 	// last-sweep-time. Deliberately WITHOUT eviction, unlike
@@ -48,8 +50,13 @@ type Usecase struct {
 	idempotencyCleanupThrottle map[uuid.UUID]time.Time
 }
 
-func NewUsecase(store Store) *Usecase {
-	return &Usecase{store: store, idempotencyCleanupThrottle: map[uuid.UUID]time.Time{}}
+func NewUsecase(store Store, quota PlanQuota, quotaNotifier QuotaNotifier) *Usecase {
+	return &Usecase{
+		store:                      store,
+		quota:                      quota,
+		quotaNotifier:              quotaNotifier,
+		idempotencyCleanupThrottle: map[uuid.UUID]time.Time{},
+	}
 }
 
 // Create validates and normalizes in, then persists it. isNew is false
@@ -59,7 +66,30 @@ func NewUsecase(store Store) *Usecase {
 // response, never a second lead and never an error).
 func (u *Usecase) Create(ctx context.Context, t tenant.Context, in CreateLeadInput) (result *Lead, isNew bool, err error) {
 	if err := authz.Require(t, authz.ActionLeadCreate); err != nil {
-		return nil, false, err
+		return nil, false, err // 1. role/scope → 403 forbidden / insufficient_scope
+	}
+
+	// 2. plan quota (Phase 8.5 #123) — checked AFTER role, same binding
+	// order as subscription's channel gate (TD §3.3): a principal with
+	// no standing to create leads at all must never learn the
+	// organization's billing state through this branch instead.
+	//
+	// Enforced only for user and api_key. public_form is deliberately
+	// exempt (subscription TD §11's boundary, extended to quotas by 8.5
+	// prd D3): a site visitor filling in a customer's embedded form must
+	// never see anything about that customer's plan, and losing a real
+	// lead over it is worse for the customer than an overage. The Owner
+	// is told instead, at most once per month — best-effort, and never
+	// allowed to fail or roll back the lead a real visitor is waiting on.
+	used, err := u.store.Repos().Lead.CountCreatedThisMonth(ctx, t)
+	if err != nil {
+		return nil, false, fmt.Errorf("lead: create: count for quota: %w", err)
+	}
+	if quotaErr := u.quota.AllowLead(ctx, t, used); quotaErr != nil {
+		if t.PrincipalType != tenant.PrincipalPublicForm {
+			return nil, false, quotaErr
+		}
+		_ = u.quotaNotifier.NotifyQuotaExceededOnce(ctx, t)
 	}
 
 	// Public API jalur (Phase 4 #47, TD §5): source is never trusted

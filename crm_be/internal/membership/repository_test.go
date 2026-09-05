@@ -116,3 +116,93 @@ func seedUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, email strin
 	}
 	return id
 }
+
+// --- FindActiveOwnerIDs (Phase 8.5 #123) ---
+
+func TestRepository_FindActiveOwnerIDs_ReturnsEveryActiveOwner(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := membership.New(pool)
+
+	org := seedOrganization(t, ctx, pool)
+	t1 := tenant.Context{OrganizationID: org}
+
+	owner1 := uuid.Must(uuid.NewV7())
+	if _, err := repo.Create(ctx, t1, owner1, seedUser(t, ctx, pool, "owner1@example.com"), tenant.RoleOwner); err != nil {
+		t.Fatalf("seed owner1: %v", err)
+	}
+	// Co-owner — Aturan #4's own note allows this (not restricted the
+	// way Admin promoting to Owner is), so BOTH must come back.
+	owner2 := uuid.Must(uuid.NewV7())
+	if _, err := repo.Create(ctx, t1, owner2, seedUser(t, ctx, pool, "owner2@example.com"), tenant.RoleOwner); err != nil {
+		t.Fatalf("seed owner2: %v", err)
+	}
+	admin := uuid.Must(uuid.NewV7())
+	if _, err := repo.Create(ctx, t1, admin, seedUser(t, ctx, pool, "admin@example.com"), tenant.RoleAdmin); err != nil {
+		t.Fatalf("seed admin: %v", err)
+	}
+
+	ids, err := repo.FindActiveOwnerIDs(ctx, t1)
+	if err != nil {
+		t.Fatalf("find active owner ids: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("expected 2 owners, got %d: %v", len(ids), ids)
+	}
+	got := map[uuid.UUID]bool{ids[0]: true, ids[1]: true}
+	if !got[owner1] || !got[owner2] {
+		t.Errorf("expected both owners %s and %s, got %v", owner1, owner2, ids)
+	}
+	if got[admin] {
+		t.Error("expected the admin to be excluded")
+	}
+}
+
+func TestRepository_FindActiveOwnerIDs_ExcludesDeactivated(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := membership.New(pool)
+
+	org := seedOrganization(t, ctx, pool)
+	t1 := tenant.Context{OrganizationID: org}
+
+	activeOwner := uuid.Must(uuid.NewV7())
+	if _, err := repo.Create(ctx, t1, activeOwner, seedUser(t, ctx, pool, "active-owner@example.com"), tenant.RoleOwner); err != nil {
+		t.Fatalf("seed active owner: %v", err)
+	}
+	deactivatedOwner := uuid.Must(uuid.NewV7())
+	if _, err := repo.Create(ctx, t1, deactivatedOwner, seedUser(t, ctx, pool, "gone-owner@example.com"), tenant.RoleOwner); err != nil {
+		t.Fatalf("seed deactivated owner: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE memberships SET deleted_at = now() WHERE id = $1`, deactivatedOwner); err != nil {
+		t.Fatalf("deactivate: %v", err)
+	}
+
+	ids, err := repo.FindActiveOwnerIDs(ctx, t1)
+	if err != nil {
+		t.Fatalf("find active owner ids: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != activeOwner {
+		t.Errorf("expected only the active owner %s, got %v", activeOwner, ids)
+	}
+}
+
+func TestRepository_FindActiveOwnerIDs_TenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPool(t)
+	repo := membership.New(pool)
+
+	orgA := seedOrganization(t, ctx, pool)
+	orgB := seedOrganization(t, ctx, pool)
+	if _, err := repo.Create(ctx, tenant.Context{OrganizationID: orgB}, uuid.Must(uuid.NewV7()), seedUser(t, ctx, pool, "owner-b@example.com"), tenant.RoleOwner); err != nil {
+		t.Fatalf("seed org B owner: %v", err)
+	}
+
+	ids, err := repo.FindActiveOwnerIDs(ctx, tenant.Context{OrganizationID: orgA})
+	if err != nil {
+		t.Fatalf("find active owner ids: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("expected org A to see 0 of org B's owners, got %v", ids)
+	}
+}

@@ -242,7 +242,10 @@ func newRouter(log *slog.Logger, pool *pgxpool.Pool, cfg *config.Config) *gin.En
 	// NotificationSender/ActivityRecorder.
 	deviceUsecase := device.NewUsecase(newDeviceStore(pool), newPushSender(cfg, log), log)
 
-	leadUsecase := lead.NewUsecase(newLeadStore(pool, deviceUsecase))
+	// plan (built above, alongside apikey) also bridges lead's monthly
+	// quota gate (#123) — the same value satisfies apikey/form/webhook's
+	// PlanGate and lead's PlanQuota structurally.
+	leadUsecase := lead.NewUsecase(newLeadStore(pool, deviceUsecase), plan, newQuotaNotifier(pool))
 	leadRateLimiter := ratelimit.NewFixedWindow(cfg.PublicAPIRateLimit, time.Minute)
 	lead.NewHandler(leadUsecase, leadRateLimiter).RegisterRoutes(r, authMW, publicLeadCreateMW)
 
