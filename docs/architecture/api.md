@@ -137,6 +137,11 @@ Bertambah seiring fitur. Setiap kode baru dicatat di sini.
 | 400 | `webhook_url_not_allowed` | URL webhook menunjuk alamat privat/loopback/link-local, skema bukan `http(s)`, atau DNS tidak bisa diresolusi — **satu kode untuk semua alasan**, membedakannya memberi pelanggan alat memetakan jaringan internal kita (issue #100) |
 | 409 | `delivery_not_retryable` | `POST /v1/webhook-deliveries/:id/retry` dipanggil untuk pengiriman yang statusnya bukan `failed` (issue #100) |
 | 403 | `plan_upgrade_required` | `POST` ke salah satu dari tiga kanal Connect (`/v1/api-keys`, `/v1/forms`, `/v1/webhook-endpoints`) saat paket organization tidak membuka kanal itu, **atau** `status` subscription-nya bukan `active` — **satu kode untuk kedua sebab**; membedakannya di response membocorkan keadaan penagihan ke permukaan yang salah, sama alasannya dengan `webhook_url_not_allowed` (issue #113, lihat *Gerbang Paket* di bawah) |
+| 403 | `plan_quota_exceeded` | `POST /v1/leads` (dashboard/mobile **atau** API key) saat kuota lead bulan berjalan sudah tercapai. **Pesannya menyebut angkanya** — beda sengaja dari `plan_upgrade_required` yang kabur; penanya di sini selalu principal organization itu sendiri, bertanya tentang jatahnya sendiri (issue #123, lihat *Kuota* di bawah) |
+| 403 | `plan_seat_limit_reached` | `POST /v1/invitations` saat jumlah anggota aktif **+ undangan pending** sudah mencapai batas seat paket. Menyebut angkanya, alasan yang sama seperti di atas (issue #124) |
+
+> **`plan_quota_exceeded` tidak pernah muncul di `POST /v1/forms/{public_key}/submit`.** Itu bukan
+> kelalaian, melainkan keputusan D3 phase 8.5 — lihat *Kuota* di bawah.
 
 > `invalid_activity_type` dan `membership_has_open_leads` seharusnya masuk katalog ini saat issue #21
 > dan #22 selesai ("setiap kode baru dicatat di sini") — luput saat itu, ditambahkan di sini saat
@@ -559,7 +564,7 @@ bersifat audit (endpoint dibuat/dihapus) tetap masuk `audit_log`.
 
 ---
 
-## Gerbang Paket (Phase 8, issue #112–#114)
+## Gerbang Paket (Phase 8 issue #112–#114; kuota & seat Phase 8.5 issue #122–#126)
 
 Sejak Phase 8, tiga endpoint `POST` di atas — `/v1/api-keys`, `/v1/forms`, `/v1/webhook-endpoints` —
 lewat **dua** gerbang berurutan sebelum mengerjakan apa pun: role (`authz.Require`, tidak berubah)
@@ -579,8 +584,59 @@ lalu paket (`subscription.RequireChannel`, baru). Detail urutan dan alasannya ad
 | Pengiriman webhook keluar (worker) | ❌ — endpoint yang sudah ada tetap terkirim |
 
 Baris "tidak digerbangi" bukan celah — menutup resource yang sudah jalan adalah perilaku
-**downgrade**, dan produk ini belum punya jalur downgrade sama sekali (hanya paket `free` yang eksis
-hari ini). Menambahkannya sebelum ada transisi paket yang bisa terjadi melanggar Aturan #29.
+**downgrade**, dan produk ini belum punya jalur downgrade sama sekali. Menambahkannya sebelum ada
+transisi paket yang bisa terjadi melanggar Aturan #29.
+
+### Kuota (Phase 8.5)
+
+Kanal menjawab **"boleh pakai yang mana"**; kuota menjawab **"berapa banyak"**. Keduanya sengaja
+dipisah: kegagalannya berbeda, dan cara gagalnya juga berbeda (lihat *Gagal tertutup ke mana* di
+bawah).
+
+Dua batas ditegakkan, masing-masing di **satu** titik:
+
+| Batas | Titik penegakan | Yang dihitung | Error |
+|---|---|---|---|
+| Lead / bulan | `lead.Usecase.Create` | `COUNT` lead organization pada bulan berjalan, **termasuk yang sudah di-soft-delete** | `403 plan_quota_exceeded` |
+| Seat | `invitation.Usecase.Create` | anggota aktif **+ undangan pending** (belum diterima, belum dicabut, belum kedaluwarsa) | `403 plan_seat_limit_reached` |
+
+**Menghapus lead tidak mengembalikan kuota** — itu yang membuat `COUNT` setara sebuah tabel penghitung
+tanpa tabelnya (prd 8.5 D1). **Undangan pending memakan seat** — tanpa itu, organization berbatas 2
+bisa mengirim 5 undangan dan berakhir dengan 5 anggota.
+
+Batas bulanan dipotong di **timezone organization** (`organizations.timezone`), bukan UTC — "bulan
+ini" berarti hal yang sama bagi pelanggan dan bagi server.
+
+#### Jalur mana yang TIDAK ditolak saat kuota habis, dan kenapa
+
+| Jalur | Kuota habis → |
+|---|---|
+| `POST /v1/leads` (dashboard/mobile, principal `user`) | **403 `plan_quota_exceeded`** |
+| `POST /v1/leads` (principal `api_key`) | **403 `plan_quota_exceeded`** |
+| `POST /v1/forms/{public_key}/submit` (principal `public_form`) | **201 — lead tetap diterima**, Owner diberi notifikasi in-app **sekali per bulan** |
+
+Baris ketiga adalah keputusan **D3** phase 8.5, dan alasannya adalah aturan yang lebih besar:
+**pengunjung situs pelanggan tidak pernah melihat keadaan penagihan pelanggan.** Menolak submit
+berarti formulir di situs pelanggan berhenti bekerja — pelanggan kehilangan lead sungguhan, dan orang
+asing yang sekadar mengisi formulir melihat error tentang tagihan orang lain. Tekanan untuk naik paket
+tetap ada (kanal baru dan undangan tertutup), tapi **tidak dibayar oleh pengunjung**.
+
+Notifikasi Owner-nya **satu per bulan per organization**, bukan per lead dan bukan per Owner: ambangnya
+dibaca dari tabel `notifications` itu sendiri, dipotong di timezone yang sama dengan penghitung
+kuotanya.
+
+#### Gagal tertutup ke mana — asimetri yang disengaja
+
+Saat `plan_code` tidak dikenal atau `status` bukan `active`:
+
+| | Perilaku |
+|---|---|
+| **Kanal** | tertutup **seluruhnya** — tidak ada kanal yang bisa dibuat |
+| **Kuota** | turun ke batas **paket Free**, bukan ke nol |
+
+Bukan inkonsistensi. Kanal tertutup hanya menghalangi pembuatan resource baru; kuota **nol** berarti
+produk berhenti menerima lead sama sekali — formulir pelanggan mati, integrasinya mati. Kegagalan
+penagihan tidak boleh menghapus fungsi inti produk.
 
 ### `GET /v1/me` membawa kapabilitas yang sudah diselesaikan
 
@@ -590,23 +646,72 @@ hari ini). Menambahkannya sebelum ada transisi paket yang bisa terjadi melanggar
     "user_id": "…", "email": "…", "role": "owner",
     "plan": {
       "code": "free",
-      "channels": { "api_key": true, "form": true, "webhook": true }
+      "channels": { "api_key": true, "form": true, "webhook": true },
+      "limits":   { "leads_per_month": 100, "seats": 2 },
+      "usage":    { "leads_this_month": 37, "seats_used": 2 },
+      "test_checkout_available": false
     }
   }
 }
 ```
 
-`channels` adalah **jawaban**, bukan bahan — dashboard merender `channels.webhook` langsung, tidak
-pernah menyalin peta paket→kanal ke TypeScript (kesalahan yang harus dikoreksi #33 di
-`lib/lead-status.ts`). `code` hanya untuk **ditampilkan**, tidak pernah untuk keputusan UI. Tidak ada
-endpoint `GET /v1/subscription` terpisah — `SessionGate` sudah memanggil `/v1/me` di setiap layar
-terproteksi (Aturan #27: jangan minta dua kali data yang sudah di tangan).
+`channels`, `limits`, dan `usage` adalah **jawaban**, bukan bahan — dashboard merender
+`channels.webhook` dan `usage.leads_this_month` langsung, tidak pernah menyalin peta paket→kanal atau
+menghitung pemakaian sendiri di TypeScript (kesalahan yang harus dikoreksi #33 di
+`lib/lead-status.ts`). `code` hanya untuk **ditampilkan**.
 
-### CRM tahu paket, tidak pernah tahu uang
+**`limits: 0` berarti tanpa batas, bukan nol jatah** — satu arti untuk nol di kedua sisi kabel; Go
+membacanya lewat satu helper (`allows()`), TypeScript lewat satu helper (`isUnlimitedLimit()`), tidak
+pernah dengan `== 0` yang tersebar.
+
+`usage` bisa **melebihi** `limits` secara sah — lead dari formulir publik yang tetap diterima setelah
+kuota habis (D3 di atas), atau seat yang terisi tepat sebelum perubahan paket manual. Klien wajib
+menanganinya sebagai keadaan normal, bukan sebagai data rusak.
+
+`test_checkout_available` mencerminkan `SUBSCRIPTION_TEST_CHECKOUT` di server — satu sumber kebenaran,
+supaya flag frontend tidak bisa menyimpang dari backend yang benar-benar menegakkannya.
+
+Tidak ada endpoint `GET /v1/subscription` terpisah untuk paket **organization ini** — `SessionGate`
+sudah memanggil `/v1/me` di setiap layar terproteksi (Aturan #27).
+
+### `GET /v1/plans` — katalog, bukan keadaan organization (Phase 8.5 #125)
+
+Pertanyaan yang berbeda dari `/v1/me`, karena itu endpoint yang berbeda: **apa yang ditawarkan paket
+_lain_.** Jawabannya identik untuk setiap organization yang bertanya — tidak ada satu pun data tenant
+di dalamnya.
+
+```json
+{
+  "data": [
+    { "code": "free",  "name": "Free",  "price_label": "Rp0",
+      "limits": { "leads_per_month": 100, "seats": 2 },
+      "channels": { "api_key": true, "form": true, "webhook": true } },
+    { "code": "pro",   "name": "Pro",   "price_label": "Rp99.000/bulan", "…": "…" },
+    { "code": "enterprise", "name": "Enterprise", "price_label": "Negosiasi", "…": "…" }
+  ]
+}
+```
+
+Urutannya **bagian dari jawaban** (Free → Pro → Enterprise) — klien merender apa adanya dan tidak
+mengurutkan ulang. Digerbangi `subscription.read` (Owner+Admin, lihat `authorization.md`).
+
+### CRM tahu paket, tidak pernah **menghitung** uang
 
 Batas ADR-012 §2, ditegakkan harfiah: `plan_code`, `status`, dan `external_reference` di
-`subscriptions` adalah satu-satunya jejak billing yang CRM ini simpan. **Harga, checkout, kartu,
-invoice, refund** seluruhnya di payment service — repository ini tidak pernah menghitung, menyimpan,
-atau menampilkan satu angka uang pun terkait paket (kriteria #9 Phase 8). `external_reference` adalah
-titik sambung ke payment service, disimpan tapi **tidak pernah dibaca** oleh phase ini — pembacanya
-menunggu kontrak integrasi payment service (`STATUS.md` bagian *Keputusan Belum Diambil*).
+`subscriptions` adalah satu-satunya jejak billing yang CRM ini simpan. **Checkout, kartu, invoice,
+refund, proration** seluruhnya di payment service. `external_reference` adalah titik sambung ke
+payment service, disimpan tapi **tidak pernah dibaca** oleh phase ini — pembacanya menunggu kontrak
+integrasi payment service (`STATUS.md` bagian *Keputusan Belum Diambil*).
+
+> ⚠️ **Koreksi atas rumusan sebelumnya (Aturan #30).** Bagian ini pernah berbunyi *"tidak pernah
+> menghitung, menyimpan, atau menampilkan satu angka uang pun"*. Sejak Phase 8.5 #126, `GET /v1/plans`
+> **menampilkan** satu label harga (`price_label`, mis. `"Rp99.000/bulan"`). Itu bukan pelanggaran
+> ADR-012 §2 melainkan hal yang [ADR-014](../decisions/ADR-014-provisional-pricing-before-gate.md)
+> izinkan secara eksplisit: *"kuota dan batas, ditambah satu label harga untuk ditampilkan — bukan
+> perhitungan uang apa pun di dalam CRM"*. Rumusan lama ditulis sebelum ADR-014 ada, dan dikoreksi di
+> sini alih-alih dibiarkan bertentangan dengan kode.
+>
+> Batas yang sebenarnya, dan yang masih berlaku penuh: **`price_label` adalah string yang dirender apa
+> adanya.** Tidak ada penjumlahan, pajak, konversi mata uang, pembulatan, atau perbandingan numerik di
+> mana pun terhadapnya — itulah kenapa tipenya `string`, bukan `numeric`. Begitu ada yang perlu
+> *berhitung*, itu tanda pekerjaannya milik payment service, bukan repository ini.

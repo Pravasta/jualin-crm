@@ -4,21 +4,28 @@
 > berkas ini mengumpulkan poin yang perlu **dicek ulang saat #126** menutup Phase 8.5. Detail lengkap ada
 > di `docs/phases/08.5-paid-plans/notes.md` bagian `## #124`.
 
-## Deviasi dari issue (bukan hanya TD)
+> **Ditinjau di #126 (5 September 2026).** Satu poin ditutup; sisanya dinyatakan ulang dengan pemicu
+> eksplisit.
 
-- [ ] **`Action` `subscription.read` tidak dibuat.** Issue menulis dua Action baru
+## Deviasi dari issue (bukan hanya TD) — ✅ ditutup di #125
+
+- [x] **`Action` `subscription.read` tidak dibuat.** Issue menulis dua Action baru
       (`subscription.change` Owner, `subscription.read` Owner+Admin); hanya yang pertama dibuat —
-      `subscription.read` tidak punya pemanggil nyata, layar Langganan (#125) sepenuhnya dilayani
-      `GET /v1/me`. **Dicek ulang di #125/#126**: pastikan #125 memang tidak butuh endpoint baca-detail
-      terpisah — kalau ternyata butuh, `subscription.read` ditambah di situ, bukan diam-diam di sini.
+      `subscription.read` tidak punya pemanggil nyata saat itu.
+      **→ Ditutup:** #125 ternyata **memang** butuh endpoint terpisah — bukan untuk paket organization
+      sendiri (`GET /v1/me` tetap cukup untuk itu, seperti dugaan #124), melainkan untuk **katalog
+      paket lain** (`GET /v1/plans`, perbandingan tiga paket). `subscription.read` dibuat di #125 dan
+      menggerbangi endpoint itu, Owner+Admin. Urutannya persis seperti yang direncanakan: Action lahir
+      bersama pemanggil pertamanya, bukan mendahuluinya. Dicatat juga di `authorization.md`.
 
 ## Pemeriksaan yang diminta issue, hasilnya negatif
 
 - [ ] **Jalur reaktivasi membership: tidak ada.** Issue meminta diperiksa eksplisit, bukan diasumsikan.
       Dikonfirmasi lewat pencarian menyeluruh (`grep -rn "[Rr]eactivat" internal/membership
-      internal/invitation`) — nol hasil. Titik pasang batas seat tetap tunggal
-      (`invitation.Usecase.Create`). **Dicek ulang: kalau membership pernah punya jalur reaktivasi di
-      masa depan**, titik pasang kedua wajib ditambahkan di situ.
+      internal/invitation`) — nol hasil, **diperiksa ulang di #126, masih nol**. Titik pasang batas
+      seat tetap tunggal (`invitation.Usecase.Create`). **Pemicu: membership mendapat jalur reaktivasi**
+      — saat itu titik pasang kedua wajib ditambahkan di situ, atau organization bisa melewati batas
+      seat dengan menonaktifkan lalu menghidupkan kembali anggota.
 
 ## Keputusan yang perlu dicek ulang
 

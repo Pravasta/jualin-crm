@@ -356,3 +356,91 @@ pola #114/#123: turunkan kuota organization lewat `/internal/subscriptions/{id}/
 langsung, konfirmasi `403 plan_quota_exceeded`/`plan_seat_limit_reached` tampil inline dengan tautan
 di layar asalnya, dan layar `/subscription` menunjukkan pemakaian serta perbandingan paket yang benar
 di browser. Prosedur lengkap: `docs/issues/125-dashboard-subscription-screen.md`.
+
+---
+
+## #126 — Dokumentasi + penutup Phase 8.5
+
+Penutup phase. Angka provisional diisi pemilik produk, dokumentasi arsitektur disusul, seluruh 10 AC
+PRD dicek terhadap bukti nyata, dan satu temuan di luar cakupan dilaporkan tanpa diperbaiki sepihak.
+
+### Angka final — diisi 5 September 2026
+
+| | Free | Pro | Enterprise |
+|---|---|---|---|
+| Lead / bulan | 100 | 2.000 | tanpa batas |
+| Seat | 2 | 10 | tanpa batas |
+| Kanal | ketiganya | ketiganya | ketiganya |
+| Harga | Rp0 | **Rp99.000/bulan** | negosiasi |
+
+`LimitsAreProvisional` → **`false`**. Penjaga bootnya **tetap terpasang**, bukan dihapus: putaran angka
+berikutnya tinggal menyetelnya `true` lagi dan produksi berhenti boot sampai angkanya diputuskan.
+
+**Kanal tidak membedakan paket, dan itu jawaban — bukan kolom yang lupa diisi.** Komentar di
+`plan.go` yang dulu berbunyi "menunggu keputusan pemilik produk" diganti dengan alasan keputusannya:
+menutup kanal yang Free sudah buka adalah downgrade tanpa jalur, sementara kanal **keempat** bisa
+lahir Pro-only tanpa biaya itu. Perbedaan itu penting untuk pembaca berikutnya yang tergoda
+"mengambil kembali" salah satu dari tiga kanal yang ada.
+
+**Dua test hijau menggantikan test merah yang TD §14 janjikan** — `TestLimitsAreNoLongerProvisional`
+dan `TestPlanDisplay_NoPlaceholderPriceLabels`. Keduanya **dibuktikan bisa gagal**, bukan diasumsikan:
+konstanta dibalik ke `true` dan label harga dikembalikan ke `"Segera"`, keduanya merah dengan pesan
+yang tepat, lalu dikembalikan dan `git diff` dikonfirmasi hanya memuat perubahan #126 yang disengaja.
+
+### Review 10 AC PRD — terhadap bukti, bukan ingatan
+
+| # | Kriteria | Status | Bukti |
+|---|---|---|---|
+| 1 | Tiga paket di satu peta, satu berkas dengan `planChannels`; ubah kuota = satu baris | ✅ | `plan.go`: `planLimits`/`planChannels`/`planDisplay`/`planOrder` bersebelahan. `grep` dijalankan #126: **nol** angka kuota di usecase, migration, atau TypeScript produksi |
+| 2 | Kuota ditegakkan di **ketiga** jalur, dibuktikan lewat `curl` | ✅\* | `cmd/api/plan_quota_test.go` — request HTTP mentah ke router produksi (setara `curl` di lapis protokol). Prosedur `curl` literal untuk pemilik produk: `09-webhook.md` §9.11 |
+| 3 | Batas seat menolak dengan menyebut batasnya | ✅ | `plan_seat_limit_reached` memuat angkanya; `TestUnit_Create_SeatFull_*`, `TestUnit_Create_SeatUsed_SumsActiveAndPending` |
+| 4 | Paket tak dikenal → paling ketat, bukan tanpa batas | ✅ | `TestLimitsFor_UnknownPlan_FallsBackToFreeNotZero`, `TestLimitsFor_NonActiveStatus_FallsBackToFree` |
+| 5 | `GET /v1/me` membawa `usage` + `limits` yang sudah diselesaikan | ✅ | `auth/handler_http.go`; dibaca sungguhan oleh `leadQuotaFor()` di `plan_quota_test.go` |
+| 6 | Layar Langganan: paket aktif, pemakaian, perbandingan; Enterprise ke percakapan | ✅ | #125; `subscription-screen.tsx`, `plan_catalog_test.go`. Verifikasi browser → pemilik produk (§9.11 langkah 6) |
+| 7 | Ada jalur yang mengubah `plan_code`, tercatat `audit_log`, **tidak** bisa dipakai pelanggan menaikkan paketnya sendiri | ✅ | #124; `subscription_admin_test.go` (10 test). Test checkout mati total di produksi lewat penjaga boot |
+| 8 | Kuota terlampaui **tidak pernah** memperlihatkan keadaan paket ke pengunjung situs pelanggan | ✅ | **Diperkuat di #126**: `assertNoBillingLeak` memeriksa body respons form publik terhadap 11 kata (plan/paket/kuota/limit/tagihan/…) — sebelumnya hanya status `201` yang dicek sementara komentarnya mengklaim lebih |
+| 9 | Angka hidup **hanya** di satu peta Go + satu dokumen | ✅ | `grep` dijalankan #126 (bukan diasumsikan): nihil di `internal/*` selain `plan.go`, nihil di `migrations/`, nihil di TypeScript produksi. Fixture test dashboard yang kebetulan memakai 100/2 **diganti** jadi 7/3 supaya tidak terbaca sebagai salinan kedua |
+| 10 | `go test -race ./...` dan `npm run typecheck && lint && test && build` bersih | ✅ | Dijalankan ulang di #126: 39 paket Go hijau, `golangci-lint` 0 issues, 162 test dashboard, build sukses |
+
+\* AC #2 ✅ **secara mekanisme** — jalur `curl` literal terhadap `docker compose` yang menyala adalah
+langkah pemilik produk, prosedurnya tertulis lengkap. Preseden yang sama dipakai Phase 7 (#104) dan
+Phase 8 (#115); tidak diklaim selesai sebagai pengamatan agent.
+
+### Temuan di luar cakupan — `freeze.md` 8.4 tertinggal tiga migration
+
+Memeriksa poin terbuka `docs/issues/123` (konsistensi `td.md` §1 dengan `freeze.md` 8.4) menemukan hal
+yang lebih besar: tabel *Migration setelahnya* di `freeze.md` berhenti di **`0007_forms` (Phase 6)**.
+`0008_webhooks`, `0009_webhook_secret_encrypted`, dan `0010_notification_plan_quota` tidak tercatat di
+sana.
+
+**Dilaporkan, tidak diperbaiki sepihak.** `freeze.md` adalah dokumen beku — menambal tabelnya diam-diam
+di dalam PR penutup phase adalah persis kebiasaan yang CLAUDE.md cegah (*"Freeze tidak diubah tanpa
+catatan"*). Keputusannya milik pemilik produk: tabel itu daftar hidup (→ PR kecil tersendiri) atau
+rekaman rencana Phase 0–6 yang memang berhenti di sana (→ satu kalimat yang menyatakannya). Tercatat
+di `docs/issues/123` dengan pemicunya.
+
+### Poin terbuka `docs/issues/*` — seluruhnya ditinjau
+
+| Berkas | Ditutup | Tetap terbuka (dengan pemicu) |
+|---|---|---|
+| `122` | penjaga provisional (boot, bukan test merah) · `planChannels` sama di tiga paket · aritmetika seat terduplikasi | `COUNT` tanpa index · tiga `COUNT` per `/v1/me` |
+| `123` | `td.md` §1 dikoreksi | notifikasi hanya `public_form` · ambang organization-wide · kuota terlampaui di bawah konkurensi · **`freeze.md` 8.4 (baru)** |
+| `124` | `subscription.read` (dibuat di #125) | reaktivasi membership · audit non-atomik · test checkout terkunci ke Pro |
+| `125` | #125 menyentuh Go (didokumentasikan) · label harga Pro | **kontak Enterprise** · `useSessionRefresh` satu pemanggil |
+
+Satu-satunya baris tabel *Angka provisional* yang **masih kosong** setelah phase ini: kontak Enterprise
+(WhatsApp/email). Kartunya sengaja tanpa tombol sampai itu ada.
+
+### Kewajiban yang diteruskan (TD §16) — tercatat, dengan pemicu masing-masing
+
+| Kewajiban | Pemicu |
+|---|---|
+| Payment service tersambung | Webhook pembayaran memanggil jalur perubahan paket yang **sudah ada** (§8), bukan alur baru. `external_reference` mendapat pembacanya. **Tombol test checkout dihapus bersamaan** — bukan dibiarkan hidup di samping checkout sungguhan |
+| Tinjau ulang angka | **Setelah 3–5 pelanggan _berbayar_ pertama** (ADR-014 ketentuan 2) — keempatnya bersama: kuota Free, kuota Pro, harga Pro, batas seat. Hidup di `STATUS.md` *Keputusan Belum Diambil* |
+| Kuota dimensi baru (penyimpanan, webhook terkirim) | Ada bukti dimensi itu jadi biaya nyata → `Limits` bertambah field, peta bertambah kolom, test tabel otomatis mencakupnya |
+| Index untuk `COUNT` kuota | Satu organization mendekati puluhan ribu lead/bulan → satu index non-parsial `(organization_id, created_at)`, angka `EXPLAIN` #122 sebagai titik banding |
+| Kontak Enterprise | Pemilik produk memberi nomor/alamat → satu baris di `planDisplay`, tautan dirender |
+
+Tanpa kode produksi baru selain angka final + dua test penjaga + satu asersi yang diperkuat (AC #8).
+`go test -race ./...` bersih (39 paket), `golangci-lint run` 0 issues,
+`npm run typecheck && lint && test && build` bersih (162 test).

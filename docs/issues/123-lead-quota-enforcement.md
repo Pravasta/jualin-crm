@@ -4,13 +4,38 @@
 > berkas ini mengumpulkan poin yang perlu **dicek ulang saat #126** menutup Phase 8.5. Detail lengkap ada
 > di `docs/phases/08.5-paid-plans/notes.md` bagian `## #123`.
 
+> **Ditinjau di #126 (5 September 2026).** Satu poin ditutup; tiga sisanya dinyatakan ulang dengan
+> pemicu eksplisit.
+
 ## Deviasi dari TD
 
-- [ ] **TD §1 salah — phase ini butuh migration.** Klaim "tanpa migration sama sekali" ditulis sebelum
+- [x] **TD §1 salah — phase ini butuh migration.** Klaim "tanpa migration sama sekali" ditulis sebelum
       diperiksa bahwa `notifications.type` punya `CHECK` tertutup. **`migrations/0010`** menambah
       `plan_quota_exceeded` ke daftar yang diizinkan. `td.md` §1 dikoreksi di tempat, bukan dihapus.
-      **Dicek ulang di #126**: pastikan `td.md` §1 yang sudah dikoreksi ini konsisten dengan
-      `docs/architecture/freeze.md` bagian 8.4 (migration terbaru yang tercatat di sana).
+      **→ Ditutup #126 sebagai poin #123, tapi pemeriksaannya menemukan hal lain** — lihat di bawah.
+
+## ⚠️ Temuan #126 — `freeze.md` 8.4 tertinggal tiga migration (BELUM diperbaiki, sengaja)
+
+- [ ] Memeriksa konsistensi `td.md` §1 dengan `freeze.md` 8.4 (yang poin di atas minta) menemukan
+      masalah yang **lebih besar dan bukan milik Phase 8.5**: tabel *Migration setelahnya* di
+      `freeze.md` 8.4 berhenti di **`0007_forms` (Phase 6)**. Tiga migration yang sudah ada di
+      repository tidak tercatat di sana:
+
+      | Migration | Phase | Sejak |
+      |---|---|---|
+      | `0008_webhooks` | 7 | issue #100 |
+      | `0009_webhook_secret_encrypted` | 7 | issue #101 |
+      | `0010_notification_plan_quota` | 8.5 | issue #123 |
+
+      **Tidak diperbaiki di PR ini, dan itu keputusan sadar.** `freeze.md` adalah dokumen beku —
+      CLAUDE.md: *"Perubahan arsitektur hanya melalui ADR baru. Freeze tidak diubah tanpa catatan."*
+      Menambal tabelnya diam-diam di dalam PR penutup phase adalah persis kebiasaan yang aturan itu
+      cegah. **Dilaporkan, bukan diperbaiki sepihak** (Aturan #30).
+
+      **Pemicu: keputusan pemilik produk** — apakah tabel 8.4 dimaksudkan sebagai daftar hidup
+      (kalau ya: satu PR kecil tersendiri yang memperbaruinya, dengan catatan) atau sebagai rekaman
+      rencana Phase 0–6 yang memang berhenti di sana (kalau ya: tambahkan satu kalimat yang
+      menyatakannya, supaya pembaca berikutnya tidak menyimpulkan repo kehilangan migration).
 
 ## Keputusan yang perlu dicek ulang
 

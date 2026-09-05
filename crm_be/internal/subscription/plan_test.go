@@ -1,6 +1,54 @@
 package subscription
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// --- "angka sudah diisi" (#126) ---
+
+// TestLimitsAreNoLongerProvisional is #126's acceptance criterion
+// verbatim: *"test 'angka sudah diisi' hijau — rilis dengan placeholder
+// tidak mungkin terjadi diam-diam"*.
+//
+// It is the standing counterpart to cmd/api's production boot guard:
+// the guard stops a provisional build from SERVING, this stops one from
+// being called finished. Setting LimitsAreProvisional back to true for
+// a future round of numbers turns this test red on purpose — that is
+// the signal, not a nuisance to silence.
+func TestLimitsAreNoLongerProvisional(t *testing.T) {
+	if LimitsAreProvisional {
+		t.Error("LimitsAreProvisional is still true: the product owner has not committed to these numbers, and cmd/api refuses to boot in production while that holds (ADR-014 ketentuan 1)")
+	}
+}
+
+// TestPlanDisplay_NoPlaceholderPriceLabels covers the half of "angka
+// sudah diisi" that planLimits does not: the quantities live in
+// planLimits, but the price a customer actually reads lives here, and a
+// forgotten placeholder ships a pricing screen that says nothing while
+// every other test stays green.
+func TestPlanDisplay_NoPlaceholderPriceLabels(t *testing.T) {
+	// Exact matches, not substrings — "Negosiasi" (Enterprise, prd D4)
+	// is a deliberate, final answer rather than a placeholder, and a
+	// naive contains-check would have to special-case it.
+	placeholders := map[string]bool{
+		"segera": true, "tbd": true, "-": true, "?": true,
+		"coming soon": true, "belum ditentukan": true, "(?)": true,
+	}
+
+	for code, display := range planDisplay {
+		if display.Name == "" {
+			t.Errorf("plan %q has no display name", code)
+		}
+		if display.PriceLabel == "" {
+			t.Errorf("plan %q has no price label", code)
+			continue
+		}
+		if placeholders[strings.ToLower(strings.TrimSpace(display.PriceLabel))] {
+			t.Errorf("plan %q price label %q still reads as a placeholder — #126 requires a real answer", code, display.PriceLabel)
+		}
+	}
+}
 
 // TestChannelsFor_KnownPlan_MatchesMap is the table over the ENTIRE
 // Channels set (TD §12) — not a hand-written list. Adding a channel to

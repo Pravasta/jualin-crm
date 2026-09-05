@@ -313,9 +313,25 @@ Item sidebar baru (`lib/nav.ts`), rute `/subscription`. Isi:
 | Perbandingan paket | Tiga kolom dari satu sumber: apa yang backend kirim + tabel statis nama/harga. **Bukan** peta paket→kapabilitas versi TypeScript (Phase 8 kriteria #6 tetap berlaku) |
 | Aksi | Pro → tombol test checkout **hanya bila** `plan.test_checkout_available`; Enterprise → tautan keluar (WhatsApp/email), bukan checkout (prd D4) |
 
+> ⚠️ **Koreksi atas baris "Perbandingan paket" (Aturan #30, ditambahkan #126).** Baris itu
+> mengandaikan angka paket lain sudah tersedia di klien dan tinggal digabung dengan "tabel statis
+> nama/harga". **Keduanya keliru:** `GET /v1/me` hanya membawa paket organization yang sedang login,
+> dan sebuah tabel statis nama/harga di TypeScript justru **melanggar** kriteria #9 phase ini (angka
+> hidup hanya di satu peta Go + satu dokumen).
+>
+> Ditemukan sebelum kode #125 ditulis dan dibawa ke pemilik produk sebagai tiga opsi; yang dipilih:
+> **backend mengirim katalog** lewat endpoint baru **`GET /v1/plans`** (digerbangi
+> `subscription.read`, Owner+Admin), berisi nama, label harga, limit, dan kanal untuk **setiap** paket
+> dalam urutan tampilan. Dashboard merender apa adanya dan tidak menyimpan satu angka pun. Bentuk
+> lengkapnya di `architecture/api.md` bagian *`GET /v1/plans` — katalog, bukan keadaan organization*.
+>
+> Konsekuensi yang dicatat jujur: #125 berlabel `dashboard` tapi ikut menyentuh Go
+> (`docs/issues/125`).
+
 **Gerbang role:** Owner dan Admin bisa **melihat**; hanya **Owner** yang bisa memicu perubahan paket.
 Alasan: tagihan urusan pemilik, tapi Admin yang mengelola operasional harus bisa melihat kenapa
-undangan ditolak. Ditegakkan di usecase, bukan hanya di UI (Aturan #10).
+undangan ditolak. Ditegakkan di usecase, bukan hanya di UI (Aturan #10) — `subscription.read`
+menggerbangi `GET /v1/plans`, `subscription.change` menggerbangi test checkout.
 
 Layar-layar yang sudah ada bertambah satu keadaan: **`403 plan_quota_exceeded` di form buat lead** dan
 **`403 plan_seat_limit_reached` di dialog undang** ditampilkan inline dengan pesan backend apa adanya,
@@ -388,12 +404,30 @@ keputusan §5 benar-benar terpasang, dan bukan sesuatu yang bisa dibaca dari UI.
 
 ## 14. Yang harus disiapkan pemilik produk
 
+> ✅ **Ditutup 5 September 2026 (#126).** Angkanya diisi: Free 100 lead / 2 seat, Pro 2.000 lead /
+> 10 seat, Enterprise tanpa batas, Pro **Rp99.000/bulan**, kanal terbuka di semua paket. Tabel di
+> `prd.md` bagian *Angka provisional* adalah cerminannya. Kewajiban meninjau ulang setelah 3–5
+> pelanggan **berbayar** pertama tetap berlaku (ADR-014 ketentuan 2) dan hidup di `STATUS.md`.
+>
+> ⚠️ **Koreksi mekanisme (Aturan #30).** Paragraf di bawah menjanjikan nilai `TODO` yang "sengaja
+> tidak masuk akal untuk produksi" dan **test yang sengaja gagal**. Yang dibangun #122 berbeda dan
+> disengaja: `planLimits` diisi angka yang masuk akal sejak awal, ditandai konstanta
+> `LimitsAreProvisional`, dan **boot produksi yang menolak jalan** selama konstanta itu `true`
+> (ADR-010) — bukan test merah. Alasannya: CI merah yang "memang seharusnya merah" selama empat issue
+> melatih orang mengabaikan warna merah, sementara boot yang gagal tidak bisa diabaikan. Sejak #126
+> konstanta itu `false`, dan dua test **hijau** yang menjaganya:
+> `TestLimitsAreNoLongerProvisional` dan `TestPlanDisplay_NoPlaceholderPriceLabels` — keduanya merah
+> lagi kalau putaran angka berikutnya ditandai provisional dan lupa diselesaikan.
+
 **Satu hal, dan ia memblokir rilis (bukan implementasi):** mengisi tabel angka provisional di
 `prd.md` — kuota lead Free/Pro, batas seat, kanal per paket, dan label harga Pro. Sampai diisi,
 `planLimits` memakai nilai `TODO` yang **sengaja tidak masuk akal untuk produksi**, dan test yang
 mengunci "angka sudah diisi" gagal — supaya rilis dengan placeholder tidak mungkin terjadi diam-diam.
 
 Nomor WhatsApp / alamat email untuk kartu Enterprise juga dibutuhkan (prd D4), dan itu satu string.
+**Masih belum diisi per #126** — kartu Enterprise sementara menampilkan teks "Hubungi kami untuk
+diskusi harga" **tanpa tombol** (tombol yang tidak menuju ke mana pun lebih buruk daripada tidak ada
+tombol). Poin terbuka di `docs/issues/125`.
 
 ---
 

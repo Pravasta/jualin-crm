@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -124,6 +125,26 @@ func TestPlanQuota_AtLimit_ThreePrincipalsBehaveDifferently(t *testing.T) {
 	wForm := doFormPost(r, "/v1/forms/"+formForSubmit.PublicKey+"/submit", "https://customer-site.example", values)
 	if wForm.Code != http.StatusCreated {
 		t.Fatalf("public_form: expected 201 even at quota, got %d: %s", wForm.Code, wForm.Body.String())
+	}
+	assertNoBillingLeak(t, wForm.Body.String())
+}
+
+// assertNoBillingLeak is prd 8.5 kriteria #8 asserted rather than
+// assumed: a site visitor filling in a customer's form must never see
+// ANYTHING about that customer's billing state. The status code alone
+// does not prove that — a 201 carrying "kuota" in a message field would
+// leak just as badly — so the body is inspected for every word this
+// product uses to talk about plans and quotas.
+func assertNoBillingLeak(t *testing.T, body string) {
+	t.Helper()
+	lower := strings.ToLower(body)
+	for _, term := range []string{
+		"plan", "paket", "kuota", "quota", "limit", "batas",
+		"upgrade", "langganan", "subscription", "tagihan", "billing",
+	} {
+		if strings.Contains(lower, term) {
+			t.Errorf("public form response leaks billing vocabulary %q — a site visitor must never see the customer's plan state (kriteria #8). Body: %s", term, body)
+		}
 	}
 }
 

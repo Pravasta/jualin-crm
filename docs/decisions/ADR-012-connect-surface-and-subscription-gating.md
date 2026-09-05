@@ -86,8 +86,15 @@ Artinya: `POST /v1/forms` yang dipanggil langsung lewat `curl` oleh organization
 > (5 September 2026).** Menunggu gate freeze ternyata melingkar: pelanggan yang **membuka dompet**
 > tidak bisa didatangkan sebelum ada yang bisa dibeli. Angka ditetapkan lebih dulu sebagai
 > **provisional**, dengan kewajiban peninjauan yang dipindah ke *"setelah 3–5 pelanggan berbayar
-> pertama"* — bukan dihapus. Sisa ADR ini (§1–§3, batas "CRM tidak pernah tahu uang") **tidak
-> berubah**; Phase 8 sendiri tetap ditutup tanpa satu angka pun.
+> pertama"* — bukan dihapus. Sisa ADR ini (§1–§3) **tidak berubah**; Phase 8 sendiri tetap ditutup
+> tanpa satu angka pun. Angkanya mendarat di Phase 8.5 #126.
+>
+> Satu presisi pada §2 (Aturan #30, ditambahkan #126): batasnya adalah **CRM tidak pernah
+> _menghitung_ uang**, bukan tidak pernah menampilkannya. Sejak #126, `GET /v1/plans` mengirim satu
+> `price_label` berupa **string yang dirender apa adanya** — tanpa penjumlahan, pajak, konversi, atau
+> perbandingan numerik di mana pun. Checkout, invoice, refund, dan proration tetap seluruhnya milik
+> payment service, persis seperti §2 menetapkan. Lihat `architecture/api.md` bagian *CRM tahu paket,
+> tidak pernah menghitung uang*.
 
 ## Alasan
 

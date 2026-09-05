@@ -232,6 +232,40 @@ struktural tidak ada permukaan bagi kredensial org A untuk "menunjuk" ke data or
 field yang bisa dipakai menunjuk ke sana. Dianalisis, bukan diuji dengan harness generik yang bentuknya
 tidak cocok untuk kasus ini — dicatat di `docs/phases/04-public-api/notes.md` bagian `## #47`.
 
+### Kasus baru — agregat yang menggerakkan **keputusan**, bukan tampilan (Phase 8.5, issue #122–#124)
+
+Kasus #7 di atas mengamankan agregat yang **ditampilkan** (metrik dashboard). Phase 8.5 memperkenalkan
+bentuk yang berbeda dan lebih tajam: agregat lintas-baris yang hasilnya **menentukan apakah sebuah
+permintaan ditolak**.
+
+| Query | Dipakai untuk |
+|---|---|
+| `lead.CountCreatedThisMonth` | menolak `POST /v1/leads` saat kuota habis |
+| `membership.CountActive` + `invitation.CountPendingSeats` | menolak `POST /v1/invitations` saat seat penuh |
+| `notification.ExistsThisMonth` | menekan notifikasi kuota kedua di bulan yang sama |
+
+**Kenapa ini kelas risiko tersendiri.** Agregat tampilan yang bocor memberi tahu pesaing tentang bentuk
+bisnis tenant lain — buruk, tapi pasif. Agregat **keputusan** yang bocor mengubah perilaku produk:
+`COUNT` yang ikut menghitung lead organization lain menolak pelanggan yang sebenarnya masih punya
+jatah — kegagalan yang terlihat seperti bug tagihan, muncul hanya pada tenant yang tetangganya sibuk,
+dan hampir mustahil didiagnosis dari laporan pengguna.
+
+Ketiganya tetap tenant-scoped dengan cara yang sama seperti seluruh repository lain: `tenant.Context`
+sebagai parameter kedua, `organization_id` di-inject **di dalam** query, tidak pernah diserahkan ke
+caller (Lapis 1). Tidak ada bentuk baru yang diperkenalkan — yang baru hanyalah konsekuensi kalau
+lapisan itu dilanggar.
+
+**Diuji terhadap PostgreSQL asli, bukan fake.** Tiap penghitung punya test isolasi tenant sendiri
+(`TestRepository_CountActive_TenantIsolation`, `TestRepository_CountPendingSeats_TenantIsolation`,
+dan sisi kuota lead lewat `cmd/api/plan_quota_test.go` terhadap router produksi) — sebuah fake store
+akan lulus tanpa pernah membuktikan SQL-nya benar, yang persis alasan repository selalu diuji ke
+Postgres sungguhan di repo ini.
+
+Satu ketentuan tambahan yang mudah terlewat: `CountCreatedThisMonth` **tidak** memfilter
+`deleted_at IS NULL` (menghapus lead tidak mengembalikan kuota, prd 8.5 D1), dan memotong bulan di
+`organizations.timezone`, bukan UTC (Aturan #13) — keduanya keputusan bisnis yang hidup di dalam SQL,
+karena itu diuji di sana juga.
+
 ### Kriteria kualitas harness
 
 > Harness harus terbukti **bisa gagal**. Hapus `organization_id` dari satu query secara sengaja; kalau test tetap hijau, harness-nya belum benar.

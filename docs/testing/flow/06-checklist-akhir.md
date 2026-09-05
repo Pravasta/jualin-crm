@@ -146,6 +146,25 @@ dikembalikan — jangan pernah commit dalam keadaan dibalik).
 - [ ] Kartu **Webhook** di `/connect` redup, tidak bisa diklik, badge "Terkunci oleh paket" — **tanpa** tombol upgrade, **tanpa** harga; dua kartu lain tetap normal
 - [ ] Peta dikembalikan ke `true` → `POST /v1/webhook-endpoints` kembali `201`
 
+## 11 — Kuota, seat & layar Langganan (Phase 8.5)
+
+Prosedur lengkap: [`09-webhook.md`](./09-webhook.md) §9.11 (menurunkan `planLimits[PlanFree]`
+sementara + memakai permukaan `/internal/` — jangan pernah commit dalam keadaan diturunkan).
+
+- [ ] `POST /internal/subscriptions/{org}/plan` **tanpa token** → `401`; **token salah** → `401`; token benar → `200`
+- [ ] Kuota habis: `POST /v1/leads` lewat sesi dashboard → **`403 plan_quota_exceeded`**, pesannya **menyebut angkanya**
+- [ ] Kuota habis: `POST /v1/leads` lewat **API key** → `403` yang sama
+- [ ] **Kuota habis: `POST /v1/forms/{public_key}/submit` → `201` — lead tetap diterima** (D3; ini baris terpenting bagian ini)
+- [ ] Owner menerima notifikasi `plan_quota_exceeded` **tepat satu kali** meski dua submit melewati kuota
+- [ ] Naikkan paket lewat `/internal/` → `POST /v1/leads` yang tadi `403` kembali `201` (gerbang benar-benar membaca paket)
+- [ ] `audit_logs` memuat `subscription.plan_changed` dengan `old_values`/`new_values`, `actor_membership_id` **`NULL`**
+- [ ] Seat penuh → `POST /v1/invitations` **`403 plan_seat_limit_reached`**; dialog **Undang anggota** menampilkan pesan yang sama + tautan **"Lihat paket & pemakaian"**
+- [ ] `/subscription` sebagai Owner: paket sebagai **nama** (bukan kode), pemakaian benar, tiga kolom terurut Free → Pro → Enterprise dengan harga `Rp0` / `Rp99.000/bulan` / `Negosiasi`
+- [ ] Kolom **Enterprise tanpa tombol beli** — teks "Hubungi kami untuk diskusi harga"
+- [ ] Pemakaian yang **melebihi** batas (akibat form publik tadi) tidak membuat bar >100% atau angka negatif
+- [ ] Manager/Employee di `/subscription`: "tidak tersedia untuk role Anda", **nol** panggilan `/v1/plans`
+- [ ] `planLimits` dikembalikan ke `{100, 2}`; `git diff` **kosong**
+
 ## Kalau semua tercentang
 
 Alur inti MVP (Phase 0–5) terbukti benar-benar jalan sebagai **satu rangkaian utuh**, bukan cuma
