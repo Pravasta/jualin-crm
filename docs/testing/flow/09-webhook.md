@@ -319,11 +319,14 @@ diturunkan.**
    ```go
    PlanFree: {LeadsPerMonth: 2, Seats: 1},
    ```
-2. Pastikan token admin terisi (`.env` / `docker-compose.yml` service `api`), minimal 32 byte:
+2. Token admin **sudah terisi** di `docker-compose.yml` (nilai dev, sama polanya dengan
+   `JWT_SECRET`), jadi tidak ada yang perlu disiapkan — cukup pakai nilainya:
    ```bash
-   export ADMIN_TOKEN="token-uji-minimal-32-byte-supaya-lolos-validasi"
+   export ADMIN_TOKEN="development-only-subscription-admin-token-do-not-use-in-production"
    ```
-   Boot **gagal** kalau token diisi tapi lebih pendek dari 32 byte — itu memang perilakunya.
+   Kalau Anda menimpanya lewat `.env` (`SUBSCRIPTION_ADMIN_TOKEN=...`), pakai nilai itu. Minimal
+   **32 byte** — boot **gagal** kalau diisi tapi lebih pendek; **kosong** berarti route-nya tidak
+   didaftarkan sama sekali (`404`, bukan `401`).
 3. `docker compose up -d api` (restart dengan env baru), lalu siapkan API key baru (§5.8 sudah
    mencabut yang lama):
    ```bash

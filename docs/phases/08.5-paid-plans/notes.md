@@ -500,3 +500,49 @@ berkas yang sama. Ketiganya sekarang tercatat beserta arti "kosong berarti route
 
 `go test -race ./...` bersih, `golangci-lint run` 0 issues,
 `npm run typecheck && lint && test && build` bersih (162 test).
+
+---
+
+## Follow-up kedua — env disambungkan ke `docker compose`, dan satu bug #124 yang ikut ketahuan
+
+Pemilik produk meminta `SUBSCRIPTION_ADMIN_TOKEN` diisi supaya permukaan `/internal/` bisa dipakai.
+Mengerjakannya membongkar dua hal.
+
+### Cacat pada follow-up sebelumnya — `.env` tidak pernah dibaca `docker compose`
+
+`ENTERPRISE_CONTACT_URL` yang ditaruh di `.env` **tidak berpengaruh sama sekali** saat dijalankan lewat
+`docker compose up`: `docker-compose.yml` sengaja tidak memakai `env_file` (supaya `.env` yang hilang
+tidak merusak `docker compose up`), dan `config.go` membaca environment **proses**, bukan berkas.
+Gejalanya jahat justru karena tidak ada error: tautan Enterprise diam-diam tidak muncul, dan kosong
+adalah keadaan yang sah.
+
+Diperbaiki dengan menyambungkannya lewat **substitusi variabel Compose** — `${ENTERPRISE_CONTACT_URL:-}`
+di blok `environment:`. Compose membaca `./.env` untuk substitusi, jadi nomor pribadinya tetap tidak
+pernah masuk berkas yang di-commit, sementara `:-` menjaga janji "`.env` yang hilang tidak pernah
+merusak `docker compose up`". `SUBSCRIPTION_ADMIN_TOKEN` dan `SUBSCRIPTION_TEST_CHECKOUT` diberi bentuk
+yang sama (`${NAMA:-default}`) supaya jebakan yang sama tidak terulang untuk keduanya.
+
+Jebakannya sendiri sekarang **ditulis di kepala `.env.example`**, lengkap dengan mana yang terbaca di
+jalur `docker compose` dan mana di jalur `go run` — beserta catatan bahwa ini sudah pernah terjadi.
+
+### Bug #124 yang ketahuan saat verifikasi manual — `500`, bukan `404`
+
+Menguji endpoint dengan `organization_id` karangan (persis yang akan terjadi kalau UUID salah ketik)
+menghasilkan **`500 internal_error`**. Sebabnya: `ChangePlan` mengembalikan `ErrNoActiveSubscription`
+saat tidak ada baris yang cocok, `AdminChangePlan` membungkusnya dengan `fmt.Errorf`, dan
+`httpx.MapError` tidak punya case untuknya → jatuh ke default.
+
+Ini bukan kasus eksotis. `/internal/` adalah **satu-satunya** permukaan di produk ini yang mengambil
+`organization_id` dari path alih-alih dari principal, jadi salah ketik adalah kasus yang **paling
+mungkin** terjadi di sana, bukan yang paling jarang. Jawaban `500` membuatnya terbaca seperti server
+rusak, bukan seperti "organization itu tidak ada".
+
+Sekarang `404 not_found` dengan pesan yang menyebut kemungkinannya. Sengaja **bukan** 404 gaya
+Aturan #6 (yang kabur demi melindungi batas tenant): di permukaan ini tidak ada tenant yang perlu
+dilindungi — pemanggilnya berada di luar seluruh model tenant — jadi pesannya boleh spesifik dan
+benar-benar menolong orang yang salah menyalin UUID.
+
+Dikunci dua test (unit + end-to-end) dan **diverifikasi ulang terhadap stack sungguhan** setelah
+`docker compose up --build`: `401` tanpa token, `401` token salah, `400` `plan_code` ngawur, `404` org
+tak dikenal, lalu `200` pada organization sungguhan dengan `plan_code` benar-benar berubah di database
+dan baris `audit_logs` ber-`actor_membership_id` `NULL`. Data uji dikembalikan ke keadaan semula.

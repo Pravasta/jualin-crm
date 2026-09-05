@@ -248,3 +248,16 @@ func TestTestCheckout_Enabled_NonOwner_Forbidden(t *testing.T) {
 		t.Fatalf("expected 403 forbidden for Admin (Owner-only action), got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// TestSubscriptionAdmin_UnknownOrganization_Returns404 is the /internal/
+// surface's likeliest mistake, since organization_id there is typed by
+// hand into the path rather than taken from a principal. It answered
+// 500 internal_error until this was fixed.
+func TestSubscriptionAdmin_UnknownOrganization_Returns404(t *testing.T) {
+	r, _ := newSubscriptionAdminRouter(t, subscriptionAdminTestToken, false)
+
+	w := adminChangePlanRequest(r, uuid.Must(uuid.NewV7()), subscriptionAdminTestToken, "pro")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for an organization that does not exist, got %d: %s", w.Code, w.Body.String())
+	}
+}

@@ -171,6 +171,16 @@ func (u *Usecase) AdminChangePlan(ctx context.Context, t tenant.Context, planCod
 	}
 
 	if err := u.repo.ChangePlan(ctx, t, planCode); err != nil {
+		// No row matched: the organization_id does not exist, or exists
+		// with no subscriptions row at all. On the /internal/ surface
+		// that id is typed by hand from the path (the one place in this
+		// product where organization_id is NOT taken from the
+		// principal), so a typo is the LIKELY case, not the exotic one —
+		// and it deserves an answer that says so instead of a 500 that
+		// reads like the server broke.
+		if errors.Is(err, ErrNoActiveSubscription) {
+			return "", organizationNotFoundError()
+		}
 		return "", fmt.Errorf("subscription: admin change plan: %w", err)
 	}
 	return previousPlanCode, nil
@@ -217,4 +227,17 @@ func planSeatLimitReachedError(limit int) error {
 
 func unknownPlanCodeError() error {
 	return httpx.NewValidationError(httpx.ErrorDetail{Field: "plan_code", Code: "invalid_value"})
+}
+
+// organizationNotFoundError answers the /internal/ surface's own
+// not-found case. Deliberately NOT the tenant-boundary 404 of Rule #6:
+// there is no tenant to protect here (the caller is outside the tenant
+// model entirely), so the message is allowed to be specific and
+// actually help whoever mistyped a UUID.
+func organizationNotFoundError() error {
+	return &httpx.DomainError{
+		Status:  http.StatusNotFound,
+		Code:    "not_found",
+		Message: "Organization tidak ditemukan, atau belum punya baris subscription.",
+	}
 }
