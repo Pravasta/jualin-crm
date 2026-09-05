@@ -146,14 +146,16 @@ const (
 	// above this line, Admin has whatever Owner has). Billing is the one
 	// decision this product reserves for Owner alone.
 	//
-	// There is deliberately NO ActionSubscriptionRead here despite TD
-	// 8.5 §11 naming one: the Langganan screen (#125) reads everything
-	// it needs from GET /v1/me, which every authenticated principal user
-	// already reaches with no Action at all (same reasoning as Phase 8
-	// §10 for plan.channels). Adding an Action with no endpoint to gate
-	// would leave it permanently uncalled — added here, not skipped
-	// silently, if #125 turns out to need a real endpoint after all.
+	// #124 deliberately did NOT add an ActionSubscriptionRead despite TD
+	// 8.5 §11 naming one — at the time, nothing called it (the Langganan
+	// screen didn't exist yet). #125's GET /v1/plans is that real
+	// caller: it returns the OTHER plans' limits/channels/pricing, not
+	// just this organization's own (which GET /v1/me already exposes to
+	// every principal with no Action at all). Admin included, unlike
+	// ActionSubscriptionChange — TD §9 grants Admin sight of the billing
+	// picture even though only Owner may act on it.
 	ActionSubscriptionChange Action = "subscription.change"
+	ActionSubscriptionRead   Action = "subscription.read"
 )
 
 // permissions mirrors docs/architecture/authorization.md's matrix
@@ -203,6 +205,7 @@ var permissions = map[tenant.Role]map[Action]bool{
 		// role's block below — this is the first action where Admin
 		// does not mirror Owner. See its own doc comment.
 		ActionSubscriptionChange: true,
+		ActionSubscriptionRead:   true,
 	},
 	tenant.RoleAdmin: {
 		ActionMembershipList:       true,
@@ -243,6 +246,8 @@ var permissions = map[tenant.Role]map[Action]bool{
 		ActionWebhookRead:          true,
 		ActionWebhookUpdate:        true,
 		ActionWebhookDelete:        true,
+		// ActionSubscriptionChange deliberately absent — Owner only.
+		ActionSubscriptionRead: true,
 	},
 	tenant.RoleManager: {
 		ActionMembershipList: true,

@@ -91,6 +91,66 @@ var planLimits = map[string]Limits{
 	PlanEnterprise: {LeadsPerMonth: Unlimited, Seats: Unlimited},
 }
 
+// planOrder is the plan catalog's display order (Free, Pro, Enterprise)
+// — a product decision, not something a map (which has none) can carry.
+// Kept beside planChannels/planLimits/planDisplay rather than in the
+// dashboard: kriteria #6/#9 (08.5-paid-plans) forbid a second,
+// TypeScript-side copy of anything about what a plan offers, ordering
+// included.
+var planOrder = []string{PlanFree, PlanPro, PlanEnterprise}
+
+// PlanDisplay is a plan's human-facing name and price label — the ONLY
+// place price text lives (prd 8.5 D7: "satu peta Go + satu tabel
+// dokumen", never TypeScript).
+//
+// ⚠️ PriceLabel below is a placeholder, not a real price: Pro's number
+// is still "(?)" in prd 8.5's angka provisional table, and Enterprise
+// is a negotiated conversation, never a checkout (prd D4). Both are
+// worded so they read honestly on the pricing screen rather than as a
+// number nobody chose — the LimitsAreProvisional boot guard already
+// stops this state from reaching a production deploy silently, but a
+// vague label is still safer than a plausible-looking fake number.
+type PlanDisplay struct {
+	Name       string
+	PriceLabel string
+}
+
+var planDisplay = map[string]PlanDisplay{
+	PlanFree:       {Name: "Free", PriceLabel: "Rp0"},
+	PlanPro:        {Name: "Pro", PriceLabel: "Segera"},
+	PlanEnterprise: {Name: "Enterprise", PriceLabel: "Negosiasi"},
+}
+
+// PlanCatalogEntry is one row of the plan comparison — everything
+// GET /v1/plans sends for one plan, already fully resolved server-side
+// (Phase 8 kriteria #6, prd 8.5 kriteria #9: the dashboard renders this
+// exactly, computing nothing of its own about what a plan offers).
+type PlanCatalogEntry struct {
+	Code       string
+	Name       string
+	PriceLabel string
+	Limits     Limits
+	Channels   map[Channel]bool
+}
+
+// Catalog returns every plan in product display order, each resolved as
+// though its subscription were active — this describes what a plan
+// OFFERS, independent of any one organization's current status (that
+// question belongs to ResolvePlan, not here).
+func Catalog() []PlanCatalogEntry {
+	out := make([]PlanCatalogEntry, 0, len(planOrder))
+	for _, code := range planOrder {
+		out = append(out, PlanCatalogEntry{
+			Code:       code,
+			Name:       planDisplay[code].Name,
+			PriceLabel: planDisplay[code].PriceLabel,
+			Limits:     planLimits[code],
+			Channels:   channelsFor(code, statusActive),
+		})
+	}
+	return out
+}
+
 const statusActive = "active"
 
 // channelsFor resolves which channels planCode opens, gated by status.

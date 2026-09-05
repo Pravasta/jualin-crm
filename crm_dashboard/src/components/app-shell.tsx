@@ -16,6 +16,7 @@ import {
   SquareCheckBig,
   UsersRound,
   Plug,
+  CreditCard,
   Settings,
   LogOut,
   type LucideIcon,
@@ -38,6 +39,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/tasks": SquareCheckBig,
   "/team": UsersRound,
   "/connect": Plug,
+  "/subscription": CreditCard,
   "/settings": Settings,
 };
 

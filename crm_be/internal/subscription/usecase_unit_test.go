@@ -256,3 +256,54 @@ func TestUnit_AdminChangePlan_NoActiveSubscription_PreviousIsEmpty(t *testing.T)
 		t.Errorf("expected empty previous plan code, got %q", previous)
 	}
 }
+
+// --- ListPlans (#125) ---
+
+func TestUnit_ListPlans_Owner_Succeeds(t *testing.T) {
+	u := subscription.NewUsecase(&fakeRepo{})
+
+	got, err := u.ListPlans(context.Background(), tenant.Context{Role: tenant.RoleOwner})
+	if err != nil {
+		t.Fatalf("list plans: %v", err)
+	}
+	if len(got) == 0 {
+		t.Fatal("expected a non-empty catalog")
+	}
+}
+
+func TestUnit_ListPlans_Admin_Succeeds(t *testing.T) {
+	u := subscription.NewUsecase(&fakeRepo{})
+
+	if _, err := u.ListPlans(context.Background(), tenant.Context{Role: tenant.RoleAdmin}); err != nil {
+		t.Fatalf("list plans: %v", err)
+	}
+}
+
+// TestUnit_ListPlans_ManagerAndEmployee_Forbidden is the AC verbatim:
+// "Manager/Employee di /subscription → ... nol panggilan API paket" —
+// proven at the usecase layer, not just "the UI doesn't offer a link".
+func TestUnit_ListPlans_ManagerAndEmployee_Forbidden(t *testing.T) {
+	u := subscription.NewUsecase(&fakeRepo{})
+
+	for _, role := range []tenant.Role{tenant.RoleManager, tenant.RoleEmployee} {
+		_, err := u.ListPlans(context.Background(), tenant.Context{Role: role})
+		var derr *httpx.DomainError
+		if !errors.As(err, &derr) || derr.Status != 403 {
+			t.Errorf("role %q: expected 403 forbidden, got %v", role, err)
+		}
+	}
+}
+
+// TestUnit_ListPlans_NeverTouchesRepository proves the catalog answers
+// "what does each plan offer" without reading any organization's own
+// subscription row — repo stays untouched, unlike ResolvePlan/
+// RequireChannel/RequireLeadQuota/RequireSeatLimit, which all read
+// FindActiveByOrg first.
+func TestUnit_ListPlans_NeverTouchesRepository(t *testing.T) {
+	repo := &fakeRepo{err: errors.New("FindActiveByOrg must not be called by ListPlans")}
+	u := subscription.NewUsecase(repo)
+
+	if _, err := u.ListPlans(context.Background(), tenant.Context{Role: tenant.RoleOwner}); err != nil {
+		t.Fatalf("list plans: %v", err)
+	}
+}

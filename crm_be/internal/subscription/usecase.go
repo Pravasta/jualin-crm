@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authz"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/tenant"
 )
@@ -49,6 +50,20 @@ func (u *Usecase) ResolvePlan(ctx context.Context, t tenant.Context) (code strin
 		stringKeyed(channelsFor(sub.PlanCode, sub.Status)),
 		limitsFor(sub.PlanCode, sub.Status),
 		nil
+}
+
+// ListPlans returns the full plan catalog for #125's comparison screen
+// — gated by authz.ActionSubscriptionRead (Owner+Admin), the first real
+// caller of that Action (#124 deliberately left it unadded for lack of
+// one; see its own doc comment in authz.go). Catalog() itself takes no
+// tenant argument on purpose: it describes what every plan OFFERS, the
+// same regardless of which organization is asking — only the
+// authorization check below is tenant-specific.
+func (u *Usecase) ListPlans(_ context.Context, t tenant.Context) ([]PlanCatalogEntry, error) {
+	if err := authz.Require(t, authz.ActionSubscriptionRead); err != nil {
+		return nil, err
+	}
+	return Catalog(), nil
 }
 
 // RequireChannel returns nil when t's organization's plan opens ch, and

@@ -20,6 +20,11 @@ export interface NavItemConfig {
 // isn't today — the gate for what a role can actually do inside
 // Connect lives in the screens themselves (canManageAPIKeys today,
 // canManageForms in #89), not here.
+// "Langganan" (#125) is visible to EVERY role, same as "Connect" above —
+// what a role can actually do inside it (Owner+Admin view, Owner-only
+// change) is enforced by the screen itself
+// (lib/subscription-permissions.ts) and by crm_be's authz, not by
+// filtering this list.
 export const NAV_ITEMS: NavItemConfig[] = [
   { href: "/", label: "Beranda" },
   { href: "/leads", label: "Lead" },
@@ -27,6 +32,7 @@ export const NAV_ITEMS: NavItemConfig[] = [
   { href: "/tasks", label: "Tugas" },
   { href: "/team", label: "Tim" },
   { href: "/connect", label: "Connect" },
+  { href: "/subscription", label: "Langganan" },
   { href: "/settings", label: "Pengaturan" },
 ];
 

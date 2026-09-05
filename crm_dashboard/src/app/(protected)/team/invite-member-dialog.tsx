@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +17,7 @@ import { FieldError } from "@/components/field-error";
 import { FormErrorBanner } from "@/components/form-error-banner";
 import { createInvitation, type InvitableRole } from "@/lib/invitations";
 import { fieldErrorsFrom, globalMessage, type FieldErrors } from "@/lib/auth-errors";
+import { isPlanSeatLimitReached } from "@/lib/plan";
 
 // Admin/Manager/Employee — the design's own <select> only listed the
 // first two (missing Employee outright); ck_invitations_role's real
@@ -36,10 +38,14 @@ export function InviteMemberDialog({
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
 }) {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<InvitableRole>("manager");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
+  // Set only on a REAL 403 plan_seat_limit_reached (#124) — the link to
+  // /subscription only makes sense in that specific case (issue #125 AC).
+  const [seatLimitReached, setSeatLimitReached] = useState(false);
   const [loading, setLoading] = useState(false);
 
   function reset() {
@@ -47,12 +53,14 @@ export function InviteMemberDialog({
     setRole("manager");
     setFieldErrors({});
     setError(null);
+    setSeatLimitReached(false);
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setFieldErrors({});
+    setSeatLimitReached(false);
     setLoading(true);
     try {
       await createInvitation(email, role);
@@ -61,11 +69,20 @@ export function InviteMemberDialog({
       onCreated();
     } catch (err) {
       const fields = fieldErrorsFrom(err);
-      if (Object.keys(fields).length > 0) setFieldErrors(fields);
-      else setError(globalMessage(err));
+      if (Object.keys(fields).length > 0) {
+        setFieldErrors(fields);
+      } else {
+        setError(globalMessage(err));
+        setSeatLimitReached(isPlanSeatLimitReached(err));
+      }
     } finally {
       setLoading(false);
     }
+  }
+
+  function goToSubscription() {
+    onOpenChange(false);
+    router.push("/subscription");
   }
 
   return (
@@ -84,6 +101,15 @@ export function InviteMemberDialog({
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <FormErrorBanner message={error} />
+          {seatLimitReached && (
+            <button
+              type="button"
+              onClick={goToSubscription}
+              className="-mt-1.5 self-start text-[12.5px] text-accent-strong underline"
+            >
+              Lihat paket & pemakaian
+            </button>
+          )}
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="invite-email">Email</Label>
