@@ -22,22 +22,33 @@ func NewUsecase(repo Repository) *Usecase {
 	return &Usecase{repo: repo}
 }
 
-// ResolvePlan answers "what plan is t's organization on, and which
-// channels does it open" — the single computation every other entry
-// point in this package builds on. It never returns a non-nil error for
-// "no active subscription": that state closes every channel (fail
-// closed) rather than failing the caller (TD §1.1), since a caller like
-// GET /v1/me must not go down because of one billing row.
-func (u *Usecase) ResolvePlan(ctx context.Context, t tenant.Context) (code string, channels map[string]bool, err error) {
+// ResolvePlan answers "what plan is t's organization on, which channels
+// does it open, and how much does it allow" — the single computation
+// every other entry point in this package builds on. It never returns a
+// non-nil error for "no active subscription": that state closes every
+// channel and drops to free-tier quantities (TD §1.1, 8.5 §2.1) rather
+// than failing the caller, since GET /v1/me must not go down because of
+// one billing row.
+//
+// Limits is returned as the domain type rather than flattened into
+// primitives the way channels is. internal/auth already imports this
+// package for *subscription.Subscription, so there is nothing to avoid
+// here — and two ints returned positionally would be exactly the kind
+// of call site where leads and seats get swapped without the compiler
+// noticing.
+func (u *Usecase) ResolvePlan(ctx context.Context, t tenant.Context) (code string, channels map[string]bool, limits Limits, err error) {
 	sub, err := u.repo.FindActiveByOrg(ctx, t)
 	if err != nil {
 		if errors.Is(err, ErrNoActiveSubscription) {
-			return "", stringKeyed(channelsFor("", "")), nil
+			return "", stringKeyed(channelsFor("", "")), limitsFor("", ""), nil
 		}
-		return "", nil, fmt.Errorf("subscription: resolve plan: %w", err)
+		return "", nil, Limits{}, fmt.Errorf("subscription: resolve plan: %w", err)
 	}
 
-	return sub.PlanCode, stringKeyed(channelsFor(sub.PlanCode, sub.Status)), nil
+	return sub.PlanCode,
+		stringKeyed(channelsFor(sub.PlanCode, sub.Status)),
+		limitsFor(sub.PlanCode, sub.Status),
+		nil
 }
 
 // RequireChannel returns nil when t's organization's plan opens ch, and

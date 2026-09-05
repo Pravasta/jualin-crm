@@ -53,7 +53,32 @@ type SubscriptionRepository interface {
 // RequireChannel. Satisfied structurally by
 // subscription.NewUsecase(...)'s return value at the composition root.
 type PlanResolver interface {
-	ResolvePlan(ctx context.Context, t tenant.Context) (code string, channels map[string]bool, err error)
+	ResolvePlan(ctx context.Context, t tenant.Context) (code string, channels map[string]bool, limits subscription.Limits, err error)
+}
+
+// LeadCounter and SeatCounter are the two meters GET /v1/me reports
+// alongside the plan's limits (Phase 8.5 §7): what the organization has
+// already used this month, resolved SERVER-side so no client ever
+// computes it (D5 of Phase 8, applied to quantities).
+//
+// Declared here, consumer-side (ADR-011). *lead.Repository,
+// *membership.Repository, and *invitation.Repository satisfy them
+// structurally — those packages never import internal/auth.
+//
+// Seats deliberately takes TWO counts, not one: an invitation nobody has
+// accepted yet still holds a seat (TD 8.5 §6). Summing them here means
+// the displayed number matches the number #123's enforcement will
+// refuse on — a mismatch there would read as a bug to the customer.
+type LeadCounter interface {
+	CountCreatedThisMonth(ctx context.Context, t tenant.Context) (int, error)
+}
+
+type SeatCounter interface {
+	CountActive(ctx context.Context, t tenant.Context) (int, error)
+}
+
+type PendingSeatCounter interface {
+	CountPendingSeats(ctx context.Context, t tenant.Context) (int, error)
 }
 
 // VerificationTokenRepository has no consumers outside this package —
@@ -125,6 +150,9 @@ type Repos struct {
 	Member       MembershipRepository
 	Sub          SubscriptionRepository
 	Plan         PlanResolver
+	LeadCount    LeadCounter
+	SeatCount    SeatCounter
+	PendingSeats PendingSeatCounter
 	Verify       VerificationTokenRepository
 	Audit        AuditRepository
 	RefreshToken RefreshTokenRepository

@@ -46,9 +46,24 @@ type CookieConfig struct {
 // than in Usecase: the "per email"/"per IP" dimensions need the parsed
 // request body and client IP, which only the handler has — Usecase's
 // job is business logic, not request shaping.
+// MeConfig carries deployment facts GET /v1/me reports that are neither
+// user data nor plan data — today just one. It lives on the handler
+// rather than on Usecase because it is configuration, not business
+// logic, and Usecase must not learn to read config (ADR-011).
+type MeConfig struct {
+	// TestCheckoutAvailable mirrors SUBSCRIPTION_TEST_CHECKOUT. Sent to
+	// the client as ONE source of truth for "does this deployment allow
+	// the test upgrade button", so a frontend flag can never drift from
+	// the backend that actually enforces it (TD 8.5 §7). The endpoint it
+	// advertises arrives in #124; until then this is always false, and
+	// the dashboard has nothing to show.
+	TestCheckoutAvailable bool
+}
+
 type Handler struct {
 	usecase *Usecase
 	cookies CookieConfig
+	meCfg   MeConfig
 
 	registerLimiter    ratelimit.Limiter
 	resendEmailLimiter ratelimit.Limiter
@@ -58,10 +73,11 @@ type Handler struct {
 	loginLimiter       *LoginLimiter
 }
 
-func NewHandler(usecase *Usecase, cookies CookieConfig) *Handler {
+func NewHandler(usecase *Usecase, cookies CookieConfig, meCfg MeConfig) *Handler {
 	return &Handler{
 		usecase:            usecase,
 		cookies:            cookies,
+		meCfg:              meCfg,
 		registerLimiter:    ratelimit.NewFixedWindow(registerLimit, registerWindow),
 		resendEmailLimiter: ratelimit.NewFixedWindow(resendLimit, resendWindow),
 		resendIPLimiter:    ratelimit.NewFixedWindow(resendIPLimit, resendIPWindow),
@@ -337,6 +353,17 @@ func (h *Handler) me(c *gin.Context) {
 		"plan": gin.H{
 			"code":     out.PlanCode,
 			"channels": out.PlanChannels,
+			// 0 means unlimited, not none (subscription.Unlimited) —
+			// lib/plan.ts reads it through a helper that says so.
+			"limits": gin.H{
+				"leads_per_month": out.PlanLimits.LeadsPerMonth,
+				"seats":           out.PlanLimits.Seats,
+			},
+			"usage": gin.H{
+				"leads_this_month": out.PlanUsage.LeadsThisMonth,
+				"seats_used":       out.PlanUsage.SeatsUsed,
+			},
+			"test_checkout_available": h.meCfg.TestCheckoutAvailable,
 		},
 	})
 }

@@ -132,6 +132,25 @@ type MeOutput struct {
 	Role             tenant.Role
 	PlanCode         string
 	PlanChannels     map[string]bool
+	PlanLimits       PlanLimits
+	PlanUsage        PlanUsage
+}
+
+// PlanLimits and PlanUsage are the two halves of "how much of your plan
+// have you used" (Phase 8.5 §7). Both are resolved server-side; the
+// client renders them and never recomputes either.
+//
+// A zero in PlanLimits means UNLIMITED, not none — the same meaning
+// subscription.Unlimited carries, and the reason lib/plan.ts gets a
+// helper for it rather than scattering `=== 0` across components.
+type PlanLimits struct {
+	LeadsPerMonth int
+	Seats         int
+}
+
+type PlanUsage struct {
+	LeadsThisMonth int
+	SeatsUsed      int
 }
 
 // OrgOption is one entry in OrganizationSelectionError's list.

@@ -20,6 +20,11 @@ type Repository interface {
 	UpdateRole(ctx context.Context, t tenant.Context, id uuid.UUID, role tenant.Role) error
 	Deactivate(ctx context.Context, t tenant.Context, id uuid.UUID) error
 	CountActiveOwners(ctx context.Context, t tenant.Context) (int, error)
+
+	// CountActive is half the seat meter (Phase 8.5) — see the
+	// implementation's doc comment for why the other half lives in
+	// internal/invitation.
+	CountActive(ctx context.Context, t tenant.Context) (int, error)
 }
 
 // AuditRepository is declared locally (not imported from internal/auditlog)

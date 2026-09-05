@@ -473,6 +473,38 @@ func scanLead(row rowScanner) (*Lead, error) {
 	return &l, nil
 }
 
+// CountCreatedThisMonth counts leads created in t's organization since
+// the start of the current calendar month IN THAT ORGANIZATION'S OWN
+// TIMEZONE (Rule #13) — a customer in Asia/Jakarta whose quota resets at
+// 07:00 on the 1st would reasonably call that a bug.
+//
+// It deliberately does NOT filter deleted_at. Deleting a lead must not
+// hand the quota back: that is precisely what makes counting rows
+// equivalent to a usage_counters table (8.5 prd D1), and without it
+// there is a trivial abuse path — create up to the limit, delete,
+// repeat forever.
+//
+// Consequence worth knowing: ix_leads_org_created is a PARTIAL index
+// (WHERE deleted_at IS NULL), so this query cannot use it. See
+// notes.md's EXPLAIN for the measured cost and why no new index was
+// added (TD 8.5 §4.2).
+func (r *postgresRepository) CountCreatedThisMonth(ctx context.Context, t tenant.Context) (int, error) {
+	const q = `
+		WITH org AS (
+			SELECT timezone FROM organizations WHERE id = $1
+		)
+		SELECT count(*)
+		  FROM leads, org
+		 WHERE leads.organization_id = $1
+		   AND leads.created_at >= date_trunc('month', now() AT TIME ZONE org.timezone) AT TIME ZONE org.timezone`
+
+	var n int
+	if err := r.q.QueryRow(ctx, q, t.OrganizationID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("lead: count created this month: %w", err)
+	}
+	return n, nil
+}
+
 // CleanupExpiredIdempotencyKeys clears idempotency_key on leads (not the
 // leads themselves) older than 48h — see the interface doc comment in
 // port.go for the full rationale (TD §7, keputusan D3).

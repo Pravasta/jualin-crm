@@ -151,6 +151,16 @@ func (f *fakeSubRepo) CreateFree(_ context.Context, t tenant.Context, id uuid.UU
 // instead of a second, possibly-drifting copy of it.
 type fakePlanRepo struct{}
 
+// fakeCounters stands in for the three meters GET /v1/me reports
+// (#122). Fixed numbers rather than a simulated store: what Me must do
+// is ASK and pass through, and a fake that computes its own answer
+// would make a passing test say nothing about whether it did.
+type fakeCounters struct{}
+
+func (fakeCounters) CountCreatedThisMonth(context.Context, tenant.Context) (int, error) { return 7, nil }
+func (fakeCounters) CountActive(context.Context, tenant.Context) (int, error)           { return 2, nil }
+func (fakeCounters) CountPendingSeats(context.Context, tenant.Context) (int, error)     { return 1, nil }
+
 func (f *fakePlanRepo) FindActiveByOrg(_ context.Context, t tenant.Context) (*subscription.Subscription, error) {
 	return &subscription.Subscription{OrganizationID: t.OrganizationID, PlanCode: subscription.PlanFree, Status: "active"}, nil
 }
@@ -315,6 +325,9 @@ func newFakeStore() *fakeStore {
 		Member:       &fakeMembershipRepo{},
 		Sub:          &fakeSubRepo{},
 		Plan:         subscription.NewUsecase(&fakePlanRepo{}),
+		LeadCount:    fakeCounters{},
+		SeatCount:    fakeCounters{},
+		PendingSeats: fakeCounters{},
 		Verify:       newFakeVerifyRepo(),
 		Audit:        &fakeAuditRepo{},
 		RefreshToken: newFakeRefreshTokenRepo(),

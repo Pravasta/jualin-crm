@@ -66,9 +66,12 @@ func TestUnit_RequireChannel_NoActiveSubscription_Returns403PlanUpgradeRequired(
 func TestUnit_ResolvePlan_KeySetMatchesChannels(t *testing.T) {
 	u := subscription.NewUsecase(&fakeRepo{sub: &subscription.Subscription{PlanCode: subscription.PlanFree, Status: "active"}})
 
-	code, channels, err := u.ResolvePlan(context.Background(), testTenant())
+	code, channels, limits, err := u.ResolvePlan(context.Background(), testTenant())
 	if err != nil {
 		t.Fatalf("resolve plan: %v", err)
+	}
+	if limits.LeadsPerMonth <= 0 || limits.Seats <= 0 {
+		t.Errorf("free plan must carry real quantities, got %+v", limits)
 	}
 	if code != subscription.PlanFree {
 		t.Errorf("expected code %q, got %q", subscription.PlanFree, code)
@@ -86,9 +89,15 @@ func TestUnit_ResolvePlan_KeySetMatchesChannels(t *testing.T) {
 func TestUnit_ResolvePlan_NoActiveSubscription_AllChannelsClosedNoError(t *testing.T) {
 	u := subscription.NewUsecase(&fakeRepo{err: subscription.ErrNoActiveSubscription})
 
-	code, channels, err := u.ResolvePlan(context.Background(), testTenant())
+	code, channels, limits, err := u.ResolvePlan(context.Background(), testTenant())
 	if err != nil {
 		t.Fatalf("expected no error (fail closed, not fail loud), got %v", err)
+	}
+	// Channels close completely, quantities drop to the free tier —
+	// the deliberate asymmetry in TD 8.5 §2.1. Zero leads would mean the
+	// product stops accepting leads at all.
+	if limits.LeadsPerMonth <= 0 {
+		t.Errorf("expected free-tier lead quota when there is no active subscription, got %d", limits.LeadsPerMonth)
 	}
 	if code != "" {
 		t.Errorf("expected empty code, got %q", code)

@@ -23,6 +23,12 @@ type Repository interface {
 	FindValidByHash(ctx context.Context, hash string) (*Invitation, error)
 	MarkAccepted(ctx context.Context, id uuid.UUID) error
 	MarkRevoked(ctx context.Context, id uuid.UUID) error
+
+	// CountPendingSeats is half the seat meter (Phase 8.5) — invitations
+	// that can still be accepted, so still holding a seat. Stricter than
+	// FindByOrgPending: expired ones are excluded. See the
+	// implementation's doc comment.
+	CountPendingSeats(ctx context.Context, t tenant.Context) (int, error)
 }
 
 // UserRepository/MembershipRepository/OrganizationRepository are declared

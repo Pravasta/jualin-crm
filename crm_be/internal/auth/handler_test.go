@@ -23,7 +23,7 @@ func newTestRouter(t *testing.T) (*gin.Engine, *spyMailer) {
 	svc := auth.NewUsecase(newTestStore(pool), m, testLogger(), "http://localhost:3000", testTokenConfig())
 
 	r := gin.New()
-	auth.NewHandler(svc, auth.CookieConfig{Domain: "", Secure: false}).RegisterRoutes(r, authn.Middleware(svc))
+	auth.NewHandler(svc, auth.CookieConfig{Domain: "", Secure: false}, auth.MeConfig{}).RegisterRoutes(r, authn.Middleware(svc))
 	return r, m
 }
 

@@ -35,6 +35,31 @@ func (r *postgresRepository) Create(ctx context.Context, inv *Invitation) error 
 	return nil
 }
 
+// CountPendingSeats counts invitations that could still turn into a
+// membership — the other half of the seat meter (Phase 8.5), summed
+// with membership.CountActive by the caller.
+//
+// Note the predicate is STRICTER than FindByOrgPending below: this one
+// also excludes expired invitations. An expired invitation can never be
+// accepted, so holding a seat for it would charge the customer for
+// something that cannot happen — whereas FindByOrgPending deliberately
+// still lists them so the screen can show them as expired.
+func (r *postgresRepository) CountPendingSeats(ctx context.Context, t tenant.Context) (int, error) {
+	const q = `
+		SELECT count(*)
+		  FROM invitations
+		 WHERE organization_id = $1
+		   AND accepted_at IS NULL
+		   AND revoked_at IS NULL
+		   AND expires_at > now()`
+
+	var n int
+	if err := r.q.QueryRow(ctx, q, t.OrganizationID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("invitation: count pending seats: %w", err)
+	}
+	return n, nil
+}
+
 // FindByOrgPending lists invitations that are still actionable — not yet
 // accepted, not revoked. Expired-but-untouched invitations still appear
 // (no background job prunes them in Phase 1); the client can tell from

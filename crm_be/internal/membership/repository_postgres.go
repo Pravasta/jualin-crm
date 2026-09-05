@@ -183,6 +183,21 @@ func (r *postgresRepository) CountActiveOwners(ctx context.Context, t tenant.Con
 	return n, nil
 }
 
+// CountActive counts every active membership in t's organization —
+// half of the seat meter (Phase 8.5). The other half is
+// invitation.CountPendingSeats: an invitation nobody has accepted yet
+// still holds a seat, or a 2-seat organization could send five
+// invitations and end up with five members without a single check
+// failing. Both halves are summed by the caller (TD 8.5 §6).
+func (r *postgresRepository) CountActive(ctx context.Context, t tenant.Context) (int, error) {
+	const q = `SELECT count(*) FROM memberships WHERE organization_id = $1 AND deleted_at IS NULL`
+	var n int
+	if err := r.q.QueryRow(ctx, q, t.OrganizationID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("membership: count active: %w", err)
+	}
+	return n, nil
+}
+
 // rowScanner is satisfied by both pgx.Row (QueryRow) and pgx.Rows
 // (Query), letting scanOne and the row-scanning body share one Scan call
 // shape.
