@@ -14,9 +14,9 @@
       `plan_quota_exceeded` ke daftar yang diizinkan. `td.md` §1 dikoreksi di tempat, bukan dihapus.
       **→ Ditutup #126 sebagai poin #123, tapi pemeriksaannya menemukan hal lain** — lihat di bawah.
 
-## ⚠️ Temuan #126 — `freeze.md` 8.4 tertinggal tiga migration (BELUM diperbaiki, sengaja)
+## ✅ Temuan #126 — `freeze.md` 8.4 tertinggal tiga migration (ditutup, follow-up #126)
 
-- [ ] Memeriksa konsistensi `td.md` §1 dengan `freeze.md` 8.4 (yang poin di atas minta) menemukan
+- [x] Memeriksa konsistensi `td.md` §1 dengan `freeze.md` 8.4 (yang poin di atas minta) menemukan
       masalah yang **lebih besar dan bukan milik Phase 8.5**: tabel *Migration setelahnya* di
       `freeze.md` 8.4 berhenti di **`0007_forms` (Phase 6)**. Tiga migration yang sudah ada di
       repository tidak tercatat di sana:
@@ -32,10 +32,12 @@
       Menambal tabelnya diam-diam di dalam PR penutup phase adalah persis kebiasaan yang aturan itu
       cegah. **Dilaporkan, bukan diperbaiki sepihak** (Aturan #30).
 
-      **Pemicu: keputusan pemilik produk** — apakah tabel 8.4 dimaksudkan sebagai daftar hidup
-      (kalau ya: satu PR kecil tersendiri yang memperbaruinya, dengan catatan) atau sebagai rekaman
-      rencana Phase 0–6 yang memang berhenti di sana (kalau ya: tambahkan satu kalimat yang
-      menyatakannya, supaya pembaca berikutnya tidak menyimpulkan repo kehilangan migration).
+      **→ Diputuskan pemilik produk 5 September 2026: tabel itu adalah rekaman rencana Phase 0–6.**
+      Satu kalimat ditambahkan di atas tabelnya yang menyatakan ia berhenti di `0007_forms` dan bahwa
+      daftar sesungguhnya adalah isi `crm_be/migrations/` — menyebut ketiga migration yang menyusul.
+      Dipilih di atas "jadikan daftar hidup" justru karena selisih ini sudah terjadi **tiga kali**:
+      dokumen yang wajib diperbarui tiap phase adalah dokumen yang akan menyimpang lagi. Sekarang
+      hanya ada **satu** sumber kebenaran untuk daftar migration, dan `freeze.md` menunjuk ke sana.
 
 ## Keputusan yang perlu dicek ulang
 

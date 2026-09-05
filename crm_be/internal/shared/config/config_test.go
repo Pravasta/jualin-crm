@@ -894,3 +894,71 @@ func TestLoad_WebhookWorkerKnobsValidatedEvenWhenDisabled(t *testing.T) {
 		t.Fatal("expected an invalid batch size to be rejected even with the worker disabled")
 	}
 }
+
+// --- ENTERPRISE_CONTACT_URL (Phase 8.5 follow-up) ---
+
+// TestLoad_EnterpriseContactURL_EmptyIsValid locks the "no destination
+// yet" state as legitimate: the Langganan screen renders the Enterprise
+// card as plain text rather than a dead link.
+func TestLoad_EnterpriseContactURL_EmptyIsValid(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("JWT_SECRET", validJWTSecret)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("expected an empty ENTERPRISE_CONTACT_URL to be valid, got: %v", err)
+	}
+	if cfg.EnterpriseContactURL != "" {
+		t.Errorf("expected empty by default, got %q", cfg.EnterpriseContactURL)
+	}
+}
+
+func TestLoad_EnterpriseContactURL_AcceptedSchemes(t *testing.T) {
+	for _, raw := range []string{
+		"https://wa.me/6281234567890",
+		"https://wa.me/6281234567890?text=Halo",
+		"mailto:halo@jualin.example",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://localhost/test")
+			t.Setenv("JWT_SECRET", validJWTSecret)
+			t.Setenv("ENTERPRISE_CONTACT_URL", raw)
+
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("expected %q to be accepted, got: %v", raw, err)
+			}
+			if cfg.EnterpriseContactURL != raw {
+				t.Errorf("got %q, want %q", cfg.EnterpriseContactURL, raw)
+			}
+		})
+	}
+}
+
+// TestLoad_EnterpriseContactURL_RejectedSchemes is the security half of
+// this value: it lands in an href on the Langganan screen, so a
+// javascript: URL would execute in the viewer's session. Rejected at
+// boot rather than trusted to be escaped correctly forever downstream.
+func TestLoad_EnterpriseContactURL_RejectedSchemes(t *testing.T) {
+	for _, raw := range []string{
+		"javascript:alert(1)",
+		"data:text/html,<script>alert(1)</script>",
+		"http://wa.me/6281234567890", // plaintext downgrade from an HTTPS dashboard
+		"6281234567890",              // a bare phone number is not a URL
+		"wa.me/6281234567890",        // no scheme at all
+	} {
+		t.Run(raw, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://localhost/test")
+			t.Setenv("JWT_SECRET", validJWTSecret)
+			t.Setenv("ENTERPRISE_CONTACT_URL", raw)
+
+			_, err := config.Load()
+			if err == nil {
+				t.Fatalf("expected %q to be rejected — it is rendered as a link", raw)
+			}
+			if !strings.Contains(err.Error(), "ENTERPRISE_CONTACT_URL") {
+				t.Errorf("expected the error to name ENTERPRISE_CONTACT_URL, got: %v", err)
+			}
+		})
+	}
+}

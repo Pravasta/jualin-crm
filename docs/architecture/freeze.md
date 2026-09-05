@@ -1158,6 +1158,14 @@ Append-only: tanpa `updated_at`, tanpa `deleted_at`, tanpa endpoint ubah/hapus.
 
 ## 8.4 Migration setelahnya
 
+> **Tabel ini adalah rencana Phase 0–6, bukan inventaris yang dipelihara.** Ia berhenti di
+> `0007_forms` dan sengaja tidak dilanjutkan — daftar migration yang sesungguhnya adalah **isi
+> `crm_be/migrations/`**, satu-satunya sumber kebenaran. Phase sesudahnya menambahkan setidaknya
+> `0008_webhooks`, `0009_webhook_secret_encrypted` (Phase 7), dan `0010_notification_plan_quota`
+> (Phase 8.5); masing-masing tercatat di `notes.md` phase-nya. Ditambahkan 5 September 2026 (#126
+> follow-up) setelah selisihnya ditemukan saat menutup Phase 8.5 — dicatat, bukan ditambal, supaya
+> dokumen ini tidak berubah jadi daftar yang harus diperbarui tiap phase dan pasti menyimpang lagi.
+
 | Migration | Phase | Isi |
 |---|---|---|
 | `0003_crm_core` | 2 | `leads`, `customers`, `activities`, `tasks` · `leads.lead_number` + `UNIQUE (organization_id, lead_number)` · `version` pada `leads` & `tasks` · `ALTER organizations ADD next_lead_number integer NOT NULL DEFAULT 1` |

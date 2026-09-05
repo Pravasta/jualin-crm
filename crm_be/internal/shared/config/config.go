@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -228,6 +229,24 @@ type Config struct {
 	// degraded mode, it's a hole (same reasoning as
 	// WEBHOOK_ALLOW_PRIVATE_TARGETS).
 	SubscriptionTestCheckout bool `env:"SUBSCRIPTION_TEST_CHECKOUT" envDefault:"false"`
+
+	// EnterpriseContactURL is where the Enterprise card on the Langganan
+	// screen sends someone who wants to talk about pricing (prd 8.5 D4:
+	// negotiated, never a checkout).
+	//
+	// A full URL rather than a phone number, so switching from WhatsApp to
+	// email — or from a personal number to a business one — is an env
+	// change and never a code change. The CRM does not need to know which
+	// medium it is: it renders a link.
+	//
+	// Config rather than a constant in planDisplay for one concrete
+	// reason, not a speculative one: the value in use today is a personal
+	// number the product owner has already said will be replaced, and a
+	// literal in the repository would outlive the replacement in git
+	// history. Empty is valid and means the card renders as plain text
+	// with no link — an honest "no destination yet" rather than a dead
+	// button (#125's own acceptance criterion forbids the latter).
+	EnterpriseContactURL string `env:"ENTERPRISE_CONTACT_URL" envDefault:""`
 }
 
 // minSubscriptionAdminTokenLength mirrors WebhookSecretEncKey's own
@@ -413,7 +432,24 @@ func (c *Config) validate() error {
 	if c.AppEnv == "production" && c.SubscriptionTestCheckout {
 		return fmt.Errorf(`config invalid: SUBSCRIPTION_TEST_CHECKOUT must not be true when APP_ENV=production`)
 	}
+	// This value is rendered straight into an href on the Langganan
+	// screen, which makes its SCHEME a security boundary, not a
+	// formatting preference: `javascript:` in an href executes in the
+	// viewer's session. Restricting it to the two schemes that can
+	// actually mean "talk to a human" closes that at boot rather than
+	// hoping the dashboard escapes it correctly forever.
+	if c.EnterpriseContactURL != "" && !validContactURL(c.EnterpriseContactURL) {
+		return fmt.Errorf("config invalid: ENTERPRISE_CONTACT_URL must start with https:// or mailto: (got %q) — it is rendered as a link", c.EnterpriseContactURL)
+	}
 	return nil
+}
+
+// validContactURL accepts only the two schemes a "contact us" link can
+// legitimately use. http:// is excluded alongside javascript:/data:: a
+// plaintext link from an HTTPS dashboard is a downgrade nobody needs
+// for a WhatsApp or email destination.
+func validContactURL(raw string) bool {
+	return strings.HasPrefix(raw, "https://") || strings.HasPrefix(raw, "mailto:")
 }
 
 // validProxyEntry mirrors what gin.Engine.SetTrustedProxies itself accepts

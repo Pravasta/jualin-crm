@@ -15,6 +15,13 @@ export interface PlanCatalogEntry {
     seats: number;
   };
   channels: Record<string, boolean>;
+  // Only Enterprise carries one, and only when the deployment configured
+  // ENTERPRISE_CONTACT_URL — the backend OMITS the field otherwise, so
+  // `undefined` is the honest "no destination yet" and the card renders
+  // as plain text rather than a dead link. The backend also validates
+  // the scheme (https:/mailto: only) at boot, since this value lands in
+  // an href.
+  contact_url?: string;
 }
 
 // Not paginated — a plain array via httpx.OK, same shape as

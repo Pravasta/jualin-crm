@@ -24,15 +24,17 @@
       satu-satunya yang tidak melanggar Phase 8 kriteria #6 / prd 8.5 kriteria #9. **Pemicu
       peninjauan: tidak ada** — ini bentuk yang benar secara arsitektur, bukan kompromi sementara.
 
-- [ ] **Tombol Enterprise belum ada — hanya teks "Hubungi kami untuk diskusi harga".** Nomor
-      WhatsApp/email kontak Enterprise **tetap belum diisi setelah #126** — satu-satunya baris tabel
-      *Angka provisional* yang masih kosong setelah phase ini ditutup (empat baris lainnya diisi
-      5 September 2026). Ditinjau ulang di #126 dan **sengaja dibiarkan terbuka**: kartu tanpa tombol
-      lebih jujur daripada tombol yang tidak menuju ke mana pun (AC #125 melarang "tombol mati").
-      **Pemicu peninjauan: pemilik produk memberi nomor/alamat sebenarnya** — satu baris di
-      `planDisplay` (atau satu field kontak baru di sebelahnya) diisi, dan `subscription-screen.tsx`
-      merender tautannya. Pekerjaan setengah jam, tidak memblokir apa pun selain Enterprise itu
-      sendiri.
+- [x] **Tombol Enterprise belum ada — hanya teks "Hubungi kami untuk diskusi harga".**
+      **→ Ditutup 5 September 2026 (follow-up #126).** Kontaknya diisi pemilik produk (WhatsApp),
+      tapi **tidak sebagai literal di `planDisplay`** melainkan sebagai env
+      **`ENTERPRISE_CONTACT_URL`** — dua alasan: nomor yang dipakai hari ini adalah nomor pribadi
+      yang pemiliknya sendiri nyatakan akan diganti, dan sebuah literal akan hidup di git history
+      lama setelah penggantinya ada; serta bentuk **URL penuh** (bukan nomor) membuat pindah dari
+      WhatsApp ke email kelak jadi perubahan env, bukan perubahan kode.
+      Skema divalidasi saat boot (**hanya `https://` dan `mailto:`**) karena nilainya dirender ke
+      dalam `href` — `javascript:` di sana berarti XSS. Kosong tetap sah dan berarti kartu dirender
+      **tanpa tautan**, bukan tautan mati. Nilai sungguhannya ada di `.env` (gitignored);
+      `.env.example` hanya memuat contoh.
 
 - [x] **Label harga Pro masih `"Segera"`, bukan angka.** **→ Ditutup #126:** pemilik produk mengisi
       **`Rp99.000/bulan`**, bersamaan dengan seluruh angka lain. `LimitsAreProvisional` jadi `false`,

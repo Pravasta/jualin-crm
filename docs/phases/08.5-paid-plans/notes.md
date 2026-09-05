@@ -444,3 +444,59 @@ Satu-satunya baris tabel *Angka provisional* yang **masih kosong** setelah phase
 Tanpa kode produksi baru selain angka final + dua test penjaga + satu asersi yang diperkuat (AC #8).
 `go test -race ./...` bersih (39 paket), `golangci-lint run` 0 issues,
 `npm run typecheck && lint && test && build` bersih (162 test).
+
+---
+
+## Follow-up pasca-#126 — kontak Enterprise & `freeze.md` 8.4
+
+Dua poin terbuka yang tersisa saat phase ditutup, dijawab pemilik produk 5 September 2026 dan
+dikerjakan sebagai satu PR kecil (bukan phase baru).
+
+### Kontak Enterprise — env, bukan literal di `planDisplay`
+
+Jawabannya "WhatsApp", tapi **bentuk penyimpanannya berbeda dari yang `docs/issues/125` perkirakan**
+("satu baris di `planDisplay`"). Dua alasan yang keduanya baru terlihat setelah nomornya diberikan:
+
+1. **Nomor yang dipakai hari ini nomor pribadi, dan pemiliknya sendiri menyatakan akan menggantinya
+   dengan nomor Jualin.** Sebuah literal di kode akan tetap hidup di git history lama setelah
+   penggantinya ada — dan repository ini private, tapi "private" bukan "terhapus".
+2. **Bentuk URL penuh, bukan nomor telepon.** Kalau kelak pindah ke email, itu jadi perubahan env,
+   bukan perubahan kode — CRM tidak perlu tahu mediumnya WhatsApp atau bukan; ia merender tautan.
+
+`ENTERPRISE_CONTACT_URL` divalidasi saat boot dan **hanya menerima `https://` atau `mailto:`**. Itu
+bukan kerapian melainkan batas keamanan: nilainya dirender langsung ke dalam `href` di layar
+Langganan, dan `javascript:` di sana berarti eksekusi di sesi penonton. Ditolak saat boot lebih baik
+daripada berharap dashboard meng-escape-nya dengan benar selamanya.
+
+**Kosong tetap sah**, dan artinya kartu Enterprise dirender **tanpa tautan** — bukan tautan mati. Di
+sisi kabel, `contact_url` **dihilangkan** dari JSON (bukan dikirim string kosong) supaya pengecekan
+di klien adalah "ada tautan atau tidak", bukan "string ini kosong atau tidak" — kondisi yang cepat
+atau lambat merender `href=""`.
+
+Konfigurasinya duduk di **`subscription.HandlerConfig`**, bukan di `planDisplay`, dengan alasan yang
+sama `auth.MeConfig` ada: usecase tidak boleh belajar membaca config (ADR-011). Ada alasan kedua yang
+khusus di sini — katalog di `plan.go` adalah fungsi murni dari kebijakan produk, identik di setiap
+deployment; sebuah URL kontak tidak: ia berbeda per deployment dan berubah tanpa paketnya berubah.
+
+### `freeze.md` 8.4 — dinyatakan sebagai rekaman rencana, bukan dijadikan daftar hidup
+
+Dari dua jalan keluar yang ditawarkan, pemilik produk memilih **menambahkan satu kalimat** yang
+menyatakan tabel itu berhenti di Phase 6 dan bahwa daftar migration yang sesungguhnya adalah isi
+`crm_be/migrations/`.
+
+Pilihan ini lebih baik daripada "perbarui isinya" justru karena **selisih yang sama sudah terjadi tiga
+kali berturut-turut** (`0008`, `0009`, `0010`). Dokumen yang wajib diperbarui setiap phase adalah
+dokumen yang akan menyimpang lagi; yang dilakukan sekarang menghapus kewajiban itu sekaligus, dan
+menyisakan **satu** sumber kebenaran untuk daftar migration.
+
+Ini juga satu-satunya sentuhan ke `freeze.md` sepanjang Phase 8.5 — dilakukan hanya setelah
+ditanyakan dan disetujui, bukan ditambal saat ditemukan.
+
+### Sekalian: dua env dari #124 yang belum pernah masuk `.env.example`
+
+`SUBSCRIPTION_ADMIN_TOKEN` dan `SUBSCRIPTION_TEST_CHECKOUT` ada di `config.go` sejak #124 tapi tidak
+pernah didokumentasikan di `.env.example` — celah kecil yang tertangkap saat menambahkan env ketiga di
+berkas yang sama. Ketiganya sekarang tercatat beserta arti "kosong berarti route tidak didaftarkan".
+
+`go test -race ./...` bersih, `golangci-lint run` 0 issues,
+`npm run typecheck && lint && test && build` bersih (162 test).
