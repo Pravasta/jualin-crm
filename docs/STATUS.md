@@ -3,8 +3,8 @@
 > **Ledger state project.** Dibaca di **awal setiap session**, diperbarui di **akhir setiap session**.
 > Ini satu-satunya jawaban atas pertanyaan *"sekarang sudah sampai mana?"* — jangan merekonstruksinya dari kode.
 
-**Last updated:** 5 September 2026 — **Verifikasi manual Phase 8 dijalankan pemilik produk** (pasca-merge #115): `docs/testing/flow/09-webhook.md` §9.10 terhadap stack sungguhan — `planChannels[free][webhook]` dibalik → `curl POST /v1/webhook-endpoints` `403 plan_upgrade_required`, kartu Connect terkunci di browser, peta dikembalikan. Dengan itu **seluruh 10 AC PRD Phase 8 terpenuhi** (AC #3/#5 yang tadinya ✅\* kini penuh), `docs/issues/114` ditutup tanpa poin terbuka, dan Phase 8 ✅ tanpa catatan kaki. Dicatat sebagai laporan pemilik produk — agent tidak mengamati sendiri output-nya. Sebelumnya: **Issue #115 selesai — Phase 8 tutup.** `api.md` bab *Gerbang Paket* + katalog `plan_upgrade_required`; `authorization.md` bagian *Dua pertanyaan berbeda yang harus dilewati sebuah `POST` kanal* (urutan role→paket, kenapa paket bukan baris matriks `Action`); `authentication.md` sengaja **tidak** disentuh (dicatat sebagai keputusan). Prosedur `curl` + kartu terkunci di `docs/testing/flow/09-webhook.md` §9.10 (bagian baru, bukan berkas baru) + rekap `06-checklist-akhir.md`. **Dua berkas `docs/issues/` ditulis retroaktif** (`112-subscription-domain.md`, `114-dashboard-plan-locked.md`) — celah #112–#114 tidak menulisnya saat merge, tertangkap saat sesi ini meninjau kewajiban #98. **Seluruh 10 AC PRD dicek satu per satu terhadap bukti nyata** (tabel di `notes.md`) — 8 penuh ✅, 2 (#3 `curl`, #5 visual browser) ✅ secara mekanisme lewat test otomatis sungguhan tapi **verifikasi literal terhadap `docker compose` yang menyala diserahkan ke pemilik produk**, prosedurnya tertulis lengkap. AC #9 (nol angka harga/limit) diverifikasi lewat `grep` sungguhan, bukan diasumsikan. **Kewajiban yang diteruskan** (TD §16) tercatat: saat angka mendarat, saat payment service punya kontrak, saat kanal keempat lahir. `go test -race ./...` + `golangci-lint run` + `npm run typecheck && lint && test && build` dijalankan ulang, bersih. **Phase 8 selesai** dengan nol paket berbayar untuk digerbangi — konsekuensi jujur, bukan kegagalan; menunggu data pengguna nyata (ADR-012 §4), bukan kode. Sebelumnya: **Issue #114 selesai** — dashboard: kartu Connect punya keadaan **"terkunci oleh paket"** yang nyata. `MeResponse.plan` (`{code, channels}`) datang gratis lewat `GET /v1/me` yang `SessionGate` sudah panggil; `lib/plan.ts` (baru) murni **membaca** `channels` — kunci hilang → tertutup, **bukan** peta paket→kanal versi TypeScript (kriteria #6). Kartu terkunci: terlihat, redup, tidak bisa diklik, **tanpa tombol upgrade dan tanpa harga** (D6) — beda dari badge "Belum tersedia" yang dipertahankan untuk kanal berikutnya (TD §8). Balapan `403 plan_upgrade_required` sudah tertangani sebelum issue ini lewat banner generik; ditambahkan komentar yang menamai keputusannya, bukan cabang kode baru. **Layar tujuan sengaja tidak digerbangi** — hanya balapan, sesuai TD, diputuskan eksplisit sebelum implementasi. Verifikasi browser AC #7 (peta dibalik, kartu terkunci sungguhan) **diserahkan ke pemilik produk** setelah PR naik. `npm run typecheck && lint && test && build` bersih — 150 test. Sebelumnya: **Issue #113 selesai** — gerbang paket ditegakkan di usecase: `apikey`/`form`/`webhook` masing-masing memanggil `RequireChannel` lewat `PlanGate` sendiri (ADR-011), `cmd/api/subscription_gate.go` menjembatani lewat `subscription.ParseChannel` (gagal berisik untuk literal salah ketik, bukan diam-diam menutup kanal). `POST` ketiga kanal → **403 `plan_upgrade_required`** saat paket tertutup; `GET`/`PATCH`/`DELETE` dan jalur publik (`POST /v1/leads` API key, `POST /v1/forms/{public_key}/submit`) **tetap terbuka** (D4/§11) — dibuktikan `cmd/api/plan_gate_test.go` lewat wiring produksi asli, subscription row asli (bukan menyabotase peta di kode yang di-commit). AC #4 (peta dibalik → merah → dikembalikan) **dijalankan sungguhan**, bukan diklaim — `git diff` kosong setelahnya. Sebelumnya: **Issue #112 selesai** — domain `subscription` penuh: `planChannels` (peta satu-tempat, tabel atas seluruh `Channels`), `ResolvePlan`/`RequireChannel`, `GET /v1/me` membawa `plan.code`+`plan.channels`. Sebelumnya: **Phase 8 — Subscription dibuka** (PRD/TD/issues, #112–#115): gerbang paket, **mekanismenya bukan angkanya** (ADR-012 §4); tanpa `usage_counters`, tanpa tabel `plans`, tanpa migration. **Phase 7.5 ditunda** atas keputusan pemilik produk. Sebelumnya: **Issue #104 selesai — Phase 7 tutup** (halaman verifikasi `/connect/webhook/docs`, ADR-013, dokumen arsitektur, `docs/testing/flow/09-webhook.md`, review 14 AC PRD). **Verifikasi manual `09-webhook.md` dijalankan** (sesi browser, pasca-merge #110): AC #1/#2/#6/#9/#10/#11 + gerbang role terkonfirmasi dari sisi penerima sungguhan; §9.8 SSRF dilewati (butuh env flip) — dikunci `denylist_test.go` + #100. Follow-up PR [#111](https://github.com/Pravasta/jualin-crm/pull/111) memperbaiki kontradiksi env di `09-webhook.md` §9.8. Sebelumnya: **#103**, **#102**, **#101**, **#100**.
-**Phase sekarang:** **Tidak ada** — **Phase 8 — Subscription selesai** (#112–#115), gerbang paket nyata **dan** terlihat: server menolak, dashboard menampilkan kartu terkunci. Phase 7.5 (Inbound Webhook) **ditunda**, konsep dicari dulu. Phase berikutnya **belum dibuka** — baca `docs/issues/*` yang masih punya poin terbuka (bagian *Berikutnya*) sebelum membukanya. GATE freeze (3–5 pengguna nyata) **masih dilewati secara sadar**.
+**Last updated:** 5 September 2026 — **Phase 8.5 — Paket Berbayar & Kuota dibuka** (PRD/TD/issues, #122–#126) + **[ADR-014](./decisions/ADR-014-provisional-pricing-before-gate.md)**. Tiga paket (Free/Pro/Enterprise), kuota lead bulanan, batas seat, layar Langganan, dua jalur perubahan paket. **Dua penyimpangan dilaporkan, bukan diselipkan**: (1) nomor phase — `freeze.md` memesan Phase 9 untuk Deal & Pipeline, jadi ini disisipkan sebagai **8.5** (preseden 4.5/4.6/7.5); (2) menetapkan harga sebelum gate freeze bertentangan dengan ADR-012 §4 → ditutup lewat **ADR-014**, yang menemukan urutan lamanya **melingkar** (pelanggan berbayar tidak bisa didatangkan sebelum ada yang bisa dibeli) dan memindahkan kewajiban peninjauan ke "setelah 3–5 pelanggan berbayar pertama", bukan menghapusnya. **`usage_counters` ditolak lagi — dan kali ini final**: kewajiban Phase 8 D1 terjawab, `COUNT` atas `leads` termasuk yang soft-deleted memberi semantik identik tanpa tabel dan tanpa jalur tulis di tiga usecase. **Angka provisional belum diisi** — itu keputusan pemilik produk yang memblokir rilis, bukan implementasi. Sebelumnya: **Verifikasi manual Phase 8 dijalankan pemilik produk** (pasca-merge #115): `docs/testing/flow/09-webhook.md` §9.10 terhadap stack sungguhan — `planChannels[free][webhook]` dibalik → `curl POST /v1/webhook-endpoints` `403 plan_upgrade_required`, kartu Connect terkunci di browser, peta dikembalikan. Dengan itu **seluruh 10 AC PRD Phase 8 terpenuhi** (AC #3/#5 yang tadinya ✅\* kini penuh), `docs/issues/114` ditutup tanpa poin terbuka, dan Phase 8 ✅ tanpa catatan kaki. Dicatat sebagai laporan pemilik produk — agent tidak mengamati sendiri output-nya. Sebelumnya: **Issue #115 selesai — Phase 8 tutup.** `api.md` bab *Gerbang Paket* + katalog `plan_upgrade_required`; `authorization.md` bagian *Dua pertanyaan berbeda yang harus dilewati sebuah `POST` kanal* (urutan role→paket, kenapa paket bukan baris matriks `Action`); `authentication.md` sengaja **tidak** disentuh (dicatat sebagai keputusan). Prosedur `curl` + kartu terkunci di `docs/testing/flow/09-webhook.md` §9.10 (bagian baru, bukan berkas baru) + rekap `06-checklist-akhir.md`. **Dua berkas `docs/issues/` ditulis retroaktif** (`112-subscription-domain.md`, `114-dashboard-plan-locked.md`) — celah #112–#114 tidak menulisnya saat merge, tertangkap saat sesi ini meninjau kewajiban #98. **Seluruh 10 AC PRD dicek satu per satu terhadap bukti nyata** (tabel di `notes.md`) — 8 penuh ✅, 2 (#3 `curl`, #5 visual browser) ✅ secara mekanisme lewat test otomatis sungguhan tapi **verifikasi literal terhadap `docker compose` yang menyala diserahkan ke pemilik produk**, prosedurnya tertulis lengkap. AC #9 (nol angka harga/limit) diverifikasi lewat `grep` sungguhan, bukan diasumsikan. **Kewajiban yang diteruskan** (TD §16) tercatat: saat angka mendarat, saat payment service punya kontrak, saat kanal keempat lahir. `go test -race ./...` + `golangci-lint run` + `npm run typecheck && lint && test && build` dijalankan ulang, bersih. **Phase 8 selesai** dengan nol paket berbayar untuk digerbangi — konsekuensi jujur, bukan kegagalan; menunggu data pengguna nyata (ADR-012 §4), bukan kode. Sebelumnya: **Issue #114 selesai** — dashboard: kartu Connect punya keadaan **"terkunci oleh paket"** yang nyata. `MeResponse.plan` (`{code, channels}`) datang gratis lewat `GET /v1/me` yang `SessionGate` sudah panggil; `lib/plan.ts` (baru) murni **membaca** `channels` — kunci hilang → tertutup, **bukan** peta paket→kanal versi TypeScript (kriteria #6). Kartu terkunci: terlihat, redup, tidak bisa diklik, **tanpa tombol upgrade dan tanpa harga** (D6) — beda dari badge "Belum tersedia" yang dipertahankan untuk kanal berikutnya (TD §8). Balapan `403 plan_upgrade_required` sudah tertangani sebelum issue ini lewat banner generik; ditambahkan komentar yang menamai keputusannya, bukan cabang kode baru. **Layar tujuan sengaja tidak digerbangi** — hanya balapan, sesuai TD, diputuskan eksplisit sebelum implementasi. Verifikasi browser AC #7 (peta dibalik, kartu terkunci sungguhan) **diserahkan ke pemilik produk** setelah PR naik. `npm run typecheck && lint && test && build` bersih — 150 test. Sebelumnya: **Issue #113 selesai** — gerbang paket ditegakkan di usecase: `apikey`/`form`/`webhook` masing-masing memanggil `RequireChannel` lewat `PlanGate` sendiri (ADR-011), `cmd/api/subscription_gate.go` menjembatani lewat `subscription.ParseChannel` (gagal berisik untuk literal salah ketik, bukan diam-diam menutup kanal). `POST` ketiga kanal → **403 `plan_upgrade_required`** saat paket tertutup; `GET`/`PATCH`/`DELETE` dan jalur publik (`POST /v1/leads` API key, `POST /v1/forms/{public_key}/submit`) **tetap terbuka** (D4/§11) — dibuktikan `cmd/api/plan_gate_test.go` lewat wiring produksi asli, subscription row asli (bukan menyabotase peta di kode yang di-commit). AC #4 (peta dibalik → merah → dikembalikan) **dijalankan sungguhan**, bukan diklaim — `git diff` kosong setelahnya. Sebelumnya: **Issue #112 selesai** — domain `subscription` penuh: `planChannels` (peta satu-tempat, tabel atas seluruh `Channels`), `ResolvePlan`/`RequireChannel`, `GET /v1/me` membawa `plan.code`+`plan.channels`. Sebelumnya: **Phase 8 — Subscription dibuka** (PRD/TD/issues, #112–#115): gerbang paket, **mekanismenya bukan angkanya** (ADR-012 §4); tanpa `usage_counters`, tanpa tabel `plans`, tanpa migration. **Phase 7.5 ditunda** atas keputusan pemilik produk. Sebelumnya: **Issue #104 selesai — Phase 7 tutup** (halaman verifikasi `/connect/webhook/docs`, ADR-013, dokumen arsitektur, `docs/testing/flow/09-webhook.md`, review 14 AC PRD). **Verifikasi manual `09-webhook.md` dijalankan** (sesi browser, pasca-merge #110): AC #1/#2/#6/#9/#10/#11 + gerbang role terkonfirmasi dari sisi penerima sungguhan; §9.8 SSRF dilewati (butuh env flip) — dikunci `denylist_test.go` + #100. Follow-up PR [#111](https://github.com/Pravasta/jualin-crm/pull/111) memperbaiki kontradiksi env di `09-webhook.md` §9.8. Sebelumnya: **#103**, **#102**, **#101**, **#100**.
+**Phase sekarang:** **Phase 8.5 — Paket Berbayar & Kuota** ([#122–#126](https://github.com/Pravasta/jualin-crm/milestone/12)), baru dibuka. Angka paket mendarat: kuota lead bulanan, batas seat, layar Langganan, jalur upgrade manual — payment service **ditunda ke phase akhir** (keputusan pemilik produk). Phase 8 selesai (#112–#115). Phase 7.5 (Inbound Webhook) **ditunda**, konsep dicari dulu; Phase 9 (Deal & Pipeline) tetap milik `freeze.md`, hanya didahului. **GATE freeze urutannya dikoreksi ADR-014** — angka ditetapkan lebih dulu sebagai provisional, peninjauannya dipindah ke "setelah 3–5 pelanggan berbayar pertama".
 
 ---
 
@@ -75,18 +75,28 @@
 
 ## Sedang Dikerjakan
 
-**Tidak ada phase yang sedang dikerjakan.** Phase 8 — Subscription **selesai** (#112–#115, detail di
-*Progress per Phase*). Phase 7.5 (Inbound Webhook) **ditunda**, konsepnya masih dicari lebih dulu.
-Phase berikutnya belum dibuka — lihat *Berikutnya* untuk apa yang perlu dibaca dulu.
+**Phase 8.5 — Paket Berbayar & Kuota** ([#122–#126](https://github.com/Pravasta/jualin-crm/milestone/12)) —
+**baru dibuka**, belum ada issue yang dikerjakan. Dokumen: `docs/phases/08.5-paid-plans/`.
+Phase 8 — Subscription **selesai** (#112–#115). Phase 7.5 (Inbound Webhook) **ditunda**.
+
+**Dua hal memblokir, dan keduanya keputusan pemilik produk — bukan kode:**
+
+1. **prd D3** — apa yang terjadi pada **submit form publik** saat kuota habis. Rekomendasi TD: lead
+   tetap diterima (`201`), Owner diberi tahu, tekanan upgrade ditaruh di kanal berbayar — karena
+   menolak berarti form di situs pelanggan mati dan pengunjung melihat error tentang tagihan orang
+   lain. **Memblokir #123**, tidak memblokir #122/#124.
+2. **Angka provisional** — kuota lead Free/Pro, batas seat, kanal per paket, label harga Pro
+   (`prd.md` tabel *Angka provisional*). **Memblokir rilis, bukan implementasi**: `planLimits`
+   memakai `TODO` sampai diisi, dan #126 punya AC yang gagal kalau masih placeholder.
 
 **Phase 7.5 (Inbound Webhook) ditunda** — keputusan pemilik produk 3 September 2026: konsepnya masih
 dicari lebih dulu. Analisis awal yang sudah dilakukan (kasus WordPress: plugin form yang sudah ada,
 hanya bisa diberi satu URL) tercatat di *Berikutnya* di bawah supaya tidak hilang.
 
-**Apa yang Phase 8 tidak menyelesaikan** — dibaca sebelum mengharapkan sebaliknya: produk punya
-gerbang paket yang bekerja dan **nol paket berbayar untuk digerbangi**. Kartu terkunci tidak akan
-muncul di layar siapa pun sampai peta `planChannels` diisi paket kedua, dan itu menunggu **data
-pengguna nyata** (ADR-012 §4) — bukan menunggu kode. Detail di *Berikutnya*.
+**Apa yang Phase 8 tidak menyelesaikan, dan siapa yang menyelesaikannya**: Phase 8 meninggalkan
+gerbang paket yang bekerja dengan **nol paket berbayar untuk digerbangi**. Itu persis yang Phase 8.5
+isi — dan urutan lamanya ("tunggu data pengguna nyata dulu", ADR-012 §4) **dikoreksi ADR-014** karena
+melingkar: pelanggan yang membuka dompet tidak bisa didatangkan sebelum ada yang bisa dibeli.
 
 **Verifikasi manual Phase 8 selesai** — `docs/testing/flow/09-webhook.md` §9.10 dijalankan pemilik
 produk **5 September 2026** (pasca-merge #115) terhadap stack sungguhan: peta dibalik → `403
@@ -130,6 +140,44 @@ daftar itu, bukan memulai keraguan terpisah.
 > **Kenapa bagian ini ada.** Pointer seperti ini tidak pernah dipasang untuk Phase 5 dan Phase 6,
 > sehingga enam berkas di atas tidak pernah dibaca saat phase-nya ditutup (#98). Templat issue kini
 > mewajibkannya.
+
+### Phase 8.5 — Paket Berbayar & Kuota — baru dibuka (#122–#126)
+
+**Angka paket mendarat.** Phase 8 membangun gerbangnya dan sengaja tidak mengisi satu angka pun;
+Phase 8.5 mengisinya, menambah dimensi yang Phase 8 tidak punya (**berapa banyak**, bukan hanya
+**kanal apa**), dan memberi pelanggan layar untuk melihat serta menaikkan paketnya. Tiga paket:
+**Free**, **Pro** (self-serve), **Enterprise** (lewat percakapan). Dokumen:
+`docs/phases/08.5-paid-plans/`.
+
+**Dua penyimpangan dilaporkan di muka (Aturan #30):**
+
+- **Nomor phase.** `freeze.md` memesan Phase 9 untuk *"Deal, Pipeline entity, reports lanjutan,
+  automation"*. Ini bukan itu — ia lanjutan langsung Phase 8, disisipkan sebagai **8.5** mengikuti
+  preseden `04.5`, `04.6`, `07.5`. Phase 9 tetap milik Deal & Pipeline.
+- **Harga sebelum gate freeze**, bertentangan dengan ADR-012 §4 → ditutup lewat
+  **[ADR-014](./decisions/ADR-014-provisional-pricing-before-gate.md)**, yang menemukan urutan lamanya
+  **melingkar**: angka menunggu pelanggan berbayar, pelanggan berbayar menunggu angka. Kewajiban
+  peninjauan tidak dihapus — dipindah ke *"setelah 3–5 pelanggan berbayar pertama"*.
+
+**Keputusan besar yang ditutup di muka:**
+
+- **`usage_counters` ditolak lagi — dan kali ini final.** Kewajiban Phase 8 D1 (*"dievaluasi ulang
+  bersamaan dengan mendaratnya angka limit"*) terjawab: `COUNT` atas `leads` **termasuk yang
+  soft-deleted** memberi semantik identik dengan penghitung (menghapus lead tidak mengembalikan
+  kuota) tanpa tabel baru dan tanpa jalur tulis di tiga usecase.
+- **Kuota gagal tertutup ke limit `free`, bukan ke nol** — asimetri yang disengaja terhadap Phase 8.
+  Kanal tertutup itu mengganggu; kuota nol berarti produk **berhenti menerima lead sama sekali**.
+  Kegagalan billing tidak boleh menghapus fungsi inti.
+- **Satu titik penegakan untuk tiga jalur.** Ketiga jalur pembuatan lead (user, API key, form publik)
+  bermuara di `lead.Usecase.Create` — diverifikasi, bukan diasumsikan.
+- **Test checkout mati total di produksi** (`SUBSCRIPTION_TEST_CHECKOUT=true` + `APP_ENV=production`
+  → boot gagal). Tombol yang membuat Owner bisa menaikkan paketnya sendiri bukan fitur, itu lubang.
+
+**Dua hal memblokir, keduanya keputusan pemilik produk:** prd **D3** (form publik saat kuota habis —
+memblokir #123) dan **angka provisional** (memblokir rilis, bukan implementasi). Lihat *Sedang
+Dikerjakan*.
+
+---
 
 ### Phase 7.5 — Inbound Webhook — ditunda, konsep dicari dulu
 
@@ -380,10 +428,10 @@ Tidak ada yang memblokir. Semuanya diputuskan saat fitur terkait dikerjakan.
 | — | Email provider (Resend / Postmark / SES) | **Tidak lagi memblokir** sejak Phase 4.6 — transport SMTP, ganti provider = ganti env |
 | — | Domain final & branding | Phase 1 — ⏳ *lead time, lihat bawah* |
 | — | Hosting & managed PostgreSQL | Phase 0 akhir |
-| — | Retensi data free tier | **Tetap terbuka setelah Phase 8 tutup** (#115) — Phase 8 sengaja hanya membangun mekanismenya, bukan angkanya (ADR-012 §4). Jatuh tempo bersama limit di bawah |
+| — | Retensi data free tier | **Tetap terbuka.** Tidak masuk cakupan Phase 8.5 (`08.5-paid-plans/prd.md` *Di luar cakupan*); jatuh tempo bersama peninjauan angka di bawah |
 | — | Push provider detail | **Ditutup #68** — FCM HTTP v1 API langsung, tanpa Firebase Admin SDK |
-| — | Pricing final & limit free tier | **Tetap terbuka setelah Phase 8 tutup** (#115). ADR-012 §4 mengikatnya ke gate freeze (3–5 pengguna nyata), bukan ke phase-nya — Phase 8 hanya membangun tempat yang menunggunya: satu peta `planChannels` di `internal/subscription/plan.go`, tinggal diisi satu literal saat angkanya ada |
-| — | Kontrak integrasi payment service | **Tetap terbuka setelah Phase 8 tutup** (#115) — `freeze.md` menulis "sebelum Phase 8", tapi Phase 8 berjalan tanpanya secara sadar: keputusan D6 menghentikan kartu terkunci tepat di batas yang membutuhkannya (tanpa tombol upgrade, tanpa harga). Yang tidak boleh terjadi adalah menebak bentuk kontraknya lalu membangun ke arah tebakan itu |
+| — | Pricing final & limit free tier | **Pemicunya berubah, bukan ditutup** ([ADR-014](./decisions/ADR-014-provisional-pricing-before-gate.md), 5 Sep 2026). Angka **provisional** ditetapkan di Phase 8.5 supaya produk punya sesuatu untuk dijual; angka **final** ditinjau ulang **setelah 3–5 pelanggan berbayar pertama** — bukan lagi "setelah gate freeze". Keempatnya (kuota Free, kuota Pro, harga Pro, batas seat) ditinjau **bersama-sama**, satu keputusan produk. Angka provisional-nya sendiri **belum diisi** — itu yang memblokir rilis Phase 8.5 |
+| — | Kontrak integrasi payment service | **Tetap terbuka; ditunda ke phase akhir** atas keputusan pemilik produk (5 Sep 2026). Service-nya sudah ada, kontraknya belum ditulis. Phase 8.5 membangun **tempat sambungnya**, bukan menebak bentuknya: `external_reference` (ada sejak `0002`, masih tanpa pembaca) dan endpoint perubahan paket `/internal/...` yang kelak dipanggil webhook pembayaran — bukan alur berbeda yang harus ditulis ulang |
 
 Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 dan `docs/brainstorming/architecture_product_review.md` bagian 12.
 
@@ -457,6 +505,7 @@ Rekomendasi untuk masing-masing ada di `docs/architecture/freeze.md` bagian 7 da
 | 7 | Outbound Webhook | ✅ | ✅ | ✅ #100–#104 | ✅ |
 | 7.5 | Inbound Webhook | ⬜ | ⬜ | ⬜ | ⬜ — **ditunda**, konsep dicari dulu (3 Sep 2026) |
 | 8 | Subscription | ✅ | ✅ | ✅ #112–#115 | ✅ |
+| 8.5 | Paket Berbayar & Kuota | ✅ | ✅ | ✅ #122–#126 | ⬜ — baru dibuka (5 Sep 2026) |
 
 Verifikasi manual Phase 8 (`docs/testing/flow/09-webhook.md` §9.10 — `curl` → `403` + kartu terkunci
 di browser) **dijalankan pemilik produk 5 September 2026**; seluruh 10 AC PRD terpenuhi.

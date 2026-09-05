@@ -82,6 +82,13 @@ Artinya: `POST /v1/forms` yang dipanggil langsung lewat `curl` oleh organization
 
 **ADR ini menetapkan mekanismenya, bukan angkanya.** Peta "kanal X untuk paket Y" ditulis saat Phase 8, setelah gate freeze (3–5 pengguna nyata) memberi data yang membuat angka itu bisa dipilih dengan jujur — bukan ditebak sekarang lalu dipertahankan karena sudah terlanjur ditulis.
 
+> ⚠️ **Urutan di paragraf itu dikoreksi [ADR-014](./ADR-014-provisional-pricing-before-gate.md)
+> (5 September 2026).** Menunggu gate freeze ternyata melingkar: pelanggan yang **membuka dompet**
+> tidak bisa didatangkan sebelum ada yang bisa dibeli. Angka ditetapkan lebih dulu sebagai
+> **provisional**, dengan kewajiban peninjauan yang dipindah ke *"setelah 3–5 pelanggan berbayar
+> pertama"* — bukan dihapus. Sisa ADR ini (§1–§3, batas "CRM tidak pernah tahu uang") **tidak
+> berubah**; Phase 8 sendiri tetap ditutup tanpa satu angka pun.
+
 ## Alasan
 
 | | |
