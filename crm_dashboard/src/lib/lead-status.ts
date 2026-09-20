@@ -7,8 +7,10 @@
 // one the UI never shows.
 import { STATUS_META, type LeadStatus } from "./labels";
 
-const MAIN_PATH: LeadStatus[] = ["new", "contacted", "qualified", "proposal", "won"];
-const SIDE_EXITS: LeadStatus[] = ["lost", "unqualified", "spam"];
+// Exported so the pipeline view (lead-pipeline.ts) reads the SAME path the
+// rules do — two copies of "the five stages" is how they drift apart.
+export const MAIN_PATH: readonly LeadStatus[] = ["new", "contacted", "qualified", "proposal", "won"];
+const SIDE_EXITS: readonly LeadStatus[] = ["lost", "unqualified", "spam"];
 
 function mainPathIndex(status: LeadStatus): number {
   return MAIN_PATH.indexOf(status);
@@ -33,11 +35,16 @@ export function isValidStatusTransition(from: LeadStatus, to: LeadStatus): boole
   return diff === 1 || diff === -1;
 }
 
+// Direction travels as DATA, and the label is a verb. Until #141 every step
+// was labelled "→ {status}" — one arrow for both ways, so "→ Memenuhi Syarat"
+// at Penawaran pointed forward while going backward. A verb carries the
+// direction by itself, so there is no arrow left to read the wrong way.
+export type StatusDirection = "forward" | "back" | "reopen" | "close";
+
 export interface StatusTransitionOption {
   status: LeadStatus;
   label: string;
-  /** "step" = adjacent on the main path (accent-styled); "exit" = a side terminal (neutral-styled). */
-  kind: "step" | "exit";
+  direction: StatusDirection;
 }
 
 // The backend allows "lost" to reopen to ANY main-path status except
@@ -53,8 +60,8 @@ export function statusTransitionOptions(from: LeadStatus): StatusTransitionOptio
     return [
       {
         status: "contacted",
-        label: `→ Buka kembali ke ${STATUS_META.contacted.label}`,
-        kind: "step",
+        label: `Buka kembali ke ${STATUS_META.contacted.label}`,
+        direction: "reopen",
       },
     ];
   }
@@ -68,20 +75,20 @@ export function statusTransitionOptions(from: LeadStatus): StatusTransitionOptio
     if (idx - 1 >= 0) {
       const prev = MAIN_PATH[idx - 1];
       if (isValidStatusTransition(from, prev)) {
-        options.push({ status: prev, label: `→ ${STATUS_META[prev].label}`, kind: "step" });
+        options.push({ status: prev, label: `Kembali ke ${STATUS_META[prev].label}`, direction: "back" });
       }
     }
     if (idx + 1 < MAIN_PATH.length) {
       const next = MAIN_PATH[idx + 1];
       if (isValidStatusTransition(from, next)) {
-        options.push({ status: next, label: `→ ${STATUS_META[next].label}`, kind: "step" });
+        options.push({ status: next, label: `Maju ke ${STATUS_META[next].label}`, direction: "forward" });
       }
     }
   }
 
   for (const exit of SIDE_EXITS) {
     if (isValidStatusTransition(from, exit)) {
-      options.push({ status: exit, label: STATUS_META[exit].label, kind: "exit" });
+      options.push({ status: exit, label: STATUS_META[exit].label, direction: "close" });
     }
   }
   return options;

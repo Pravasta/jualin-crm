@@ -73,8 +73,9 @@ describe("nothing leads back to new (issue #139)", () => {
   });
 
   it('"contacted" offers forward and the side exits, but no backward step', () => {
-    const steps = statusTransitionOptions("contacted").filter((o) => o.kind === "step");
+    const steps = statusTransitionOptions("contacted").filter((o) => o.direction === "forward" || o.direction === "back");
     expect(steps.map((o) => o.status)).toEqual(["qualified"]);
+    expect(steps.map((o) => o.direction)).toEqual(["forward"]);
   });
 });
 
@@ -93,14 +94,16 @@ describe("statusTransitionOptions", () => {
 
   it("offers only forward, no backward, for the first main-path status", () => {
     const options = statusTransitionOptions("new");
-    const steps = options.filter((o) => o.kind === "step");
+    const steps = options.filter((o) => o.direction === "forward" || o.direction === "back");
     expect(steps.map((o) => o.status)).toEqual(["contacted"]);
+    expect(steps.map((o) => o.direction)).toEqual(["forward"]);
   });
 
   it("offers only backward, no forward, for the last main-path status", () => {
     const options = statusTransitionOptions("won");
-    const steps = options.filter((o) => o.kind === "step");
+    const steps = options.filter((o) => o.direction === "forward" || o.direction === "back");
     expect(steps.map((o) => o.status)).toEqual(["proposal"]);
+    expect(steps.map((o) => o.direction)).toEqual(["back"]);
   });
 
   it('restricts "lost" to a single reopen-to-"contacted" option, not all 5 valid main-path targets', () => {
@@ -112,7 +115,8 @@ describe("statusTransitionOptions", () => {
     const options = statusTransitionOptions("lost");
     expect(options).toHaveLength(1);
     expect(options[0].status).toBe("contacted");
-    expect(options[0].label).toBe("→ Buka kembali ke Dihubungi");
+    expect(options[0].direction).toBe("reopen");
+    expect(options[0].label).toBe("Buka kembali ke Dihubungi");
   });
 
   it("every option returned is actually valid per isValidStatusTransition", () => {
@@ -138,5 +142,43 @@ describe("hasBeenConverted", () => {
     expect(
       hasBeenConverted([{ type: "lead_created" }, { type: "status_changed" }, { type: "note" }])
     ).toBe(false);
+  });
+});
+
+// Issue #141. The old labels put "→" on EVERY step, forward or back, so
+// "→ Memenuhi Syarat" at Penawaran pointed forward while going backward. The
+// direction now travels as data and the label is a verb — no arrow at all, so
+// there is nothing left to read the wrong way.
+describe("direction and labels (issue #141)", () => {
+  it("every option carries a direction that matches where it actually goes", () => {
+    const order: LeadStatus[] = ["new", "contacted", "qualified", "proposal", "won"];
+    for (const from of LEAD_STATUSES) {
+      for (const opt of statusTransitionOptions(from)) {
+        const f = order.indexOf(from);
+        const t = order.indexOf(opt.status);
+        if (opt.direction === "forward") expect(t, `${from} -> ${opt.status}`).toBeGreaterThan(f);
+        if (opt.direction === "back") expect(t, `${from} -> ${opt.status}`).toBeLessThan(f);
+        if (opt.direction === "close") expect(["lost", "unqualified", "spam"]).toContain(opt.status);
+        if (opt.direction === "reopen") expect(from).toBe("lost");
+      }
+    }
+  });
+
+  it("labels are verbs, and no label uses an arrow for either direction", () => {
+    for (const from of LEAD_STATUSES) {
+      for (const opt of statusTransitionOptions(from)) {
+        expect(opt.label, `${from} -> ${opt.status}`).not.toMatch(/[→←↑↓]/);
+        if (opt.direction === "forward") expect(opt.label).toMatch(/^Maju ke /);
+        if (opt.direction === "back") expect(opt.label).toMatch(/^Kembali ke /);
+        if (opt.direction === "reopen") expect(opt.label).toMatch(/^Buka kembali ke /);
+      }
+    }
+  });
+
+  it("names the destination the way the badge does — one word for one status", () => {
+    const won = statusTransitionOptions("proposal").find((o) => o.status === "won");
+    expect(won?.label).toBe("Maju ke Menang");
+    const back = statusTransitionOptions("proposal").find((o) => o.status === "qualified");
+    expect(back?.label).toBe("Kembali ke Memenuhi Syarat");
   });
 });
