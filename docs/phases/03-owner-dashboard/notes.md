@@ -883,3 +883,69 @@ sesi ini dan sesi-sesi sebelumnya (#30–#34):
 phase-nya, bukan langkah opsional) dan keputusan phase berikutnya (4 — Public API, atau 5 — Employee
 Mobile; freeze menempatkan keduanya tidak saling bergantung). Keduanya keputusan produk/manusia, dicatat
 di `STATUS.md` sebagai item terbuka, bukan diputuskan sepihak di sesi ini.
+
+---
+
+## #135 — Login gagal tidak menampilkan pesan (perbaikan pasca-phase)
+
+Ditemukan pemilik produk saat pencarian bug manual pasca-Phase 8.5, bukan oleh test otomatis mana pun.
+Phase 3 sudah tutup; bagian ini dicatat di sini karena yang diperbaiki adalah aturan `api-client.ts`
+dari #31, bukan fitur baru.
+
+**Gejala.** Login dengan password salah: backend menjawab `401 invalid_credentials` dengan benar,
+tetapi layar hanya ter-reload dan form kosong kembali — banner "Email atau password salah." tidak
+pernah tampil.
+
+**Sebab.** `fetchWithAuth` memperlakukan **setiap** `401` selain dari `/v1/auth/refresh` sebagai
+"access token kedaluwarsa": refresh, lalu ulangi. Benar untuk endpoint yang butuh sesi; salah untuk
+`POST /v1/auth/login`, di mana `401` adalah jawaban tentang kredensial. Rantainya: refresh gagal (di
+halaman login tidak ada cookie) → `redirectToLogin()` = `window.location.href` → **navigasi penuh**
+yang menghapus state React sebelum `setError` sempat ter-render. Pesan yang dilempar pun salah:
+`sessionExpiredError` ("Sesi Anda berakhir"), bukan pesan backend.
+
+**Gejala kedua, lebih senyap.** Bila browser *sudah* punya cookie refresh valid (mis. sesi di tab
+lain), refresh **berhasil** dan `fetchWithAuth` mengulang `POST /v1/auth/login` dengan password salah
+yang sama. `crm_be` mencatat kegagalan **dua kali** (`RecordFailure` untuk IP dan email) — satu
+percobaan yang terlihat pengguna menghabiskan dua jatah `LoginLimiter`, jadi backoff progresif (#10)
+datang dua kali lebih cepat dari rancangannya. Terbukti di test sebelum perbaikan: `loginCallCount`
+bernilai **2**, bukan 1.
+
+**Perbaikan.** Satu predikat, `isCredentialEndpoint(path)` = `path.startsWith("/v1/auth/")`,
+menggantikan `path === REFRESH_PATH`. `401` dari endpoint mana pun di bawah `/v1/auth/` diteruskan
+apa adanya sebagai `ApiError`: tanpa refresh, tanpa retry, tanpa redirect.
+
+- **Awalan, bukan daftar.** Semua rute `/v1/auth/*` didaftarkan `crm_be` di luar `authMW`
+  (`internal/auth/handler_http.go:95-103`), jadi `401` dari sana tidak pernah berarti sesi habis.
+  Endpoint baru di bawah awalan itu ikut aman tanpa ada yang perlu mengingat menambahkannya.
+- **Bukan "semua endpoint publik".** `POST /v1/invitations/accept` memakai `optionalAuthMW`; cabang
+  "user sudah ada" menjawab `401` untuk pengunjung tanpa sesi, dan layar undangan **bergantung** pada
+  refresh-lalu-redirect untuk mengirimnya ke `/login` (lihat #34). Test khusus mengunci ini.
+- **Alternatif ditolak:** flag per-panggilan (`skipRefresh: true` di `auth.ts`) — bisa terlupa di
+  endpoint auth berikutnya, dan issue justru meminta pengecualian yang tidak bisa terlewat.
+
+**Test** (`api-client.test.ts`, 4 baru, 166 total): login `401` → `ApiError` `invalid_credentials`
+dengan panggilan refresh **0**, login **tepat 1**, tanpa redirect; kasus refresh-akan-berhasil →
+tetap login **tepat 1**; aturan berlaku untuk seluruh awalan (`password/reset`, `verify-email`, dan
+path fiktif `some-future-endpoint`); `/v1/invitations/accept` `401` **tetap** memicu refresh + redirect.
+**Dibuktikan bisa gagal**: predikat dikembalikan ke `path === REFRESH_PATH` → tiga test merah
+(`loginCallCount` 2, pesan `authentication_required`, refresh 3×) → dikembalikan → 10/10 hijau di tiga
+kali jalan, `git diff` hanya dua berkas yang dimaksud.
+
+**Audit endpoint auth lain yang bisa menjawab `401`** (permintaan issue): `grep` atas seluruh
+`internal/auth/*.go` dan `internal/shared/httpx/*.go` — satu-satunya sumber `401` adalah
+`invalidCredentialsError()`, dan pemanggilnya hanya `Login` (termasuk `selectMembership`) dan
+`Refresh` (+ handler `refresh`). `register`, `verify-email`, `verify-email/resend`, `password/forgot`,
+`password/reset`, dan `logout` tidak punya jalur `401`; pemanggil `logout` (`app-shell.tsx:67`)
+menelan errornya. Hasilnya nihil selain `login` — awalan tetap dipilih karena bentuknya yang
+melindungi endpoint mendatang, bukan karena ada korban lain hari ini.
+
+**Selisih dengan TD (dilaporkan, `td.md` tidak disentuh — Aturan #30).** TD §4.2 (baris 217) hanya
+mengecualikan `/v1/auth/refresh`. Ia tidak memperhitungkan `login`, yang menjawab `401` sebagai hal
+yang lumrah. Kodenya kini lebih luas dari teks TD; isi TD tidak salah, hanya kurang lengkap.
+
+**Yang tidak bisa dibuktikan sesi ini.** Verifikasi di browser sungguhan (banner tampil, tanpa reload,
+tab Network tanpa `/v1/auth/refresh`) **belum dijalankan** — ekstensi Chrome tidak terhubung. Yang
+terbukti: kontrak backend lewat `curl` (`401 {"code":"invalid_credentials","message":"Email atau
+password salah."}`) dan perilaku klien lewat test. Langkahnya ditulis di
+`docs/testing/flow/01-registrasi-dan-autentikasi.md` §1.4 untuk dijalankan pemilik produk, dan
+**jangan dibaca sebagai sudah**.

@@ -166,6 +166,141 @@ describe("refresh single-flight", () => {
   });
 });
 
+// Issue #135. A 401 from /v1/auth/* is an answer about the CREDENTIALS
+// in the request (wrong password), not about an expired session — so it
+// must reach the caller untouched. Treating it as "session expired"
+// ran refresh, then either redirected (a full page reload that erased
+// the error banner before it could render) or, when the browser DID
+// hold a valid session, replayed the login with the same wrong password
+// and made crm_be's LoginLimiter count one attempt twice.
+describe("401 from /v1/auth/* is a credential answer, not an expired session", () => {
+  const invalidCredentials = {
+    error: { code: "invalid_credentials", message: "Email atau password salah." },
+  };
+
+  it("login 401 surfaces crm_be's own error — no refresh, no retry, no redirect", async () => {
+    let refreshCallCount = 0;
+    let loginCallCount = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/refresh")) {
+          refreshCallCount++;
+          return Promise.resolve(jsonResponse(401, { error: { code: "authentication_required", message: "Sesi habis." } }));
+        }
+        if (url.endsWith("/v1/auth/login")) {
+          loginCallCount++;
+          return Promise.resolve(jsonResponse(401, invalidCredentials));
+        }
+        throw new Error(`unexpected fetch to ${url}`);
+      })
+    );
+
+    await expect(
+      apiFetch("/v1/auth/login", { method: "POST", body: { email: "a@b.co", password: "salah" } })
+    ).rejects.toMatchObject({
+      status: 401,
+      code: "invalid_credentials",
+      message: "Email atau password salah.",
+    });
+
+    expect(refreshCallCount).toBe(0);
+    expect(loginCallCount).toBe(1);
+    // mockLocation() starts href at "" — a redirect would have set "/login".
+    expect(window.location.href).toBe("");
+  });
+
+  it("a wrong password is sent exactly ONCE even when the browser holds a valid session", async () => {
+    // The second symptom: refresh would SUCCEED here (a valid refresh
+    // cookie from another tab), so the old code replayed the login —
+    // one visible attempt, two failures recorded by LoginLimiter.
+    let loginCallCount = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/refresh")) {
+          return Promise.resolve(jsonResponse(200, { data: { status: "ok" } }));
+        }
+        if (url.endsWith("/v1/auth/login")) {
+          loginCallCount++;
+          return Promise.resolve(jsonResponse(401, invalidCredentials));
+        }
+        throw new Error(`unexpected fetch to ${url}`);
+      })
+    );
+
+    await expect(
+      apiFetch("/v1/auth/login", { method: "POST", body: { email: "a@b.co", password: "salah" } })
+    ).rejects.toMatchObject({ code: "invalid_credentials" });
+
+    expect(loginCallCount).toBe(1);
+  });
+
+  it("holds for the whole /v1/auth/ prefix, not just login", async () => {
+    // Guards the RULE, not one path: a future endpoint under /v1/auth/
+    // that answers 401 must not start a refresh cycle either.
+    let refreshCallCount = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/refresh")) {
+          refreshCallCount++;
+          return Promise.resolve(jsonResponse(200, { data: { status: "ok" } }));
+        }
+        return Promise.resolve(jsonResponse(401, invalidCredentials));
+      })
+    );
+
+    for (const path of [
+      "/v1/auth/password/reset",
+      "/v1/auth/verify-email",
+      "/v1/auth/some-future-endpoint",
+    ]) {
+      await expect(apiFetch(path, { method: "POST", body: {} })).rejects.toMatchObject({
+        status: 401,
+      });
+    }
+
+    expect(refreshCallCount).toBe(0);
+    expect(window.location.href).toBe("");
+  });
+
+  it("does NOT extend to /v1/invitations/accept — its 401 still means 'log in first'", async () => {
+    // acceptExistingUser answers 401 for a visitor with no session, and
+    // the invite screen relies on apiFetch's refresh-then-redirect to
+    // send them to /login. Narrowing the exemption too far (or widening
+    // it to "every public route") would break that silently.
+    let refreshCallCount = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/refresh")) {
+          refreshCallCount++;
+          return Promise.resolve(jsonResponse(401, { error: { code: "authentication_required", message: "Sesi habis." } }));
+        }
+        return Promise.resolve(
+          jsonResponse(401, { error: { code: "authentication_required", message: "Silakan masuk." } })
+        );
+      })
+    );
+
+    await expect(
+      apiFetch("/v1/invitations/accept", { method: "POST", body: { token: "t" } })
+    ).rejects.toThrow(ApiError);
+
+    expect(refreshCallCount).toBe(1);
+    expect(window.location.href).toBe("/login");
+  });
+});
+
 describe("CSRF header", () => {
   function setCsrfCookie(value: string) {
     document.cookie = `csrf_token=${value}; path=/`;
