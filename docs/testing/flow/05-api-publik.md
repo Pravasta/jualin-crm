@@ -109,6 +109,24 @@ generik:
           "details":[{"field":"name","code":"required"}]}}
 ```
 
+### 5.5.1 Lead tanpa kontak tetap diterima (issue #143)
+
+```bash
+curl -s -w "\n%{http_code}\n" -X POST http://localhost:8080/v1/leads \
+  -H "Authorization: Bearer $JUALIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Tanpa Kontak dari API"}'
+```
+
+**Hasil yang diharapkan:** `201`. API **tidak** mewajibkan email atau telepon — keputusan `freeze.md` (menolak
+di titik ingest berarti membuang data pelanggan). Di dashboard, lead itu berbadge **"Belum ada kontak"**.
+Ulangi dengan `"email": "   "` (tiga spasi): tetap `201` dan berbadge sama — backend memangkas spasi, jadi
+email tersimpan kosong, dan layar memperlakukannya sebagai tidak ada.
+
+> Lewat **formulir embed** (`08`), formulir bawaan **mewajibkan** nomor WhatsApp, sehingga kiriman tanpa
+> nomor ditolak `400` di sana; pemilik formulir yang sengaja tidak mewajibkannya akan menerima lead
+> tanpa kontak, juga dengan badge yang sama.
+
 ## 5.6 Rate limit header
 
 ```bash

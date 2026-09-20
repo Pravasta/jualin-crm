@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FormErrorBanner } from "@/components/form-error-banner";
+import { NoContactBadge } from "@/components/no-contact-badge";
 import { ApiError } from "@/lib/api-types";
 import {
   convertLead,
@@ -24,6 +25,7 @@ import { createActivity, listActivities, type Activity, type UserActivityType } 
 import { completeTask, deleteTask, listTasksByLead, type Task } from "@/lib/tasks";
 import { listMemberships, type Member } from "@/lib/memberships";
 import { activityToTimelineEntry, lostReasonDisplayLabel } from "@/lib/activity-text";
+import { hasContact } from "@/lib/lead-contact";
 import { canConvertLead, hasBeenConverted } from "@/lib/lead-status";
 import { SOURCE_LABELS, STATUS_META, type LeadStatus, type LostReason } from "@/lib/labels";
 import { formatDateID } from "@/lib/date";
@@ -331,7 +333,15 @@ export function LeadDetail({ leadId }: { leadId: string }) {
                 <span>Sumber: {SOURCE_LABELS[lead.source]}</span>
                 <span>Masuk: {formatDateID(lead.created_at)}</span>
                 {lead.company && <span>{lead.company}</span>}
+                {!hasContact(lead) && <NoContactBadge />}
               </div>
+              {!hasContact(lead) && (
+                // Says what to DO, not just what is wrong: the fix is the
+                // "Ubah" link next to the name (issue #143).
+                <div className="mt-1.5 text-[12.5px] text-muted-foreground">
+                  Tambahkan email atau telepon lewat Ubah agar bisa ditindaklanjuti.
+                </div>
+              )}
               {lead.notes && (
                 <div className="mt-2.5 text-[13px] text-muted-foreground">{lead.notes}</div>
               )}

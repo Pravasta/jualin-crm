@@ -1011,8 +1011,92 @@ panduan Phase 7. **Saya tidak tahu kenapa ini tidak tertangkap** saat verifikasi
 mencatatnya sesuai, AC #6/#10/#11): mungkin langkah itu dijalankan dengan pilihan status lain daripada yang
 tertulis. Tidak saya tebak — hanya fakta bahwa **sebagaimana tertulis** langkah itu ditolak backend.
 
-**Terus terang, yang tidak dibuktikan.** **Tampilan visual belum saya lihat** — ekstensi Chrome tidak terhubung,
-dan Vitest hanya bisa membuktikan struktur, bukan rupa. Belum dicek: proporsi dan jarak, apakah garis penghubung
-tepat di tengah titik, apakah label "Memenuhi Syarat" membungkus rapi di layar sempit, dan kontras warna aktual.
-Langkahnya di `03` §3.4–§3.5. **Jangan dibaca sebagai sudah.** Label di mobile tetap lama ("→ Buka kembali ke
-Dihubungi") karena cakupannya dashboard saja; ADR-015 mewajibkan **aturan** identik, bukan teks tombol.
+**Verifikasi tampilan.** Saat PR ditulis **saya tidak melihat tampilannya** — ekstensi Chrome tidak terhubung, dan
+Vitest hanya bisa membuktikan struktur, bukan rupa (proporsi, jarak, garis penghubung, pembungkusan label di layar
+sempit, kontras aktual). **Pasca-merge (#145) pemilik produk menguji dan melaporkan hasilnya baik** — dicatat sebagai
+laporan pemilik produk, agent tidak mengamati sendiri. Label di mobile tetap lama ("→ Buka kembali ke Dihubungi")
+karena cakupannya dashboard saja; ADR-015 mewajibkan **aturan** identik, bukan teks tombol.
+
+
+---
+
+## #143 — Lead tanpa kontak: penanda "Belum ada kontak" + konfirmasi lunak (perbaikan pasca-phase)
+
+Ditanyakan pemilik produk saat uji manual: "kenapa nomor dan email tidak wajib?". Phase 3 sudah tutup; bagian ini
+dicatat di sini karena yang berubah adalah layar dari #32/#33. Mobile ikut (penanda saja), dan itu satu-satunya
+alasan bagian ini menyentuh `crm_employee`.
+
+**Jawabannya bukan "wajibkan", dan itu keputusan tertulis.** `freeze.md` (*Lead boleh tidak punya kontak*):
+menolak lead di titik ingest berarti membuang data pelanggan. Kalimat yang sama menjanjikan sisanya — *"UI
+menampilkannya sebagai tidak dapat ditindaklanjuti"* — dan **janji itu tidak pernah diimplementasikan**:
+`grep` atas `crm_dashboard/src` dan `crm_employee/lib` tidak menemukan penanda apa pun. Jadi bagian 1 adalah
+utang yang dibayar, bukan aturan baru. Alternatif yang ditolak, dengan alasannya, di issue #143: mewajibkan
+kontak di form/API (organization sering tak mengendalikan sumbernya, dan lead tanpa kontak adalah **bukti form
+salah konfigurasi** — menolaknya menghapus bukti itu), dan blokir keras di pembuatan manual (orang mengetik `-`
+atau nomor asal, lebih buruk daripada kosong; atau lead hilang karena dicatat nanti lalu lupa).
+
+**Temuan saat mengerjakan:**
+
+1. **Backend bisa menyimpan email berupa string kosong.** `normalizeEmail` memakai `TrimSpace`, jadi `"   "` menjadi
+   `""`, bukan `null`. Predikat "punya kontak" karena itu **blank-aware**: kosong dan spasi dianggap tidak ada. Tes
+   `WhitespaceOnlyEmail_IsAcceptedAndStoredBlank` menegaskan backend memang bisa menghasilkan itu (email tersimpan
+   `null` atau kosong — tes tidak membedakan keduanya, dan tidak perlu).
+2. **Form bawaan sudah mewajibkan nomor.** `DefaultFields` menandai `phone` `Required: true`; kiriman hanya-nama ke
+   form bawaan ditolak `400` (`validation_failed`, `phone required`). Pemilik form sudah mengendalikan ini — persis
+   argumen di atas — jadi lead tanpa kontak lewat form hanya terjadi bila pemilik **sengaja** tidak
+   mewajibkannya. Tes `DefaultForm_AsksForAPhone` mengunci itu, dan `FormWithNoRequiredContact_NameOnly_IsAccepted`
+   mengunci bahwa backend tidak menambah kewajiban sendiri.
+3. **Mobile tidak bisa membuat lead**, jadi konfirmasi hanya untuk dashboard; mobile cukup penanda.
+4. **Tombol Telepon di mobile enabled untuk nomor `"   "`** (`phone != null && phone.isNotEmpty`) — tak ada yang
+   menyebut ketiadaan nomor. Penjelas "Lead ini belum punya nomor telepon." tak boleh berselisih dengan tombolnya,
+   jadi `hasPhoneNumber` (blank-aware) kini dipakai **keduanya**. Perubahan perilaku kecil yang **tidak diminta
+   issue** tetapi tak terpisahkan dari penjelasnya.
+
+**Definisi.** Punya kontak = `email` **atau** `phone` tidak kosong setelah di-trim. `company` dan `notes` tidak
+dihitung (teks bebas yang tak bisa ditelepon). Nomor yang tak bisa diurai untuk WhatsApp (`phone_e164` null)
+**tetap** dihitung — masih bisa ditelepon. Satu fungsi murni per aplikasi (`lib/lead-contact.ts`,
+`domain/lead_contact.dart`), diuji terpisah dari komponen.
+
+**Penanda.** Netral (`bg-muted`), bukan merah: lead tanpa kontak adalah keadaan yang sah, bukan kesalahan siapa
+pun. Kata, bukan hanya warna. Di mobile `foreground` di atas `surfaceSunken`, **bukan** `mutedForeground` — tema
+mendokumentasikan token itu 4,74:1 dan terbatas untuk teks ≥13px, sedangkan badge 11,5px.
+
+**Konfirmasi (dashboard).** Dua langkah **inline**, tanpa dialog bersarang: submit tanpa kontak menampilkan kotak
+netral *"Lead ini belum punya kontak dan tidak bisa ditindaklanjuti. Tetap simpan?"* dan tombol berganti jadi
+**Kembali isi kontak** / **Tetap simpan**. Ditanya **sekali** — `shouldConfirmNoContact(fields, sudahKonfirmasi)`
+mengembalikan `false` setelah konfirmasi, karena pemeriksaan yang menyala lagi adalah blokir, persis yang bukan
+tujuannya. `warned` di-reset setiap email/telepon berubah, jadi pertanyaan selalu tentang isi formulir **saat ini**;
+`warningVisible` diturunkan (`warned && !hasContact`), bukan disimpan.
+
+**Backend: nol perubahan kode.** Kriteria issue "form dan API tetap `201`, dibuktikan" **belum punya tes
+eksplisit**. Jalur API hanya tertutup secara kebetulan: `CreatesLeadWithSourceAndKeyID` mengirim `{"name": ...}`
+dan menegaskan `201`, tetapi tidak dinamai sebagai "tanpa kontak" dan tidak memeriksa apa yang tersimpan; jalur
+form tidak punya tes semacam itu sama sekali. Empat tes
+karakterisasi ditambahkan di `cmd/api/lead_without_contact_test.go`. Sifatnya penjaga: tanpanya seseorang bisa
+"memperbaiki" ini dengan mewajibkan kontak di `Create`, dan itu membalik keputusan pemilik produk tanpa satu tes pun
+merah.
+
+**Dibuktikan bisa gagal** — mutasi, masing-masing dikembalikan: `Create` mulai mewajibkan kontak → tiga tes
+backend merah (tes form-bawaan tetap hijau, dan memang harus — ia menguji hal lain); `trim` dicabut dari predikat
+TS → 2 merah; `atau` menjadi `dan` → 4 merah; konfirmasi menyala lagi setelah "Tetap simpan" → 1 merah; padanan
+Dart untuk `trim` dan `atau`→`dan` → merah. Satu upaya menulis tes form ternyata salah asumsi (form bawaan mewajibkan
+nomor, jadi kiriman hanya-nama ditolak) — itu yang melahirkan temuan 2, bukan kegagalan yang ditutup-tutupi.
+
+`go test -race ./...` bersih (31 paket), `golangci-lint` 0 issues, dashboard 213 test + build, mobile `analyze`
+bersih + 178 test (lewat `fvm`).
+
+**Catatan format.** `dart format` ternyata memformat ulang kode **yang bukan milik saya** di
+`lead_detail_page.dart` (hunk di enam tempat lain); berkas itu tidak konsisten dengan formatter. Dikembalikan dan
+suntingan diterapkan ulang tanpa formatter supaya diff hanya berisi perubahan ini. CI mobile hanya menjalankan
+`analyze` dan `test`, tanpa cek format.
+
+**Terus terang, yang tidak dibuktikan.** **Tampilan badge dan alur konfirmasi belum saya lihat** — ekstensi Chrome
+tidak terhubung, dan mobile butuh HP. Vitest dan tes Dart membuktikan predikat dan markup, bukan rupa maupun
+interaksi dialog (fokus pindah ke Email, peringatan hilang saat mengetik). Tidak ada tes widget di repo mobile.
+Langkahnya di `03` §3.1.1 dan `05` §5.5.1. **Jangan dibaca sebagai sudah.** Alasan tombol **WhatsApp** mati karena
+nomor tak terurai (`phone_e164` null padahal `phone` ada) **tidak** dijelaskan — di luar cakupan issue.
+
+**Di luar cakupan, dicatat.** Lead tanpa kontak tetap memakan kuota bulanan (`CountCreatedThisMonth` memakai
+`count(*)` tanpa syarat kontak, `repository_postgres.go:491-499`); mengecualikannya melawan alasan komentar di query
+itu (kesetaraan dengan `usage_counters`, prd 8.5 D1) dan adalah keputusan produk tersendiri. `raw_payload` tetap tak
+ditampilkan (menyentuh Aturan #26). Umpan balik ke pengirim form/API soal kirimannya tanpa kontak tidak dibangun.

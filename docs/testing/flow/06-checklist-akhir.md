@@ -59,6 +59,7 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 - [ ] Buat lead manual berhasil, status awal **Baru**, sumber **Manual**
 - [ ] Pencarian & filter status bekerja, filter bertahan setelah refresh (di URL)
 - [ ] Edit field lead tersimpan
+- [ ] Lead tanpa email dan telepon (issue #143): buat manual memunculkan konfirmasi netral (bukan blokir — "Tetap simpan" berhasil); badge **"Belum ada kontak"** di daftar dan detail (dashboard + mobile); mengisi kontak lewat Ubah menghapusnya; spasi tidak dihitung kontak; API dan formulir tanpa kewajiban kontak tetap `201`
 - [ ] Transisi status jalur utama: Baru → Dihubungi → Memenuhi Syarat → Penawaran → Menang
 - [ ] Area status (issue #141): stepper lima tahap dengan penanda "Saat ini"; tombol berjudul **Lanjutkan / Kembali / Tutup lead** dengan kata kerja ("Maju ke …", "Kembali ke …") — **tanpa panah**; bagian kosong tidak muncul; tanpa bergantung warna; tidak meluap di jendela sempit
 - [ ] Lompat status lebih dari satu langkah **ditolak**

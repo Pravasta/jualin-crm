@@ -5,10 +5,12 @@ import '../../../../shared/labels.dart';
 import '../../../../shared/relative_time.dart';
 import '../../../../shared/theme.dart';
 import '../../../../shared/widgets/cache_banner.dart';
+import '../../../../shared/widgets/no_contact_badge.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../domain/entities/activity.dart';
 import '../../domain/entities/lead.dart';
+import '../../domain/lead_contact.dart';
 import '../../domain/lead_status.dart';
 import '../activity_text.dart';
 import '../bloc/lead_detail_bloc.dart';
@@ -252,6 +254,13 @@ class _LeadHeader extends StatelessWidget {
             'disentuh ${relativeTime(lead.updatedAt)}',
             style: AppTextStyles.metadata,
           ),
+          if (!leadHasContact(email: lead.email, phone: lead.phone)) ...[
+            const SizedBox(height: AppSpacing.space8),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: NoContactBadge(),
+            ),
+          ],
           if (lead.company != null) ...[
             const SizedBox(height: AppSpacing.space12),
             Text(lead.company!, style: AppTextStyles.body),
@@ -625,7 +634,10 @@ class _ActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasPhone = lead.phone != null && lead.phone!.isNotEmpty;
+    // Same blank-aware rule the badge uses, so the button and the sentence
+    // below can never disagree (issue #143): a phone of "   " used to enable
+    // Telepon while nothing said there was no number.
+    final hasPhone = hasPhoneNumber(lead.phone);
     final hasWhatsApp = lead.phoneE164 != null;
 
     return SafeArea(
@@ -641,33 +653,50 @@ class _ActionBar extends StatelessWidget {
           color: AppColors.surface,
           border: Border(top: BorderSide(color: AppColors.border)),
         ),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: hasPhone && !isBusy
-                    ? () => context.read<LeadDetailBloc>().add(
-                        const LeadCallRequested(),
-                      )
-                    : null,
-                icon: const Icon(Icons.call),
-                label: const Text('Telepon'),
+            if (!hasPhone) ...[
+              // Why both buttons are off, in words — a dead button with no
+              // reason reads as a bug. About the PHONE, not about contact in
+              // general: a lead with an email but no number is not "without
+              // contact", yet these buttons still cannot work for it.
+              const Text(
+                'Lead ini belum punya nomor telepon.',
+                style: AppTextStyles.metadata,
               ),
-            ),
-            const SizedBox(width: AppSpacing.space12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: hasWhatsApp && !isBusy
-                    ? () => context.read<LeadDetailBloc>().add(
-                        const LeadWhatsAppRequested(),
-                      )
-                    : null,
-                icon: const Icon(Icons.chat),
-                label: const Text('WhatsApp'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(52),
+              const SizedBox(height: AppSpacing.space8),
+            ],
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: hasPhone && !isBusy
+                        ? () => context.read<LeadDetailBloc>().add(
+                            const LeadCallRequested(),
+                          )
+                        : null,
+                    icon: const Icon(Icons.call),
+                    label: const Text('Telepon'),
+                  ),
                 ),
-              ),
+                const SizedBox(width: AppSpacing.space12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: hasWhatsApp && !isBusy
+                        ? () => context.read<LeadDetailBloc>().add(
+                            const LeadWhatsAppRequested(),
+                          )
+                        : null,
+                    icon: const Icon(Icons.chat),
+                    label: const Text('WhatsApp'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
