@@ -59,6 +59,8 @@ Refresh diterima
   ├── token sudah punya replaced_by_id
   │   atau revoked_at                        → 🚨 revoke SELURUH family_id
   │                                             + audit auth.refresh_reused + 401
+  ├── client=dashboard tapi role kini
+  │   employee (issue #136)                  → revoke SELURUH family_id + 401
   └── token valid                            → terbitkan pasangan baru, rotasi
 ```
 
@@ -179,6 +181,26 @@ Ini membuat Aturan #25 struktural: dashboard secara harfiah tidak pernah melihat
 
 `/v1/auth/refresh` dan `/v1/auth/logout` membaca refresh token dari cookie dulu, baru fallback ke body — client menentukan jalurnya sendiri secara implisit lewat mana yang ia kirim.
 
+### Role × client — Employee memakai mobile, bukan dashboard (issue #136)
+
+| Role | `client: "dashboard"` | `client: "mobile"` |
+|---|---|---|
+| Owner · Admin · Manager | ✅ | ✅ |
+| **Employee** | **❌ `403 dashboard_not_available_for_role`** | ✅ |
+
+Aturannya satu fungsi, `roleMayUseClient` di `internal/auth/usecase.go`, dan ditegakkan di **dua** tempat karena keduanya menerbitkan token:
+
+- **`Login`** — membership disaring dengan aturan itu **sebelum** `selectMembership`. Akibatnya daftar `organization_selection_required` hanya berisi organization yang boleh dimasuki `client` itu, dan user yang tersisa satu organization langsung masuk ke sana lewat aturan `len == 1` yang sudah ada — tanpa cabang khusus. Nol yang tersisa (padahal sebelum disaring ada) → `403`.
+- **`Refresh`** — role dibaca ulang dari `memberships` di setiap rotasi. Tanpa pemeriksaan di sini, sesi dashboard yang dibuka saat user masih Owner **terus memperpanjang dirinya** setelah role turun, sampai `REFRESH_TOKEN_TTL_DASHBOARD` (30 hari). Bila role kini `employee` dan `rt.Client = dashboard`, **seluruh family** dicabut dan jawabannya `401 invalid_credentials` (sama seperti token tak dikenal). Karena gerbangnya membaca role terkini, ia juga menutup sesi yang dibuka **sebelum** gerbang ini ada dan perubahan role lewat jalur apa pun — hal yang tidak bisa dilihat pengait "cabut saat diturunkan" di `membership`.
+
+**Per membership, bukan per user.** ADR-007 membolehkan satu user berperan Employee di organization A dan Owner di B; ia tetap bisa memakai dashboard sebagai Owner di B, dan A tidak pernah ditawarkan.
+
+**Kenapa `403` eksplisit, padahal login lain melebur jadi `invalid_credentials`.** Peleburan itu ada supaya penanya tidak bisa menebak *bagian mana* yang salah (email? password? organization?). Penolakan ini hanya terjadi **setelah password terverifikasi** — penanyanya sudah membuktikan siapa ia, dan menyembunyikan alasannya hanya membuat Employee sah menatap form yang berfungsi untuk semua orang kecuali dia. Aturan #6 (404 untuk milik tenant lain) tidak berlaku: tidak ada satu pun fakta tentang tenant lain yang terungkap.
+
+**`LoginLimiter` tidak menghitung penolakan ini sebagai kegagalan.** Kunci `login:email:<email>` dipakai **bersama** mobile; menghitungnya membuat Employee yang berulang membuka dashboard terkena backoff di satu-satunya client yang boleh ia pakai.
+
+**Batasnya, tertulis terus terang:** access token yang **sudah terbit** tetap berlaku sampai `ACCESS_TOKEN_TTL` (15 menit) — gerbang ini menghentikan *perpanjangan* sesi, bukan memutusnya seketika. Berlaku untuk pendekatan mana pun karena access token stateless.
+
 ### Klien dashboard — cookie tak terbaca, refresh single-flight
 
 `crm_dashboard` (Next.js, Phase 3 #31) tidak punya `middleware.ts` yang membaca token — `access_token` `HttpOnly` secara harfiah tidak bisa disentuh JavaScript. Satu-satunya penjaga route adalah memanggil `GET /v1/me` di layout terproteksi (`SessionGate`, `src/lib/session-context.tsx`); gagal (401 yang bertahan setelah refresh) → redirect `/login`.
@@ -228,6 +250,8 @@ Client memanggil ulang dengan organization_id terisi
   → organization_id yang tidak cocok salah satu membership → 401 invalid_credentials
     (bukan error terpisah — mencegah probing keanggotaan organization)
 ```
+
+Untuk `client: "dashboard"`, membership ber-role Employee **disaring lebih dulu** (issue #136, lihat *Role × client* di atas): mereka tidak masuk ke daftar `organizations`, dan `organization_id` yang menunjuk ke salah satunya diperlakukan persis seperti `organization_id` yang tidak cocok — `401 invalid_credentials`. UI tidak pernah menawarkan pilihan itu, jadi hanya request buatan tangan yang sampai ke sana.
 
 ---
 

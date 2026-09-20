@@ -313,3 +313,102 @@ Seluruh acceptance criteria issue #11 terpenuhi, termasuk seluruh test keamanan 
 - **`internal/shared/authz`'s `permissions` map** adalah tempat menambah `Action` baru saat Phase 2
   memperkenalkan resource dengan RBAC (Lead, dst.) — ikuti matriks penuh di
   `architecture_product_review.md` §6.2, bukan menebak ulang.
+
+---
+
+## #136 — Employee tidak boleh masuk dashboard (perbaikan pasca-phase)
+
+Ditemukan pemilik produk saat pencarian bug manual pasca-Phase 8.5. Phase 1 sudah tutup; bagian ini
+dicatat di sini karena yang berubah adalah `Login` dan `Refresh` (`internal/auth`), bukan fitur baru.
+
+**Niatnya sudah tertulis, penegakannya tidak ada.** `authorization.md` sudah menyatakan "dashboard bukan
+alatnya" untuk Employee, tetapi sebagai alasan `metrics.read` ditolak — bukan sebagai gerbang login.
+`validateLoginInput` hanya memastikan `client` adalah `dashboard` atau `mobile`; role tidak pernah
+dibandingkan dengan client. Employee yang login mendapat app shell dengan seluruh 8 item nav
+(`NAV_ITEMS` sengaja tidak difilter role), lalu tiap layar gagal sendiri-sendiri.
+
+**Perubahan.** Satu fungsi, `roleMayUseClient(role, client)`: `dashboard` menolak `employee`, `mobile`
+menerima semua. Ditegakkan di dua tempat karena keduanya menerbitkan token:
+
+- **`Login`** menyaring membership sebelum `selectMembership`. Daftar `organization_selection_required`
+  otomatis hanya berisi organization yang boleh dimasuki, dan user yang tersisa satu organization masuk
+  lewat aturan `len == 1` yang sudah ada — tanpa cabang khusus. Nol tersisa → `403
+  dashboard_not_available_for_role`.
+- **`Refresh`** menolak `client=dashboard` bila role kini `employee`, dan mencabut seluruh family.
+
+**Penyimpangan dari keputusan awal issue, dilaporkan sebelum kode ditulis.** Issue memilih "cabut token
+dashboard saat role diturunkan" (`UpdateRole` + revoker per-client). Setelah membaca kodenya,
+pemilik produk memilih **gerbang di `Refresh`** sebagai gantinya, karena:
+
+1. `Refresh` **memuat ulang role dari `memberships` di setiap rotasi** (`usecase.go`) — tanpa gerbang di
+   sana, sesi dashboard yang dibuka saat user masih Owner terus memperpanjang dirinya sebagai Employee
+   sampai `REFRESH_TOKEN_TTL_DASHBOARD` (30 hari).
+2. Pengait di `UpdateRole` **tidak menutup sesi yang sudah ada sebelum gerbang ini dideploy**, dan tidak
+   melihat perubahan role lewat jalur lain (SQL langsung, jalur masa depan).
+3. `UpdateRole` **tidak transaksional** hari ini (update role dan `Audit.Record` adalah dua statement
+   terpisah); membuat pencabutan atomik berarti membungkusnya `InTx` + metode revoker baru + wiring di
+   `membership_store.go` — banyak sentuhan untuk efek yang terlihat pengguna sama persis (access token
+   yang sudah terbit tetap hidup sampai `ACCESS_TOKEN_TTL` apa pun caranya).
+
+Nol perubahan di paket `membership`, nol migration.
+
+**Keputusan yang dibuat saat implementasi.**
+
+- **`403` eksplisit, bukan `invalid_credentials`.** Peleburan jadi `invalid_credentials` ada supaya
+  penanya tak bisa menebak bagian mana yang salah; penolakan ini hanya terjadi **setelah password
+  terverifikasi**, jadi menyembunyikannya hanya membingungkan Employee yang sah. 403 karena kredensialnya
+  benar — jawabannya soal *di mana* boleh dipakai. Aturan #6 tidak berlaku (tak ada fakta tenant lain
+  yang terungkap).
+- **Penolakan tidak dihitung `LoginLimiter`.** Kunci `login:email:<email>` dipakai **bersama** mobile.
+  Backoff mulai 1 detik, jadi percobaan ke-2 yang beruntun sudah cukup untuk membuktikan bedanya.
+- **Per membership, bukan per user** (ADR-007): Employee di A + Owner di B masuk ke B.
+- **`organization_id` yang menunjuk membership Employee (dashboard) → `401 invalid_credentials`**, sama
+  seperti `organization_id` yang tak cocok. UI tidak pernah menawarkannya; hanya request buatan tangan
+  yang sampai ke sana, dan `selectMembership` tetap tidak bisa dipakai untuk probing.
+- **Dashboard: nol perubahan kode produksi.** Layar login menampilkan `error.message` backend apa adanya,
+  dan `403` tidak terkena jalur `401` yang diperbaiki di #135. Label `dashboard` di issue nominal. Yang
+  ditambahkan hanya **satu test kontrak** di `api-client.test.ts` (167 total): `403` dari `/v1/auth/login`
+  → tanpa refresh, tanpa redirect, dan `globalMessage` menyerahkan kalimat backend ke banner apa adanya.
+  **Terus terang: test ini mengunci perilaku yang sudah benar**, jadi tidak ada "merah sebelum perbaikan"
+  untuknya — nilainya mencegah regresi (mis. seseorang memperluas jalur refresh ke `403`), bukan
+  membuktikan sebuah perbaikan.
+
+**Test.** Unit dengan fake `Store` (tanpa Docker): 8 test — Employee dashboard ditolak, Employee mobile
+berhasil, Owner/Admin/Manager tak terganggu, Employee-di-A + Owner-di-B, penyaringan daftar organization,
+`organization_id` buatan tangan, `Refresh` dashboard ditolak dan family dicabut, `Refresh` mobile di
+membership yang sama tetap hidup. HTTP terhadap **Postgres sungguhan**
+(`handler_dashboard_gate_test.go`, 4 test): `403` tanpa satu pun `Set-Cookie`; empat penolakan beruntun
+tidak membuat login mobile `429`; password salah **tetap** memberi makan limiter (pengecualiannya sempit);
+role diubah lewat **SQL langsung** (sengaja bukan lewat endpoint kita) → refresh dashboard `401`, seluruh
+token dashboard tercabut di database, refresh mobile tetap `200`.
+
+**Dibuktikan bisa gagal** — tiga mutasi, masing-masing dikembalikan dan `git diff` diperiksa: gerbang
+dimatikan (`roleMayUseClient` selalu `true`) → 5 test unit merah + 3 test HTTP merah, sementara tiga test
+penjaga (mobile berhasil, non-Employee tak terganggu, sesi mobile selamat) **tetap hijau** seperti
+seharusnya; pengecualian limiter dicabut → percobaan ke-2 Employee `429`, test merah. Satu mutasi pertama
+gagal **build** (variabel tak terpakai) — itu kesalahan mutasinya, bukan bukti, dan diulang dengan
+bentuk yang terkompilasi.
+
+`go test -race ./...` bersih (31 paket `ok`), `golangci-lint` 0 issues setelah satu temuan staticcheck
+(QF1001, De Morgan) diperbaiki.
+
+**Dampak pada panduan uji manual — ditemukan saat memeriksa, bukan diduga.** Lima langkah di
+`docs/testing/flow/` meminta Employee login ke dashboard dan kini mustahil: `02` §2.2, `06` (checklist),
+`08` §8.9, `09` §9.9 dan §9.11. Diperbarui: pemeriksaan gerbang role dialihkan ke **Manager** (hasilnya
+sama — gerbang itu memang berlaku untuk Manager), `02` §2.2 kini menguji penolakannya, dan `02` §2.4
+menambah prosedur refresh (menghapus cookie `access_token` di DevTools mensimulasikan token kedaluwarsa
+tanpa menunggu 15 menit).
+
+**Terus terang, yang tidak dibuktikan.**
+
+- **Batas access token.** Gerbang menghentikan *perpanjangan* sesi, bukan memutusnya seketika: access
+  token yang sudah terbit tetap berlaku sampai `ACCESS_TOKEN_TTL` (15 menit). Berlaku untuk pendekatan
+  mana pun karena token stateless.
+- **Verifikasi di stack sungguhan (docker + browser) belum dijalankan.** Yang dibuktikan: router asli +
+  Postgres asli lewat testcontainers. Prosedur di `02` §2.2 dan §2.4 untuk dijalankan pemilik produk;
+  container `api` yang menyala perlu di-`--build` ulang dulu. **Jangan dibaca sebagai sudah.**
+
+**Di luar cakupan, dicatat.** Halaman terima-undangan dashboard (`/invitations/accept`) belum menyebut
+aplikasi mobile: Employee yang menerima undangan di sana berakhir di `/login` dengan pesan `403` — benar,
+tapi baru di titik itu ia tahu. Arah sebaliknya (apakah Owner/Admin/Manager boleh login ke mobile) hari
+ini boleh dan tidak diubah di sini.

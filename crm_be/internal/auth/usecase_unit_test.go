@@ -771,3 +771,214 @@ func TestUnit_Me_ReturnsProfile(t *testing.T) {
 		t.Errorf("expected role owner, got %q", out.Role)
 	}
 }
+
+// --- issue #136: Employee uses the mobile app, not the dashboard ---
+
+// setAllRoles rewrites the role on every membership of a user. The fake
+// membership repo hands out pointers, so this is exactly what an UPDATE on
+// memberships looks like to Login and Refresh.
+func setAllRoles(store *fakeStore, userID uuid.UUID, role tenant.Role) {
+	for _, m := range store.repos.Member.(*fakeMembershipRepo).all {
+		if m.UserID == userID {
+			m.Role = role
+		}
+	}
+}
+
+func addOrgMembership(t *testing.T, store *fakeStore, userID uuid.UUID, orgName string, role tenant.Role) uuid.UUID {
+	t.Helper()
+	orgID := uuid.Must(uuid.NewV7())
+	if _, err := store.repos.Org.Create(context.Background(), orgID, orgName); err != nil {
+		t.Fatalf("create org %q: %v", orgName, err)
+	}
+	orgT := tenant.Context{OrganizationID: orgID, PrincipalType: tenant.PrincipalUser}
+	if _, err := store.repos.Member.Create(context.Background(), orgT, uuid.Must(uuid.NewV7()), userID, role); err != nil {
+		t.Fatalf("create membership in %q: %v", orgName, err)
+	}
+	return orgID
+}
+
+func requireDomainCode(t *testing.T, err error, status int, code string) {
+	t.Helper()
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != code || derr.Status != status {
+		t.Fatalf("expected DomainError %d %q, got: %v", status, code, err)
+	}
+}
+
+func TestUnit_Login_Employee_Dashboard_Refused(t *testing.T) {
+	store := newFakeStore()
+	u := auth.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", testTokenConfig())
+	reg := registerAndVerify(t, u, store, "emp-dash@example.com", loginPassword)
+	setAllRoles(store, reg.UserID, tenant.RoleEmployee)
+
+	out, err := u.Login(context.Background(), auth.LoginInput{
+		Email: "emp-dash@example.com", Password: loginPassword, Client: auth.ClientDashboard,
+	})
+
+	requireDomainCode(t, err, 403, "dashboard_not_available_for_role")
+	if out != nil {
+		t.Errorf("a refused login must not carry a session, got %+v", out)
+	}
+}
+
+func TestUnit_Login_Employee_Mobile_Succeeds(t *testing.T) {
+	store := newFakeStore()
+	u := auth.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", testTokenConfig())
+	reg := registerAndVerify(t, u, store, "emp-mobile@example.com", loginPassword)
+	setAllRoles(store, reg.UserID, tenant.RoleEmployee)
+
+	out, err := u.Login(context.Background(), auth.LoginInput{
+		Email: "emp-mobile@example.com", Password: loginPassword, Client: auth.ClientMobile,
+	})
+	if err != nil {
+		t.Fatalf("Employee must still log in on mobile: %v", err)
+	}
+	if out.Role != tenant.RoleEmployee || out.AccessToken == "" {
+		t.Errorf("expected an employee session, got role %q token-empty=%v", out.Role, out.AccessToken == "")
+	}
+}
+
+func TestUnit_Login_Dashboard_NonEmployeeRolesUnaffected(t *testing.T) {
+	for _, role := range []tenant.Role{tenant.RoleOwner, tenant.RoleAdmin, tenant.RoleManager} {
+		t.Run(string(role), func(t *testing.T) {
+			store := newFakeStore()
+			u := auth.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", testTokenConfig())
+			reg := registerAndVerify(t, u, store, "role-"+string(role)+"@example.com", loginPassword)
+			setAllRoles(store, reg.UserID, role)
+
+			if _, err := u.Login(context.Background(), auth.LoginInput{
+				Email: "role-" + string(role) + "@example.com", Password: loginPassword, Client: auth.ClientDashboard,
+			}); err != nil {
+				t.Fatalf("%s must keep dashboard access: %v", role, err)
+			}
+		})
+	}
+}
+
+// TestUnit_Login_EmployeeHere_OwnerThere_EntersTheOwnerOrganization is the
+// ADR-007 case the gate must not break: the rule is per membership, not per
+// user. After filtering exactly one organization remains, so the existing
+// len==1 path logs straight in — no selection screen, no special case.
+func TestUnit_Login_EmployeeHere_OwnerThere_EntersTheOwnerOrganization(t *testing.T) {
+	store := newFakeStore()
+	u := auth.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", testTokenConfig())
+	reg := registerAndVerify(t, u, store, "emp-and-owner@example.com", loginPassword)
+	setAllRoles(store, reg.UserID, tenant.RoleEmployee) // org A: Employee
+	ownerOrg := addOrgMembership(t, store, reg.UserID, "Org B", tenant.RoleOwner)
+
+	out, err := u.Login(context.Background(), auth.LoginInput{
+		Email: "emp-and-owner@example.com", Password: loginPassword, Client: auth.ClientDashboard,
+	})
+	if err != nil {
+		t.Fatalf("dashboard login: %v", err)
+	}
+	if out.OrganizationID != ownerOrg || out.Role != tenant.RoleOwner {
+		t.Errorf("expected Owner session in %s, got org %s role %q", ownerOrg, out.OrganizationID, out.Role)
+	}
+
+	// Mobile is not filtered: both organizations are still offered.
+	_, err = u.Login(context.Background(), auth.LoginInput{
+		Email: "emp-and-owner@example.com", Password: loginPassword, Client: auth.ClientMobile,
+	})
+	var selErr *auth.OrganizationSelectionError
+	if !errors.As(err, &selErr) || len(selErr.Organizations) != 2 {
+		t.Fatalf("mobile must still offer both organizations, got: %v", err)
+	}
+}
+
+func TestUnit_Login_DashboardSelection_OffersOnlyOrganizationsItMayEnter(t *testing.T) {
+	store := newFakeStore()
+	u := auth.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", testTokenConfig())
+	reg := registerAndVerify(t, u, store, "three-orgs@example.com", loginPassword)
+	setAllRoles(store, reg.UserID, tenant.RoleEmployee) // org A: Employee
+	addOrgMembership(t, store, reg.UserID, "Org B", tenant.RoleAdmin)
+	addOrgMembership(t, store, reg.UserID, "Org C", tenant.RoleManager)
+
+	_, err := u.Login(context.Background(), auth.LoginInput{
+		Email: "three-orgs@example.com", Password: loginPassword, Client: auth.ClientDashboard,
+	})
+
+	var selErr *auth.OrganizationSelectionError
+	if !errors.As(err, &selErr) {
+		t.Fatalf("expected OrganizationSelectionError, got: %v", err)
+	}
+	names := map[string]bool{}
+	for _, o := range selErr.Organizations {
+		names[o.Name] = true
+	}
+	if len(names) != 2 || !names["Org B"] || !names["Org C"] {
+		t.Errorf("expected exactly Org B and Org C offered, got %v", names)
+	}
+}
+
+func TestUnit_Login_OrganizationIDOfAnEmployeeMembership_Dashboard_LooksLikeAMismatch(t *testing.T) {
+	store := newFakeStore()
+	u := auth.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", testTokenConfig())
+	reg := registerAndVerify(t, u, store, "hand-crafted@example.com", loginPassword)
+	employeeOrg := reg.OrganizationID
+	setAllRoles(store, reg.UserID, tenant.RoleEmployee)
+	addOrgMembership(t, store, reg.UserID, "Org B", tenant.RoleOwner)
+
+	_, err := u.Login(context.Background(), auth.LoginInput{
+		Email: "hand-crafted@example.com", Password: loginPassword, Client: auth.ClientDashboard,
+		OrganizationID: &employeeOrg,
+	})
+
+	// The UI never offers this org, so only a hand-built request gets here;
+	// it is answered exactly like any other organization_id that doesn't
+	// match, keeping selectMembership's no-probing property intact.
+	requireDomainCode(t, err, 401, "invalid_credentials")
+}
+
+// TestUnit_Refresh_DashboardSessionEndsWhenRoleBecomesEmployee is the half
+// of the gate that makes it real: a session opened while the user was an
+// Owner must stop renewing the moment the role changes, not after the
+// refresh token's own 30 days.
+func TestUnit_Refresh_DashboardSessionEndsWhenRoleBecomesEmployee(t *testing.T) {
+	store := newFakeStore()
+	u := auth.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", testTokenConfig())
+	reg := registerAndVerify(t, u, store, "demoted@example.com", loginPassword)
+
+	login, err := u.Login(context.Background(), auth.LoginInput{
+		Email: "demoted@example.com", Password: loginPassword, Client: auth.ClientDashboard,
+	})
+	if err != nil {
+		t.Fatalf("login as owner: %v", err)
+	}
+
+	setAllRoles(store, reg.UserID, tenant.RoleEmployee)
+
+	_, err = u.Refresh(context.Background(), login.RefreshToken)
+	requireDomainCode(t, err, 401, "invalid_credentials")
+
+	// The family is revoked, not merely this one call refused.
+	for _, rt := range store.repos.RefreshToken.(*fakeRefreshTokenRepo).byHash {
+		if rt.RevokedAt == nil {
+			t.Errorf("token %s must be revoked after the refused refresh", rt.ID)
+		}
+	}
+}
+
+func TestUnit_Refresh_MobileSessionOfTheSameMembershipSurvivesTheRoleChange(t *testing.T) {
+	store := newFakeStore()
+	u := auth.NewUsecase(store, &spyMailer{}, unitLogger(), "http://localhost:3000", testTokenConfig())
+	reg := registerAndVerify(t, u, store, "demoted-mobile@example.com", loginPassword)
+
+	mobile, err := u.Login(context.Background(), auth.LoginInput{
+		Email: "demoted-mobile@example.com", Password: loginPassword, Client: auth.ClientMobile,
+	})
+	if err != nil {
+		t.Fatalf("mobile login: %v", err)
+	}
+
+	setAllRoles(store, reg.UserID, tenant.RoleEmployee)
+
+	out, err := u.Refresh(context.Background(), mobile.RefreshToken)
+	if err != nil {
+		t.Fatalf("an Employee's mobile session must keep refreshing: %v", err)
+	}
+	if out.Client != auth.ClientMobile {
+		t.Errorf("expected client mobile, got %q", out.Client)
+	}
+}

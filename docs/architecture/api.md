@@ -119,6 +119,7 @@ Bertambah seiring fitur. Setiap kode baru dicatat di sini.
 | 500 | `internal_error` | Tidak pernah membocorkan detail internal |
 | 401 | `invalid_credentials` | Login gagal — email atau password salah, atau refresh token tidak valid/kedaluwarsa/sudah dirotasi (issue #10) |
 | 403 | `email_not_verified` | Login dengan akun yang belum verifikasi email (issue #10) |
+| 403 | `dashboard_not_available_for_role` | `POST /v1/auth/login` dengan `client: "dashboard"` oleh user yang **semua** membership aktifnya ber-role Employee — Employee memakai aplikasi mobile. Hanya terjadi **setelah password terverifikasi**, sehingga sengaja eksplisit (beda dari peleburan ke `invalid_credentials`) dan **tidak dihitung** sebagai percobaan gagal oleh limiter login. Tidak ada `Set-Cookie` pada respons ini (issue #136, lihat *Role × client* di `authentication.md`) |
 | 409 | `organization_selection_required` | Login: user punya >1 membership aktif dan belum memilih organization — lihat perluasan envelope di bawah (issue #10) |
 | 400 | `invalid_token` | Token verifikasi/reset/undangan tidak valid atau kedaluwarsa (issue #9, #10) |
 | 401 | `authentication_required` | Endpoint terautentikasi diakses tanpa kredensial valid (issue #10) |

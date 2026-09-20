@@ -18,6 +18,11 @@ Mengikuti kalimat inti MVP (`architecture/freeze.md` bagian 3, `product/decision
 dari HP" di [`07-mobile-android.md`](./07-mobile-android.md), yang sebelumnya dilakukan lewat
 dashboard sebagai gantinya. Phase 0–5 sudah selesai (`docs/STATUS.md`); panduan ini menguji hasilnya.
 
+**"Employee login" berarti login di aplikasi mobile.** Sejak issue #136, Employee **tidak bisa** login
+ke dashboard (`403 dashboard_not_available_for_role`) — `02` §2.2 menguji penolakannya, `07` menguji
+login yang sesungguhnya. Setiap langkah yang dulu menguji "gerbang role" di dashboard sebagai Employee
+kini memakai **Manager** (`08` §8.9, `09` §9.9, §9.11).
+
 ## Urutan berkas
 
 | # | Berkas | Apa yang diuji |
