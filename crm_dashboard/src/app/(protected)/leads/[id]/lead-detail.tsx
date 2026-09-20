@@ -24,10 +24,10 @@ import { createActivity, listActivities, type Activity, type UserActivityType } 
 import { completeTask, deleteTask, listTasksByLead, type Task } from "@/lib/tasks";
 import { listMemberships, type Member } from "@/lib/memberships";
 import { activityToTimelineEntry, lostReasonDisplayLabel } from "@/lib/activity-text";
-import { canConvertLead, statusTransitionOptions } from "@/lib/lead-status";
+import { canConvertLead, hasBeenConverted, statusTransitionOptions } from "@/lib/lead-status";
 import { SOURCE_LABELS, STATUS_META, type LeadStatus, type LostReason } from "@/lib/labels";
 import { formatDateID } from "@/lib/date";
-import { globalMessage, versionConflictCurrent } from "@/lib/auth-errors";
+import { globalMessage, isLeadConvertedLocked, versionConflictCurrent } from "@/lib/auth-errors";
 import { useSession } from "@/lib/session-context";
 import { ConflictDialog } from "./conflict-dialog";
 import { DeleteLeadDialog } from "./delete-lead-dialog";
@@ -136,7 +136,13 @@ export function LeadDetail({ leadId }: { leadId: string }) {
       setLead(updated);
       reload();
     } catch (err) {
-      if (!handleConflict(err)) setStatusError(globalMessage(err));
+      if (!handleConflict(err)) {
+        setStatusError(globalMessage(err));
+        // A stale screen: the lead was converted since it was loaded. The
+        // backend's own sentence is already in the banner; reload so the
+        // timeline shows the conversion and the buttons stop being offered.
+        if (isLeadConvertedLocked(err)) reload();
+      }
     } finally {
       setStatusSaving(false);
     }
@@ -276,7 +282,7 @@ export function LeadDetail({ leadId }: { leadId: string }) {
   // disappears once a conversion has genuinely happened rather than
   // relying on convertSaving alone (which resets after a FAILED attempt
   // too).
-  const alreadyConverted = activities.some((a) => a.type === "lead_converted");
+  const alreadyConverted = hasBeenConverted(activities);
   const canConvert =
     (session.role === "owner" || session.role === "admin") &&
     canConvertLead(lead.status) &&
@@ -338,32 +344,40 @@ export function LeadDetail({ leadId }: { leadId: string }) {
               )}
 
               <FormErrorBanner message={statusError} />
-              <div className="mt-3.5 flex flex-wrap gap-2">
-                {statusTransitionOptions(lead.status).map((opt) => (
-                  <button
-                    key={opt.status}
-                    type="button"
-                    disabled={statusSaving}
-                    onClick={() => handleChooseStatus(opt.status)}
-                    className="h-8 rounded-md px-3 text-[13px] font-medium disabled:opacity-50"
-                    style={
-                      opt.kind === "step"
-                        ? {
-                            border: "1px solid oklch(0.56 0.19 41 / 40%)",
-                            background: "oklch(0.56 0.19 41 / 8%)",
-                            color: "oklch(0.48 0.17 41)",
-                          }
-                        : {
-                            border: "1px solid oklch(0.922 0 0)",
-                            background: "#fff",
-                            color: "oklch(0.4 0 0)",
-                          }
-                    }
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+              {alreadyConverted ? (
+                // Not a disabled row of buttons: there is nothing left to
+                // choose, so the screen says why instead (issue #142).
+                <div className="mt-3.5 text-[13px] text-muted-foreground">
+                  Lead ini sudah dikonversi menjadi Customer; statusnya tidak dapat diubah lagi.
+                </div>
+              ) : (
+                <div className="mt-3.5 flex flex-wrap gap-2">
+                  {statusTransitionOptions(lead.status).map((opt) => (
+                    <button
+                      key={opt.status}
+                      type="button"
+                      disabled={statusSaving}
+                      onClick={() => handleChooseStatus(opt.status)}
+                      className="h-8 rounded-md px-3 text-[13px] font-medium disabled:opacity-50"
+                      style={
+                        opt.kind === "step"
+                          ? {
+                              border: "1px solid oklch(0.56 0.19 41 / 40%)",
+                              background: "oklch(0.56 0.19 41 / 8%)",
+                              color: "oklch(0.48 0.17 41)",
+                            }
+                          : {
+                              border: "1px solid oklch(0.922 0 0)",
+                              background: "#fff",
+                              color: "oklch(0.4 0 0)",
+                            }
+                      }
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 

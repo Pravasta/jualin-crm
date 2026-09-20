@@ -129,6 +129,7 @@ Bertambah seiring fitur. Setiap kode baru dicatat di sini.
 | 422 | `invalid_activity_type` | Client mengirim tipe activity sistem (`lead_created`, `status_changed`, dst.) ke `POST /v1/leads/{id}/activities` (issue #21) |
 | 409 | `membership_has_open_leads` | Penonaktifan membership ditolak karena masih ada lead terbuka; body memuat `open_lead_count` (issue #22) |
 | 409 | `lead_already_converted` | `POST /v1/leads/{id}/convert` pada lead yang sudah pernah dikonversi — ditegakkan `uq_customers_org_lead` (issue #23) |
+| 422 | `lead_converted_locked` | `PATCH /v1/leads/{id}/status` pada lead yang **sudah dikonversi** jadi Customer — untuk **setiap** status tujuan, tanpa mengubah apa pun. Beda dari `invalid_status_transition` (aturan transisi, pesan generik): kode sendiri supaya UI bisa menjelaskan *kenapa*; bukan 409 karena dashboard membaca `409 version_conflict` sebagai "muat ulang dan coba lagi". Diperiksa **sebelum** validasi transisi. Hanya `status` yang terkunci — field, penugasan, task, dan catatan tidak (issue #142, ADR-016) |
 | 401 | `invalid_api_key` | Kredensial `jln_*` tidak dikenal, sudah direvoke, atau kedaluwarsa — ketiganya pesan yang sama (issue #47) |
 | 403 | `insufficient_scope` | Principal `api_key` mencoba aksi di luar scope-nya — termasuk mengirim `assigned_to_membership_id` ke `POST /v1/leads` (issue #47) |
 | 413 | `payload_too_large` | Body `POST /v1/leads` jalur API key melebihi 64 KB (issue #47) |

@@ -72,6 +72,8 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 
 - [ ] Konversi hanya muncul/berhasil untuk lead status **Menang**
 - [ ] Tidak bisa konversi dua kali
+- [ ] Lead **sudah dikonversi**: tidak ada tombol status, dan `PATCH …/status` → `422 lead_converted_locked` untuk setiap tujuan (issue #142, ADR-016)
+- [ ] Lead Menang yang **belum** dikonversi masih bisa mundur ke Penawaran (salah klik dapat dikoreksi)
 - [ ] Data customer hasil konversi cocok dengan lead asalnya
 - [ ] Tautan "Berasal dari lead" mengarah balik dengan benar
 - [ ] Edit nama customer **tidak** mengubah nama lead asalnya

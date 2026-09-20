@@ -126,12 +126,25 @@ func (r *postgresRepository) FindByIdempotencyKey(ctx context.Context, t tenant.
 // enforced here once rather than in every future usecase method that
 // touches a single lead).
 func (r *postgresRepository) FindByID(ctx context.Context, t tenant.Context, id uuid.UUID) (*Lead, error) {
-	const q = `
+	return r.findByID(ctx, t, id, findByIDQuery)
+}
+
+// FindByIDForUpdate takes the row lock a status change needs (#142). It
+// is the SAME scoping query as FindByID — Employee visibility and
+// deleted_at included — so a lead the caller may not see is still
+// httpx.ErrNotFound rather than a lock on a row they have no business
+// touching.
+func (r *postgresRepository) FindByIDForUpdate(ctx context.Context, t tenant.Context, id uuid.UUID) (*Lead, error) {
+	return r.findByID(ctx, t, id, findByIDQuery+` FOR UPDATE`)
+}
+
+const findByIDQuery = `
 		SELECT ` + leadColumns + `
 		FROM leads
 		WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
 		  AND (NOT $3 OR assigned_to_membership_id = $4)`
 
+func (r *postgresRepository) findByID(ctx context.Context, t tenant.Context, id uuid.UUID, q string) (*Lead, error) {
 	row := r.q.QueryRow(ctx, q, id, t.OrganizationID, isEmployee(t), membershipIDOrNil(t))
 	found, err := scanLead(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -141,6 +154,34 @@ func (r *postgresRepository) FindByID(ctx context.Context, t tenant.Context, id 
 		return nil, fmt.Errorf("lead: find by id: %w", err)
 	}
 	return found, nil
+}
+
+// IsConverted reads customers directly. leads carries no "converted"
+// marker at all (ADR-006 says it does; the schema does not —
+// customers.converted_from_lead_id is the only link, #142), and
+// customer's own repository already reads leads the same way in Convert,
+// so this is the same cross-table SQL in the other direction rather than
+// a Go-level bridge into internal/customer that would exist for one
+// EXISTS. internal/lead still never imports internal/customer.
+//
+// deleted_at is deliberately NOT filtered: uq_customers_org_lead is not a
+// partial index, so a soft-deleted customer still blocks converting the
+// lead again — and therefore must still lock its status, or deleting the
+// customer would quietly reopen a lead that can never be converted again.
+//
+// Must run on the SAME transaction as FindByIDForUpdate, as a separate
+// statement AFTER it: in READ COMMITTED each statement takes a fresh
+// snapshot, which is what makes a customer committed by a Convert we just
+// waited on visible here. Folding this into the UPDATE's WHERE would not
+// do — after waiting on a row lock, a subquery against another table
+// still reads the statement's ORIGINAL snapshot.
+func (r *postgresRepository) IsConverted(ctx context.Context, t tenant.Context, id uuid.UUID) (bool, error) {
+	const q = `SELECT EXISTS (SELECT 1 FROM customers WHERE organization_id = $1 AND converted_from_lead_id = $2)`
+	var converted bool
+	if err := r.q.QueryRow(ctx, q, t.OrganizationID, id).Scan(&converted); err != nil {
+		return false, fmt.Errorf("lead: is converted: %w", err)
+	}
+	return converted, nil
 }
 
 // Update applies optimistic locking (TD §4): expectedVersion must match

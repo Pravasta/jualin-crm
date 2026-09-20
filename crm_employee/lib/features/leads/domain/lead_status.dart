@@ -1,4 +1,5 @@
 import '../../../shared/labels.dart';
+import 'entities/activity.dart';
 
 /// Which status transitions the picker offers. Mirrors
 /// `crm_be/internal/lead/usecase.go`'s `validateStatusTransition`
@@ -118,3 +119,13 @@ List<StatusTransitionOption> statusTransitionOptions(String from) {
   }
   return options;
 }
+
+/// The Lead entity carries no "already converted" flag — `converted_from_lead_id`
+/// lives on Customer, and conversion never touches the lead — so the
+/// timeline's own `lead_converted` entry is the only signal the client has.
+/// Once it exists `crm_be` locks the lead's status (issue #142, ADR-016); the
+/// screen uses this to stop OFFERING the picker rather than offering it and
+/// letting the backend refuse. The backend stays the authority: a stale
+/// screen still gets `lead_converted_locked` as the status error.
+bool hasBeenConverted(Iterable<Activity> activities) =>
+    activities.any((a) => a.type == 'lead_converted');

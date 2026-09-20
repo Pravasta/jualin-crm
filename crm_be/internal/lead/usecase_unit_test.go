@@ -25,6 +25,34 @@ type fakeLeadRepo struct {
 	nextNumber int
 
 	cleanupCalls []uuid.UUID // orgs CleanupExpiredIdempotencyKeys was called for
+
+	// converted stands in for "a customers row exists for this lead" (#142)
+	// — the fake has no customers table, and what UpdateStatus must do is
+	// ASK, so a set the test controls says more than a simulated store.
+	converted map[uuid.UUID]bool
+}
+
+func (f *fakeLeadRepo) markConverted(id uuid.UUID) {
+	if f.converted == nil {
+		f.converted = map[uuid.UUID]bool{}
+	}
+	f.converted[id] = true
+}
+
+// FindByIDForUpdate needs no locking here: the fake has no concurrency.
+// The lock itself is proven against real Postgres in
+// cmd/api/lead_conversion_lock_test.go; what this fake must preserve is
+// the SCOPING (tenant, deleted, Employee visibility) FindByID already has.
+func (f *fakeLeadRepo) FindByIDForUpdate(ctx context.Context, t tenant.Context, id uuid.UUID) (*lead.Lead, error) {
+	return f.FindByID(ctx, t, id)
+}
+
+func (f *fakeLeadRepo) IsConverted(_ context.Context, t tenant.Context, id uuid.UUID) (bool, error) {
+	l, ok := f.byID[id]
+	if !ok || l.OrganizationID != t.OrganizationID {
+		return false, nil // another tenant's lead is never "converted" as far as we can see
+	}
+	return f.converted[id], nil
 }
 
 func newFakeLeadRepo() *fakeLeadRepo {
@@ -1165,4 +1193,105 @@ func TestUnit_Create_Quota_RoleCheckedBeforeQuota(t *testing.T) {
 // one table (ownerActor always mints a fresh one).
 func ownerActorIn(org uuid.UUID) tenant.Context {
 	return actorContext(org, uuid.Must(uuid.NewV7()), tenant.RoleOwner)
+}
+
+// --- issue #142 / ADR-016: a converted lead's status is locked ---
+
+// wonLead walks a fresh lead new -> won through the real usecase, so the
+// tests below start from the state the bug lives in.
+func wonLead(t *testing.T, u *lead.Usecase, actor tenant.Context) *lead.Lead {
+	t.Helper()
+	cur, _, err := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	for _, step := range []string{"contacted", "qualified", "proposal", "won"} {
+		cur, err = u.UpdateStatus(context.Background(), actor, cur.ID, lead.UpdateStatusInput{Version: cur.Version, Status: step})
+		if err != nil {
+			t.Fatalf("setup: move to %s: %v", step, err)
+		}
+	}
+	return cur
+}
+
+func requireConvertedLocked(t *testing.T, err error) {
+	t.Helper()
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "lead_converted_locked" || derr.Status != 422 {
+		t.Fatalf("expected 422 lead_converted_locked, got: %v", err)
+	}
+}
+
+func TestUnit_UpdateStatus_ConvertedLead_EveryDestinationRejected(t *testing.T) {
+	reason := "price"
+	// Includes destinations the transition rules would accept (proposal,
+	// lost, unqualified, spam) AND ones they would refuse (new, qualified):
+	// the lock answers first, for all of them.
+	for _, to := range []string{"proposal", "lost", "unqualified", "spam", "qualified", "new", "contacted"} {
+		t.Run(to, func(t *testing.T) {
+			store := newFakeStore()
+			u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
+			actor, _ := ownerActor()
+			won := wonLead(t, u, actor)
+			store.repo.markConverted(won.ID)
+
+			in := lead.UpdateStatusInput{Version: won.Version, Status: to}
+			if to == "lost" {
+				in.LostReason = &reason
+			}
+			_, err := u.UpdateStatus(context.Background(), actor, won.ID, in)
+
+			requireConvertedLocked(t, err)
+			if got := store.repo.byID[won.ID].Status; got != "won" {
+				t.Errorf("a refused change must leave the status alone, got %q", got)
+			}
+		})
+	}
+}
+
+// The other half of owner decision option 2: BEFORE conversion, won is
+// still reversible, so a misclicked "Menang" can be corrected. Without
+// this, someone could "fix" the bug by making won final and every test
+// above would stay green.
+func TestUnit_UpdateStatus_WonButNotConverted_StillMovable(t *testing.T) {
+	for _, tc := range []struct{ name, to string }{
+		{"back to proposal", "proposal"},
+		{"close as spam", "spam"},
+		{"close as unqualified", "unqualified"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakeStore()
+			u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
+			actor, _ := ownerActor()
+			won := wonLead(t, u, actor)
+
+			moved, err := u.UpdateStatus(context.Background(), actor, won.ID, lead.UpdateStatusInput{Version: won.Version, Status: tc.to})
+			if err != nil {
+				t.Fatalf("an unconverted won lead must stay correctable: %v", err)
+			}
+			if moved.Status != tc.to {
+				t.Errorf("expected %q, got %q", tc.to, moved.Status)
+			}
+		})
+	}
+}
+
+// Only STATUS is locked. Correcting a name or reassigning a converted
+// lead is untouched — ADR-016 must not quietly grow into "converted leads
+// are read-only".
+func TestUnit_ConvertedLead_OtherFieldsStillEditable(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
+	actor, _ := ownerActor()
+	won := wonLead(t, u, actor)
+	store.repo.markConverted(won.ID)
+
+	name := "Budi Santoso"
+	updated, err := u.Update(context.Background(), actor, won.ID, lead.UpdateLeadInput{Version: won.Version, Name: &name})
+	if err != nil {
+		t.Fatalf("editing a converted lead's name must still work: %v", err)
+	}
+	if updated.Name != name {
+		t.Errorf("expected name %q, got %q", name, updated.Name)
+	}
 }

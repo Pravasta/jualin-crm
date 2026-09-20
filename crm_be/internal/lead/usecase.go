@@ -298,9 +298,26 @@ func (u *Usecase) UpdateStatus(ctx context.Context, t tenant.Context, id uuid.UU
 	var updated *Lead
 	var conflict bool
 	txErr := u.store.InTx(ctx, func(r Repos) error {
-		current, err := r.Lead.FindByID(ctx, t, id)
+		// The row lock comes first, and IsConverted second as its own
+		// statement — see IsConverted's doc comment for why neither can
+		// be folded into the UPDATE. customer.Convert takes the same lock
+		// (SELECT … FOR UPDATE), so a status change and a conversion of
+		// the same lead can never interleave: one waits for the other,
+		// and whichever comes second sees the first's result (#142).
+		current, err := r.Lead.FindByIDForUpdate(ctx, t, id)
 		if err != nil {
 			return err
+		}
+		// Before validateStatusTransition, not after: "this lead was
+		// converted" is the answer the user needs, and it holds for every
+		// destination — including ones the transition rules would refuse
+		// for a different reason.
+		converted, err := r.Lead.IsConverted(ctx, t, id)
+		if err != nil {
+			return err
+		}
+		if converted {
+			return leadConvertedLockedError()
 		}
 		// Captured now, not read from current after UpdateStatus runs:
 		// current may be the same backing struct a subsequent call
@@ -534,6 +551,20 @@ func normalizePhone(raw *string) *string {
 		return nil
 	}
 	return &e164
+}
+
+// leadConvertedLockedError: 422 like invalid_status_transition (the
+// request is well-formed; the lead's state forbids it), but its own code
+// and message — the UI has to say WHY, and "transisi tidak diizinkan"
+// would send the user hunting for a valid button that does not exist.
+// Not 409: the dashboard reads 409 version_conflict as "reload and
+// retry", which is exactly wrong here.
+func leadConvertedLockedError() error {
+	return &httpx.DomainError{
+		Status:  http.StatusUnprocessableEntity,
+		Code:    "lead_converted_locked",
+		Message: "Lead ini sudah dikonversi menjadi Customer dan statusnya tidak dapat diubah lagi.",
+	}
 }
 
 func invalidStatusTransitionError() error {
