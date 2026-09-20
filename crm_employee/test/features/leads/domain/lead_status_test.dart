@@ -8,9 +8,13 @@ import 'package:flutter_test/flutter_test.dart';
 // out by hand from the Go source, not derived from
 // isValidStatusTransition) — so a bug that breaks BOTH ports the same
 // way still can't hide.
+//
+// Nothing leads to 'new' (issue #139, ADR-015): it means "belum disentuh",
+// a statement about history rather than a stage of work, so no row below
+// lists it — not even lost's, which is why reopening goes to 'contacted'.
 const Map<String, List<String>> _expectedValid = {
   'new': ['contacted', 'lost', 'unqualified', 'spam'],
-  'contacted': ['new', 'qualified', 'lost', 'unqualified', 'spam'],
+  'contacted': ['qualified', 'lost', 'unqualified', 'spam'],
   'qualified': ['contacted', 'proposal', 'lost', 'unqualified', 'spam'],
   'proposal': ['qualified', 'won', 'lost', 'unqualified', 'spam'],
   'won': ['proposal', 'lost', 'unqualified', 'spam'],
@@ -19,7 +23,6 @@ const Map<String, List<String>> _expectedValid = {
   // no cheap way to know "before" without activity history (crm_be #20
   // notes). unqualified/spam are also reachable directly from lost.
   'lost': [
-    'new',
     'contacted',
     'qualified',
     'proposal',
@@ -58,8 +61,36 @@ void main() {
     test('main path movement is exactly one step in either direction', () {
       expect(isValidStatusTransition('qualified', 'contacted'), isTrue); // back
       expect(isValidStatusTransition('qualified', 'proposal'), isTrue); // forward
+      expect(isValidStatusTransition('proposal', 'qualified'), isTrue); // back
+      expect(isValidStatusTransition('won', 'proposal'), isTrue); // back
       expect(isValidStatusTransition('proposal', 'new'), isFalse); // two steps back
       expect(isValidStatusTransition('new', 'won'), isFalse); // skips ahead
+    });
+  });
+
+  group('nothing leads back to new (issue #139)', () {
+    test('no status can move to new — checked per status, not only via the matrix', () {
+      for (final from in leadStatuses) {
+        expect(
+          isValidStatusTransition(from, 'new'),
+          isFalse,
+          reason: '$from -> new',
+        );
+      }
+    });
+
+    test('the UI never offers a way into new, from any status', () {
+      for (final from in leadStatuses) {
+        final targets = statusTransitionOptions(from).map((o) => o.status);
+        expect(targets, isNot(contains('new')), reason: 'options from $from');
+      }
+    });
+
+    test('"contacted" offers forward and the side exits, but no backward step', () {
+      final steps = statusTransitionOptions('contacted')
+          .where((o) => o.kind == StatusTransitionKind.step)
+          .map((o) => o.status);
+      expect(steps, ['qualified']);
     });
   });
 
@@ -94,13 +125,16 @@ void main() {
       expect(steps, ['proposal']);
     });
 
-    test('restricts "lost" to a single reopen-to-"new" option, not all 5 valid main-path targets', () {
-      // isValidStatusTransition allows lost -> any main-path status; the
-      // UI deliberately narrows this to avoid a wall of buttons for a
-      // rare case. This test locks that narrowing as intentional.
+    test('restricts "lost" to a single reopen-to-"contacted" option, not all valid main-path targets', () {
+      // isValidStatusTransition allows lost -> any main-path status except
+      // new; the UI deliberately narrows this to avoid a wall of buttons
+      // for a rare case. This test locks that narrowing as intentional —
+      // and the target: 'new' is closed (ADR-015), 'contacted' is the
+      // earliest stage a reopened lead can honestly be in.
       final options = statusTransitionOptions('lost');
       expect(options, hasLength(1));
-      expect(options[0].status, 'new');
+      expect(options[0].status, 'contacted');
+      expect(options[0].label, '→ Buka kembali ke Dihubungi');
     });
 
     test('every option returned is actually valid per isValidStatusTransition — AC #72: UI never offers what the backend rejects', () {

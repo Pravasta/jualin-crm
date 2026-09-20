@@ -8,9 +8,14 @@ import { isValidStatusTransition, statusTransitionOptions } from "./lead-status"
 // documented "leaving lost" deviation) — not derived from
 // isValidStatusTransition itself, so a bug that breaks BOTH the same way
 // can't hide.
+//
+// Nothing leads to "new" (issue #139, ADR-015): "new" means "belum
+// disentuh", a statement about history rather than a stage of work, so no
+// row below lists it — not even lost's, which is why reopening goes to
+// "contacted".
 const EXPECTED_VALID: Record<LeadStatus, LeadStatus[]> = {
   new: ["contacted", "lost", "unqualified", "spam"],
-  contacted: ["new", "qualified", "lost", "unqualified", "spam"],
+  contacted: ["qualified", "lost", "unqualified", "spam"],
   qualified: ["contacted", "proposal", "lost", "unqualified", "spam"],
   proposal: ["qualified", "won", "lost", "unqualified", "spam"],
   won: ["proposal", "lost", "unqualified", "spam"],
@@ -18,7 +23,7 @@ const EXPECTED_VALID: Record<LeadStatus, LeadStatus[]> = {
   // status is valid, not just the one the lead was in before — there's
   // no cheap way to know "before" without activity history (crm_be #20
   // notes). unqualified/spam are also reachable directly from lost.
-  lost: ["new", "contacted", "qualified", "proposal", "won", "unqualified", "spam"],
+  lost: ["contacted", "qualified", "proposal", "won", "unqualified", "spam"],
   unqualified: [],
   spam: [],
 };
@@ -46,8 +51,30 @@ describe("isValidStatusTransition", () => {
   it("main path movement is exactly one step in either direction", () => {
     expect(isValidStatusTransition("qualified", "contacted")).toBe(true); // back
     expect(isValidStatusTransition("qualified", "proposal")).toBe(true); // forward
+    expect(isValidStatusTransition("proposal", "qualified")).toBe(true); // back
+    expect(isValidStatusTransition("won", "proposal")).toBe(true); // back
     expect(isValidStatusTransition("proposal", "new")).toBe(false); // two steps back
     expect(isValidStatusTransition("new", "won")).toBe(false); // skips ahead
+  });
+});
+
+describe("nothing leads back to new (issue #139)", () => {
+  it("no status can move to new — checked per status, not only via the matrix", () => {
+    for (const from of LEAD_STATUSES) {
+      expect(isValidStatusTransition(from, "new"), `${from} -> new`).toBe(false);
+    }
+  });
+
+  it("the UI never offers a way into new, from any status", () => {
+    for (const from of LEAD_STATUSES) {
+      const targets = statusTransitionOptions(from).map((o) => o.status);
+      expect(targets, `options from ${from}`).not.toContain("new");
+    }
+  });
+
+  it('"contacted" offers forward and the side exits, but no backward step', () => {
+    const steps = statusTransitionOptions("contacted").filter((o) => o.kind === "step");
+    expect(steps.map((o) => o.status)).toEqual(["qualified"]);
   });
 });
 
@@ -76,13 +103,16 @@ describe("statusTransitionOptions", () => {
     expect(steps.map((o) => o.status)).toEqual(["proposal"]);
   });
 
-  it('restricts "lost" to a single reopen-to-"new" option, not all 5 valid main-path targets', () => {
-    // isValidStatusTransition allows lost -> any main-path status; the UI
-    // deliberately narrows this to avoid a wall of buttons for a rare
-    // case. This test locks that narrowing as intentional.
+  it('restricts "lost" to a single reopen-to-"contacted" option, not all 5 valid main-path targets', () => {
+    // isValidStatusTransition allows lost -> any main-path status except
+    // new; the UI deliberately narrows this to avoid a wall of buttons for
+    // a rare case. This test locks that narrowing as intentional — and the
+    // target: "new" is closed (ADR-015), "contacted" is the earliest stage
+    // a reopened lead can honestly be in.
     const options = statusTransitionOptions("lost");
     expect(options).toHaveLength(1);
-    expect(options[0].status).toBe("new");
+    expect(options[0].status).toBe("contacted");
+    expect(options[0].label).toBe("→ Buka kembali ke Dihubungi");
   });
 
   it("every option returned is actually valid per isValidStatusTransition", () => {

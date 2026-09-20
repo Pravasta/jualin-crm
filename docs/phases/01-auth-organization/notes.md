@@ -404,9 +404,10 @@ tanpa menunggu 15 menit).
 - **Batas access token.** Gerbang menghentikan *perpanjangan* sesi, bukan memutusnya seketika: access
   token yang sudah terbit tetap berlaku sampai `ACCESS_TOKEN_TTL` (15 menit). Berlaku untuk pendekatan
   mana pun karena token stateless.
-- **Verifikasi di stack sungguhan (docker + browser) belum dijalankan.** Yang dibuktikan: router asli +
-  Postgres asli lewat testcontainers. Prosedur di `02` §2.2 dan §2.4 untuk dijalankan pemilik produk;
-  container `api` yang menyala perlu di-`--build` ulang dulu. **Jangan dibaca sebagai sudah.**
+- **Verifikasi di stack sungguhan (docker + browser).** Saat PR ditulis belum dijalankan; yang diamati
+  agent hanyalah router asli + Postgres asli lewat testcontainers. **Pasca-merge (#138) pemilik produk
+  menjalankan prosedur `02` §2.2 dan §2.4 dan melaporkan hasilnya benar** — dicatat sebagai laporan
+  pemilik produk, agent tidak mengamati sendiri.
 
 **Di luar cakupan, dicatat.** Halaman terima-undangan dashboard (`/invitations/accept`) belum menyebut
 aplikasi mobile: Employee yang menerima undangan di sana berakhir di `/login` dengan pesan `403` — benar,

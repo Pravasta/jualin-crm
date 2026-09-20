@@ -48,7 +48,9 @@ tidak instan per huruf.
 
 Dari halaman detail `Andi Calon Pelanggan`:
 
-1. Ubah status **Baru → Dihubungi**.
+1. Ubah status **Baru → Dihubungi**. Begitu berstatus Dihubungi, **jangan langsung lanjut**: periksa
+   tombol yang tersedia — hanya **"→ Memenuhi Syarat"** dan tiga tombol keluar; **tidak ada "→ Baru"**
+   (issue #139, ADR-015). Sebuah lead yang sudah dihubungi tidak bisa kembali ke "belum disentuh".
 2. **Dihubungi → Memenuhi Syarat**.
 3. **Memenuhi Syarat → Penawaran**.
 4. **Penawaran → Menang**.
@@ -74,15 +76,25 @@ Tidak Merespons / Tidak Tertarik / Lainnya) — **tidak bisa** disimpan tanpa me
 
 **Hasil yang diharapkan:** badge **Kalah**, dan detail menampilkan "Alasan kalah: ..." sesuai pilihan.
 
-3. Cari opsi **"Buka kembali ke Baru"**.
+3. Cari opsi **"Buka kembali ke Dihubungi"** — satu-satunya opsi buka-kembali; **tidak ada**
+   "Buka kembali ke Baru" (issue #139, ADR-015: `new` berarti "belum disentuh", dan lead yang pernah
+   kalah tidak mungkin belum disentuh).
 
-**Hasil yang diharapkan:** status kembali ke **Baru**, alasan kalah tidak lagi ditampilkan (atau
+**Hasil yang diharapkan:** status menjadi **Dihubungi**, alasan kalah tidak lagi ditampilkan (atau
 ditampilkan sebagai riwayat lama di timeline, bukan status aktif).
+
+4. Pada lead yang sama (kini **Dihubungi**), periksa tombol status yang tersedia.
+
+**Hasil yang diharapkan (issue #139):** **tidak ada** tombol **"→ Baru"** — hanya **"→ Memenuhi
+Syarat"** dan tiga tombol keluar (Kalah / Tidak Memenuhi Syarat / Spam). Sebelum ADR-015, tombol "→ Baru"
+muncul di sini dan mengembalikan lead yang sudah dihubungi ke status "belum disentuh" — padahal
+timeline-nya sudah memuat perubahan status.
 
 ## 3.6 Konflik versi (optimistic locking)
 
 1. Buka detail `Citra Calon Pelanggan` di **dua tab browser** sekaligus.
-2. Di tab pertama, ubah statusnya (mis. ke Dihubungi), simpan — berhasil.
+2. Di tab pertama, ubah statusnya (mis. ke Memenuhi Syarat — lead ini sudah Dihubungi sejak §3.5),
+   simpan — berhasil.
 3. Di tab **kedua** (yang belum di-refresh, masih memegang data lama), coba ubah field apa saja dan
    simpan.
 
@@ -134,5 +146,5 @@ menampilkan kalimat yang masuk akal dalam Bahasa Indonesia — **bukan** kode/en
 ---
 
 Selesai di sini: `Andi Calon Pelanggan` — status **Menang**, satu task selesai. `Citra Calon
-Pelanggan` — status **Dihubungi** (dari §3.6), sempat ditugaskan lalu dipindahkan/dilepas di §3.7.
+Pelanggan` — status **Memenuhi Syarat** (dari §3.6), sempat ditugaskan lalu dipindahkan/dilepas di §3.7.
 Lanjut ke [`04-customer.md`](./04-customer.md).

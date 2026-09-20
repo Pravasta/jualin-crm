@@ -312,9 +312,9 @@ new ──► contacted ──► qualified ──► proposal ──► won
 | Aturan | Ketentuan |
 |---|---|
 | Maju | Hanya **satu langkah** pada jalur utama `new → contacted → qualified → proposal → won` |
-| Mundur | **Satu langkah** (B7) — `qualified → contacted` boleh, `proposal → new` tidak |
+| Mundur | **Satu langkah** (B7) — `qualified → contacted` boleh, `proposal → new` tidak. **Tidak ada jalan kembali ke `new` dari status mana pun** ([ADR-015](../../decisions/ADR-015-nothing-leads-back-to-new.md), issue #139): `contacted → new` juga ditolak |
 | Terminal samping | `lost`, `unqualified`, `spam` dapat dicapai dari status manapun di jalur utama |
-| Keluar dari terminal | `lost` → status jalur utama **diizinkan satu langkah** kembali ke status sebelum kalah (lead hidup lagi); `unqualified` dan `spam` **final** |
+| Keluar dari terminal | `lost` → status jalur utama **diizinkan satu langkah** kembali ke status sebelum kalah (lead hidup lagi) — kecuali `new` (ADR-015); UI menawarkan **Dihubungi**; `unqualified` dan `spam` **final** |
 | `lost` | **Wajib** `lost_reason` ∈ B6 |
 | Keluar dari `lost` | `lost_reason` di-`NULL`-kan kembali |
 | `won` | **Tidak** mengonversi apapun secara otomatis (B9) |
