@@ -943,9 +943,8 @@ melindungi endpoint mendatang, bukan karena ada korban lain hari ini.
 mengecualikan `/v1/auth/refresh`. Ia tidak memperhitungkan `login`, yang menjawab `401` sebagai hal
 yang lumrah. Kodenya kini lebih luas dari teks TD; isi TD tidak salah, hanya kurang lengkap.
 
-**Yang tidak bisa dibuktikan sesi ini.** Verifikasi di browser sungguhan (banner tampil, tanpa reload,
-tab Network tanpa `/v1/auth/refresh`) **belum dijalankan** — ekstensi Chrome tidak terhubung. Yang
-terbukti: kontrak backend lewat `curl` (`401 {"code":"invalid_credentials","message":"Email atau
-password salah."}`) dan perilaku klien lewat test. Langkahnya ditulis di
-`docs/testing/flow/01-registrasi-dan-autentikasi.md` §1.4 untuk dijalankan pemilik produk, dan
-**jangan dibaca sebagai sudah**.
+**Verifikasi di browser sungguhan.** Saat PR ditulis, ekstensi Chrome tidak terhubung, jadi yang
+diamati agent hanya kontrak backend lewat `curl` (`401 {"code":"invalid_credentials","message":"Email
+atau password salah."}`) dan perilaku klien lewat test. **Pasca-merge (#137) pemilik produk menjalankan
+`docs/testing/flow/01-registrasi-dan-autentikasi.md` §1.4 dan melaporkan hasilnya benar** (banner tampil).
+Dicatat sebagai laporan pemilik produk — agent tidak mengamati sendiri.

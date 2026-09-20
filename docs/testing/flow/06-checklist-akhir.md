@@ -10,7 +10,7 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 - [ ] Verifikasi email (email sungguhan terkirim ke Mailpit)
 - [ ] Login
 - [ ] Undang employee
-- [ ] Employee menerima undangan & login
+- [ ] Employee menerima undangan; login **dashboard** ditolak dengan pesan mengarahkan ke aplikasi mobile (`403 dashboard_not_available_for_role`, issue #136); login sungguhan di aplikasi mobile — `07-mobile-android.md`
 - [ ] Owner membuat API key
 - [ ] "Website" (curl) mengirim lead lewat API key
 - [ ] Owner meng-assign lead ke seseorang

@@ -111,7 +111,9 @@ lead selesai dikonversi.
 |---|---|---|---|---|
 | `metrics.read` | ✅ | ✅ | ✅ | — |
 
-Employee tidak dapat: dashboard bukan alatnya (Employee dapat mobile di Phase 5), dan agregat lintas
+Employee tidak dapat: dashboard bukan alatnya (Employee dapat mobile di Phase 5 — sejak issue #136
+ini **ditegakkan sebagai gerbang login/refresh**, bukan hanya alasan di sini; lihat *Role × client* di
+`authentication.md`), dan agregat lintas
 organization adalah informasi manajemen. Konsekuensinya `internal/metrics` **tidak** punya cabang
 `isEmployee` di query-nya sama sekali — tidak seperti `lead`/`task`/`customer`, Employee tidak pernah
 sampai ke repository ini (`docs/phases/03-owner-dashboard/td.md` §2.4).
@@ -400,6 +402,26 @@ type PlanGate interface {
 `internal/subscription`, yang justru dihindari pola ini. Nilainya (`"api_key"`, `"form"`, `"webhook"`)
 adalah kontrak kabel dengan `subscription.Channels`, dikunci `cmd/api/plan_gate_test.go` — bukan
 diasumsikan cocok.
+
+---
+
+## Gerbang client × role — pertanyaan yang **mendahului** matriks (issue #136)
+
+Matriks di atas menjawab *"boleh melakukan aksi X?"* — pertanyaan yang baru relevan **setelah** ada
+sesi. Ada pertanyaan sebelumnya yang tidak dijawab satu pun `Action`: *"boleh punya sesi di client
+ini?"*
+
+| | `dashboard` | `mobile` |
+|---|---|---|
+| Owner · Admin · Manager | ✅ | ✅ |
+| **Employee** | **❌** | ✅ |
+
+Employee tidak punya `Action` yang gagal di dashboard, karena ia tidak pernah sampai ke sana: gerbangnya
+ada di `Login` dan `Refresh` (`internal/auth`), sebelum principal terbentuk — dan bukan di UI, jadi
+menyembunyikan menu tidak pernah menjadi penegakannya. Karena itu **tidak ada baris matriks** untuknya,
+dan `NAV_ITEMS` dashboard sengaja tetap tidak difilter per role. Aturannya per **membership**
+(ADR-007), bukan per user; rincian, alasan `403` eksplisit, dan batas access token 15 menit ada di
+`authentication.md` bagian *Role × client*.
 
 ---
 

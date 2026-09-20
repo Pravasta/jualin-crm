@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch } from "./api-client";
 import { ApiError } from "./api-types";
+import { globalMessage } from "./auth-errors";
 
 const ORIGINAL_LOCATION = window.location;
 
@@ -298,6 +299,38 @@ describe("401 from /v1/auth/* is a credential answer, not an expired session", (
 
     expect(refreshCallCount).toBe(1);
     expect(window.location.href).toBe("/login");
+  });
+});
+
+// Issue #136. crm_be refuses an Employee's dashboard login with 403
+// dashboard_not_available_for_role. The login screen needs no code for it —
+// this pins the contract that makes that true: a 403 from /v1/auth/* is not
+// a 401, so it must not start a refresh or redirect, and globalMessage must
+// hand the backend's own Indonesian sentence to the banner untouched.
+describe("403 dashboard_not_available_for_role reaches the login banner as-is", () => {
+  it("no refresh, no redirect, and the backend message is what the banner shows", async () => {
+    const message = "Akun Anda terdaftar sebagai Employee. Gunakan aplikasi mobile Jualin untuk masuk.";
+    let refreshCallCount = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        if (String(input).endsWith("/v1/auth/refresh")) {
+          refreshCallCount++;
+        }
+        return Promise.resolve(
+          jsonResponse(403, { error: { code: "dashboard_not_available_for_role", message } })
+        );
+      })
+    );
+
+    const err = await apiFetch("/v1/auth/login", { method: "POST", body: {} }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 403, code: "dashboard_not_available_for_role" });
+    expect(globalMessage(err)).toBe(message);
+    expect(refreshCallCount).toBe(0);
+    expect(window.location.href).toBe("");
   });
 });
 

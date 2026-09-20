@@ -260,7 +260,9 @@ Kalau §9.8 dilewati manual, tandai di checklist "diverifikasi lewat test otomat
 
 ## 9.9 Gerbang role — Manager/Employee tidak punya akses
 
-1. Logout, login sebagai Manager atau Employee (dari `02`).
+1. Logout, login sebagai **Manager** — undang anggota baru dengan Role `Manager` (mis.
+   `manager2@test.local`, ikuti `02` §2.1–§2.2). Employee tidak bisa dipakai: sejak issue #136 Employee
+   tidak bisa login ke dashboard.
 2. Buka `/connect/webhook`, `/connect/webhook/<id>`, dan `/connect/webhook/docs` langsung.
 
 **Hasil yang diharapkan:** ketiganya menampilkan *"...tidak tersedia untuk role Anda."* Buka DevTools
@@ -466,7 +468,8 @@ Buka `/subscription` sebagai Owner:
   `Rp99.000/bulan` / `Negosiasi`
 - Kolom Enterprise **tidak punya tombol beli** — teks "Hubungi kami untuk diskusi harga"
 
-Lalu login sebagai **Manager** atau **Employee**, buka `/subscription`:
+Lalu login sebagai **Manager** (sejak issue #136 Employee tidak bisa login ke dashboard), buka
+`/subscription`:
 
 - "Langganan tidak tersedia untuk role Anda"
 - Tab **Network** browser: **nol** panggilan ke `/v1/plans`

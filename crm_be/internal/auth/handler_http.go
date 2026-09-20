@@ -227,8 +227,16 @@ func (h *Handler) login(c *gin.Context) {
 			respondOrganizationSelectionRequired(c, selErr)
 			return
 		}
-		h.loginLimiter.RecordFailure(ip)
-		h.loginLimiter.RecordFailure(emailKey)
+		// Not a failed attempt: this refusal only happens AFTER the
+		// password verified. Counting it would let an Employee who keeps
+		// trying the dashboard trip backoff on emailKey — which the mobile
+		// login shares — and lock themselves out of the one client they
+		// are allowed to use.
+		var derr *httpx.DomainError
+		if !errors.As(err, &derr) || derr.Code != codeDashboardNotAvailable {
+			h.loginLimiter.RecordFailure(ip)
+			h.loginLimiter.RecordFailure(emailKey)
+		}
 		httpx.WriteError(c, err)
 		return
 	}

@@ -248,6 +248,20 @@ func (u *Usecase) Login(ctx context.Context, in LoginInput) (*LoginOutput, error
 		return nil, invalidCredentialsError()
 	}
 
+	// Filtered BEFORE selectMembership, not after: the organization list a
+	// two-step login offers must only contain organizations this client
+	// may actually enter, and a user left with exactly one of them is
+	// logged straight into it by the same len==1 rule as everyone else —
+	// an Employee in org A who is also Owner in org B gets B, with no
+	// special case. Reaching here means the credentials were correct, so
+	// unlike everything above this refusal says why (see
+	// dashboardNotAvailableError).
+	memberships = membershipsForClient(memberships, in.Client)
+	if len(memberships) == 0 {
+		u.logger.Warn("login refused: no membership may use this client", "user_id", usr.ID, "client", in.Client)
+		return nil, dashboardNotAvailableError()
+	}
+
 	selected, err := selectMembership(memberships, in.OrganizationID)
 	if err != nil {
 		return nil, err
@@ -374,8 +388,9 @@ func (u *Usecase) Refresh(ctx context.Context, rawToken string) (*RefreshOutput,
 	hash := token.Hash(rawToken)
 
 	var (
-		reused bool
-		out    *RefreshOutput
+		reused      bool
+		roleRefused bool
+		out         *RefreshOutput
 	)
 
 	txErr := u.store.InTx(ctx, func(r Repos) error {
@@ -408,6 +423,21 @@ func (u *Usecase) Refresh(ctx context.Context, rawToken string) (*RefreshOutput,
 		mem, err := r.Member.FindByID(ctx, memberT, rt.MembershipID)
 		if err != nil {
 			return err
+		}
+
+		// The role gate Login applies, enforced again here because Refresh
+		// re-reads the role from the membership on every rotation: without
+		// this, a dashboard session outlives the role change that should
+		// have ended it, and keeps minting fresh dashboard tokens for up
+		// to REFRESH_TOKEN_TTL_DASHBOARD. It also closes sessions that
+		// predate the gate, and any path that changes a role — none of
+		// which a "revoke when demoted" hook in membership could see.
+		// The whole family goes, not just this token: nothing in it may
+		// ever refresh again. The revoke is committed (return nil), the
+		// 401 is produced after the transaction — same shape as `reused`.
+		if !roleMayUseClient(mem.Role, rt.Client) {
+			roleRefused = true
+			return r.RefreshToken.RevokeFamily(ctx, rt.FamilyID)
 		}
 
 		access, err := accesstoken.Issue(u.tokens.JWTSecret, u.tokens.AccessTokenTTL, mem.UserID, rt.OrganizationID, rt.MembershipID, mem.Role)
@@ -445,7 +475,7 @@ func (u *Usecase) Refresh(ctx context.Context, rawToken string) (*RefreshOutput,
 		}
 		return nil
 	})
-	if reused {
+	if reused || roleRefused {
 		return nil, invalidCredentialsError()
 	}
 	if txErr != nil {
@@ -643,6 +673,45 @@ func invalidCredentialsError() error {
 		Status:  http.StatusUnauthorized,
 		Code:    "invalid_credentials",
 		Message: "Email atau password salah.",
+	}
+}
+
+// codeDashboardNotAvailable is matched by the handler (login limiter),
+// so it is a constant rather than a literal in two places.
+const codeDashboardNotAvailable = "dashboard_not_available_for_role"
+
+// roleMayUseClient is the one place that says which role may hold a
+// session on which client: the dashboard is the management surface and an
+// Employee works from the mobile app (authorization.md; issue #136), while
+// mobile accepts every role. Per MEMBERSHIP, not per user — ADR-007 lets
+// one user be an Employee in one organization and an Owner in another.
+func roleMayUseClient(role tenant.Role, client string) bool {
+	return client != ClientDashboard || role != tenant.RoleEmployee
+}
+
+func membershipsForClient(memberships []*membership.Membership, client string) []*membership.Membership {
+	allowed := make([]*membership.Membership, 0, len(memberships))
+	for _, m := range memberships {
+		if roleMayUseClient(m.Role, client) {
+			allowed = append(allowed, m)
+		}
+	}
+	return allowed
+}
+
+// dashboardNotAvailableError is deliberately explicit, unlike the
+// invalid_credentials collapse above. That collapse exists so a caller
+// cannot learn WHICH part of a login was wrong; here the password already
+// verified, so the caller has proven who they are and hiding the reason
+// would only leave a legitimate Employee staring at a form that works for
+// everyone else. 403, not 401: the credentials are fine, the answer is
+// about where they may be used. Aturan #6 (404 for another tenant's
+// resource) does not apply — nothing about any tenant is revealed.
+func dashboardNotAvailableError() error {
+	return &httpx.DomainError{
+		Status:  http.StatusForbidden,
+		Code:    codeDashboardNotAvailable,
+		Message: "Akun Anda terdaftar sebagai Employee. Gunakan aplikasi mobile Jualin untuk masuk.",
 	}
 }
 

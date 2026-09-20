@@ -37,21 +37,27 @@ ini belum terdaftar).
 **Hasil yang diharapkan:** diarahkan ke `/login`. Login dengan `employee1@test.local` + password yang
 baru saja dibuat.
 
-**Hasil yang diharapkan:** berhasil masuk ke Beranda — **tanpa** perlu verifikasi email terpisah
-(menerima undangan sekaligus memverifikasi, sesuai TD).
+**Hasil yang diharapkan (issue #136):** **tidak** masuk ke Beranda. Form login menampilkan banner
+*"Akun Anda terdaftar sebagai Employee. Gunakan aplikasi mobile Jualin untuk masuk."* — Employee
+memakai aplikasi mobile, bukan dashboard. Buka DevTools → **Network**: `POST /v1/auth/login` →
+**`403`** `dashboard_not_available_for_role`; DevTools → **Application → Cookies**: **tidak ada**
+`access_token`/`refresh_token`/`csrf_token` untuk `localhost`.
 
-4. Menu **Tim** tetap muncul di navigasi untuk Employee (nav tidak difilter per-role) — buka `/team`.
+> Ini sekaligus membuktikan hal yang dulu dicek lewat "berhasil masuk": kodenya `403
+> dashboard_not_available_for_role`, **bukan** `403 email_not_verified` — password sudah benar **dan**
+> email sudah terverifikasi, jadi menerima undangan memang sekaligus memverifikasi email (sesuai TD).
+> Login yang sama dengan `client: mobile` **berhasil**; itu diuji di `07-mobile-android.md`.
 
-**Hasil yang diharapkan:** daftar anggota **terlihat** (read-only — siapa saja perlu tahu siapa
-rekan setimnya), tapi tombol **+ Undang anggota**, ganti role, dan **Nonaktifkan** **tidak ada**.
-Bagian **Undangan tertunda** juga tidak muncul sama sekali untuk role ini (bukan cuma disembunyikan —
-`listInvitations` tidak pernah dipanggil untuk role tanpa hak itu).
+4. Ulangi login yang sama **5 kali berturut-turut** dengan cepat.
 
-5. Buka `/connect/api` sebagai Employee.
+**Hasil yang diharapkan:** setiap kali tetap banner yang sama (`403`), **tidak pernah** berubah jadi
+*"Terlalu banyak percobaan"* (`429`). Penolakan ini datang setelah password terverifikasi, jadi tidak
+dihitung sebagai percobaan gagal — kalau dihitung, Employee yang mencoba dashboard akan ikut terkunci
+di login mobile-nya sendiri.
 
-**Hasil yang diharapkan:** **tidak** ada daftar kunci sama sekali — hanya pesan *"Manajemen API key
-tidak tersedia untuk role Anda."* Buka tab Network di devtools browser: **tidak ada** panggilan ke
-`/v1/api-keys` sama sekali (gerbangnya ada di atas fetch, bukan cuma menyembunyikan hasilnya).
+> Pemeriksaan yang dulu dilakukan sebagai Employee di sini — **Tim read-only** dan **gerbang
+> `/connect/api`** — sekarang dilakukan sebagai **Manager** di §2.3 langkah 6, dengan hasil yang
+> sama persis (kedua gerbang itu memang berlaku untuk Manager juga).
 
 ## 2.3 Undang orang yang sudah punya akun — uji cabang "user sudah ada" + login multi-organization
 
@@ -83,6 +89,15 @@ titik ini login masih hanya mengarah ke `Toko Lain` (satu-satunya organization y
 anggota **dua** organization sekaligus (ADR-007). Pilih `Toko Testing` — harus masuk sebagai Manager
 di organization itu, terpisah total datanya dari `Toko Lain`.
 
+   Sebagai Manager di `Toko Testing`, periksa dua gerbang role:
+
+   - Buka `/team`: daftar anggota **terlihat** (read-only), tapi tombol **+ Undang anggota**, ganti
+     role, dan **Nonaktifkan** **tidak ada**. Bagian **Undangan tertunda** tidak muncul sama sekali
+     (`listInvitations` tidak pernah dipanggil untuk role tanpa hak itu).
+   - Buka `/connect/api`: **tidak** ada daftar kunci — hanya *"Manajemen API key tidak tersedia untuk
+     role Anda."* Tab **Network**: **tidak ada** panggilan ke `/v1/api-keys` (gerbangnya di atas
+     fetch, bukan cuma menyembunyikan hasilnya).
+
 7. Coba buka tautan undangan yang sama sekali lagi (sudah diterima) **tanpa login** (logout dulu):
    harus diarahkan untuk login dulu, bukan layar error.
 
@@ -104,6 +119,30 @@ di organization itu, terpisah total datanya dari `Toko Lain`.
 sah, lihat `architecture/authorization.md`). Setelah ini, turunkan lagi role-nya ke Admin supaya
 langkah berikutnya (nonaktifkan) tidak terganggu — Owner terakhir di organization tidak boleh
 dinonaktifkan.
+
+5. **Sesi dashboard berhenti diperpanjang saat role jadi Employee** (issue #136). `manager1@test.local`
+   sekarang Admin di `Toko Testing` dan Owner di `Toko Lain`.
+
+   1. Di **jendela terpisah**, login sebagai `manager1@test.local`, pilih `Toko Testing`, biarkan
+      terbuka di Beranda.
+   2. Di jendela Owner, ubah role `manager1@test.local` menjadi **Employee**.
+   3. Di jendela `manager1`: DevTools → **Application → Cookies → `localhost`** → **hapus** cookie
+      `access_token` (mensimulasikan access token yang kedaluwarsa — tanpa harus menunggu 15 menit),
+      lalu klik menu apa pun.
+
+   **Hasil yang diharapkan:** dilempar ke `/login`. Tab **Network**: `POST /v1/auth/refresh` →
+   **`401`** — sebelum perbaikan ini, refresh **berhasil** dan sesi dashboard terus hidup sebagai
+   Employee.
+
+   4. Login lagi sebagai `manager1@test.local`.
+
+   **Hasil yang diharapkan:** **tidak** ada layar "Pilih organization", dan `Toko Testing` tidak
+   pernah ditawarkan — user ini langsung masuk ke **`Toko Lain`** (tempat ia Owner), satu-satunya
+   organization yang boleh dimasuki dashboard. Penyaringannya per **membership**, bukan per user
+   (ADR-007).
+
+   5. **Kembalikan:** di jendela Owner `Toko Testing`, ubah `manager1@test.local` kembali menjadi
+      **Admin** supaya langkah berikutnya tidak terganggu.
 
 ## 2.5 Nonaktifkan anggota — cabang tanpa lead terbuka
 

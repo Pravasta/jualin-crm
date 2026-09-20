@@ -131,8 +131,11 @@ sintaks JSX, bukan atribut HTML.
 
 ## 8.9 Gerbang role — nol panggilan API
 
-1. Login sebagai Employee (dari `02`). Buka `/connect` — kartu **Formulir** tetap terlihat (nav tidak
-   difilter role, keputusan D6). Klik kartu itu, atau ketik `/connect/form` langsung di URL.
+1. Login sebagai **Manager** — undang anggota baru dengan Role `Manager` (mis. `manager2@test.local`,
+   ikuti `02` §2.1–§2.2; `manager1@test.local` sudah Admin pada titik ini dan Admin **boleh** mengelola
+   formulir). Employee tidak bisa dipakai di sini: sejak issue #136 Employee tidak bisa login ke
+   dashboard sama sekali. Buka `/connect` — kartu **Formulir** tetap terlihat (nav tidak difilter
+   role, keputusan D6). Klik kartu itu, atau ketik `/connect/form` langsung di URL.
 
 **Hasil yang diharapkan:** pesan *"Pengelolaan formulir tidak tersedia untuk role Anda."* Buka
 DevTools → Network, muat ulang: **tidak ada** panggilan ke `/v1/forms` sama sekali — gerbangnya di
