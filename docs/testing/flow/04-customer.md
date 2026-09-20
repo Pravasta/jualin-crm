@@ -9,8 +9,8 @@ sumbernya tidak ikut berubah saat customer-nya diedit.
 ## 4.1 Konversi lead yang menang
 
 1. Buka detail lead `Andi Calon Pelanggan` (masih status **Menang**). **Sebelum** mengklik apa pun,
-   perhatikan tombol statusnya: **"→ Penawaran"** dan tiga tombol penutup (Kalah / Tidak Memenuhi Syarat
-   / Spam) **masih ada** — selama belum dikonversi, salah klik "Menang" masih bisa dikoreksi (issue #142,
+   perhatikan area statusnya: bagian **Kembali** dengan **"Kembali ke Penawaran"**, dan bagian **Tutup
+   lead** (Kalah / Tidak Memenuhi Syarat / Spam) **masih ada** — selama belum dikonversi, salah klik "Menang" masih bisa dikoreksi (issue #142,
    ADR-016). **Jangan diklik**; lead ini dipakai terus di berkas berikutnya.
 2. Klik **Konversi menjadi customer**.
 
@@ -18,8 +18,8 @@ sumbernya tidak ikut berubah saat customer-nya diedit.
 ke detail lead ini — tombol Konversi **sudah hilang** (tidak bisa dikonversi dua kali), dan timeline-nya
 punya entri konversi.
 
-**Hasil yang diharapkan (issue #142):** bagian tombol status **tidak lagi menampilkan tombol apa pun**,
-diganti satu kalimat: *"Lead ini sudah dikonversi menjadi Customer; statusnya tidak dapat diubah
+**Hasil yang diharapkan (issue #142):** stepper tahapan **tetap tampil** (titik Menang bertanda "Saat
+ini"), tetapi bagian tombol status **tidak lagi menampilkan tombol apa pun**, diganti satu kalimat: *"Lead ini sudah dikonversi menjadi Customer; statusnya tidak dapat diubah
 lagi."* Status lead tetap **Menang** — Customer dan lead tidak lagi bisa saling bertentangan.
 
 **Buktikan backend ikut menolak**, bukan hanya tombolnya disembunyikan (API dan mobile tidak melewati

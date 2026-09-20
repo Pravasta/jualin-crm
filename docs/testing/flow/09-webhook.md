@@ -194,7 +194,7 @@ lama **tetap** `new` di riwayat — payload dibekukan saat event terjadi.
 ## 9.7 Endpoint mati → gagal, retry, kirim ulang manual  ← **AC #6, #10, #11**
 
 1. Hentikan `receiver.py` (`Ctrl+C`).
-2. Ubah status lead lagi (**Dihubungi → Penawaran**).
+2. Ubah status lead lagi (**Dihubungi → Memenuhi Syarat**).
 3. Tunggu ±1 menit, buka **Riwayat pengiriman** endpoint.
 
 **Hasil yang diharapkan:** baris terbaru **Menunggu** dengan Percobaan `ke-1`, detail error apa adanya

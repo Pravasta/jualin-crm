@@ -948,3 +948,71 @@ diamati agent hanya kontrak backend lewat `curl` (`401 {"code":"invalid_credenti
 atau password salah."}`) dan perilaku klien lewat test. **Pasca-merge (#137) pemilik produk menjalankan
 `docs/testing/flow/01-registrasi-dan-autentikasi.md` §1.4 dan melaporkan hasilnya benar** (banner tampil).
 Dicatat sebagai laporan pemilik produk — agent tidak mengamati sendiri.
+
+---
+
+## #141 — Area status di detail lead: stepper + tombol berlabel arah (perbaikan pasca-phase)
+
+Ditunjukkan pemilik produk saat uji manual dengan lead Penawaran: baris `→ Memenuhi Syarat  → Menang  Kalah
+Tidak Memenuhi Syarat  Spam` membingungkan. Phase 3 sudah tutup; bagian ini dicatat di sini karena yang berubah
+adalah layar dari #33. Murni tampilan — aturan transisi tidak disentuh (ADR-015 dan ADR-016 tetap).
+
+**Yang membingungkan, dibaca dari kode:** (1) `statusTransitionOptions` memberi label `→ {status}` pada
+**setiap** langkah, maju maupun mundur — "→ Memenuhi Syarat" di Penawaran menunjuk ke depan padahal mundur;
+(2) baris tombol tanpa judul (mobile punya "Ubah status lead", dashboard tidak); (3) posisi lead hanya terlihat
+dari badge kecil di pojok kartu, jauh dari tombolnya; (4) tahapan dan penutup dicampur — "→ Memenuhi Syarat"
+berdampingan dengan "Tidak Memenuhi Syarat", artinya berlawanan dan kelasnya berbeda.
+
+**Desain (dipilih pemilik produk dari tiga bentuk):** stepper lima tahap + tombol dikelompokkan bertajuk
+**Lanjutkan / Kembali / Buka kembali / Tutup lead**. Ditolak: tombol berlabel arah tanpa stepper (tidak menjawab
+poin 3) dan stepper yang bisa diklik (klik pada tahap kurang eksplisit, sulit di layar sempit). Dashboard saja;
+mobile tidak. **Menyimpang dari hasil Claude Design** untuk baris ini, atas permintaan pemilik produk.
+
+**Keputusan implementasi (di luar teks issue, bisa diganti):**
+
+- **Tanpa panah sama sekali di label**, bukan `←`/`→`: keluhannya soal panah, dan kata kerja ("Maju ke", "Kembali
+  ke", "Buka kembali ke") sudah membawa arah tanpa risiko salah baca.
+- **Arah jadi data.** `StatusTransitionOption.kind: "step" | "exit"` diganti `direction: "forward" | "back" |
+  "reopen" | "close"`. Label bukan lagi tempat arah disimpan.
+- **Lead yang ditutup tidak diberi "posisi".** Kalah / Tidak Memenuhi Syarat / Spam berada di luar jalur utama;
+  menandai satu titik sebagai "saat ini" berarti mengarang. Semua titik redup, ada pita "Lead ditutup: …".
+- **`isFinalStatus` diturunkan dari aturan** (tidak ada opsi keluar), bukan daftar `unqualified`/`spam` yang
+  diketik ulang — supaya tidak menjadi salinan ketiga yang bisa menyimpang.
+- **`MAIN_PATH` diekspor dari `lead-status.ts`** dan dibaca `lead-pipeline.ts`: dua salinan "lima tahap" adalah
+  cara keduanya bergeser.
+- **Warna lewat token** (`bg-primary/10`, `text-accent-strong`, `border-border`), bukan literal `oklch(...)` seperti
+  baris lama. Titik aktif memakai warna `STATUS_META` status itu, jadi serasi dengan badge.
+- **Penanda tidak bergantung pada warna:** centang (selesai), lingkaran ganda + kata **"Saat ini"** (sekarang),
+  lingkaran kosong (belum); `aria-current="step"`.
+
+**Struktur.** Semua keputusan ada di fungsi murni `lib/lead-pipeline.ts` (`pipelineSteps`, `actionGroups`,
+`closedNote`, `isFinalStatus`) karena Vitest hanya memuat `*.test.ts` — pola `lib/nav.ts`. Komponen
+`leads/[id]/lead-status-panel.tsx` hanya menggambar. Bagian yang kosong **tidak dirender**: lead Baru tidak
+punya "Kembali", dan judul di atas ruang kosong akan menyiratkan jalan mundur yang tidak ada.
+
+**Test (202 total).** Fungsi murni ditulis tangan per status. Ditambah **tes markup lewat `renderToStaticMarkup`**
+(`lead-status-panel.test.ts`) yang mengunci apa yang harus ada di HTML: tepat satu `aria-current="step"`, kata
+"Saat ini", satu centang per tahap terlewati, judul bagian, tanpa panah, dan bagian kosong tidak muncul. Tes lama
+`lead-status.test.ts` dipertahankan; yang berubah hanya asersi **bentuk/label** (`kind` → `direction`, teks
+"Buka kembali ke Dihubungi" tanpa panah), **bukan aturan** — matriks 8×8 tidak disentuh.
+
+**Dibuktikan bisa gagal** — empat mutasi, masing-masing dikembalikan: `aria-current` dicabut → 2 tes merah; kata
+"Saat ini" dicabut (hanya warna) → 1 merah; bagian kosong tidak lagi disaring → 9 merah; panah kembali di label maju
+→ 4 merah. Sepuluh tes markup **lolos pada percobaan pertama**, dan itu sebabnya mutasi dijalankan — tes yang tak
+pernah dilihat merah tidak membuktikan apa pun.
+
+`npm run typecheck && lint && test && build` bersih.
+
+**Temuan sampingan, diperbaiki karena kecil dan diam-diam merusak:** `docs/testing/flow/09-webhook.md` §9.7 langkah 2
+meminta **"Dihubungi → Penawaran"** — melompat dua tahap, ditolak backend `422`. Akibatnya **tidak ada event
+webhook yang terbentuk** dan seluruh uji "endpoint mati → retry → kirim ulang" menguji kekosongan tanpa gagal.
+Diganti ke "Dihubungi → Memenuhi Syarat" (satu-satunya kemunculan "Penawaran" di berkas itu). Tertulis di
+panduan Phase 7. **Saya tidak tahu kenapa ini tidak tertangkap** saat verifikasi manual `09` dijalankan (STATUS
+mencatatnya sesuai, AC #6/#10/#11): mungkin langkah itu dijalankan dengan pilihan status lain daripada yang
+tertulis. Tidak saya tebak — hanya fakta bahwa **sebagaimana tertulis** langkah itu ditolak backend.
+
+**Terus terang, yang tidak dibuktikan.** **Tampilan visual belum saya lihat** — ekstensi Chrome tidak terhubung,
+dan Vitest hanya bisa membuktikan struktur, bukan rupa. Belum dicek: proporsi dan jarak, apakah garis penghubung
+tepat di tengah titik, apakah label "Memenuhi Syarat" membungkus rapi di layar sempit, dan kontras warna aktual.
+Langkahnya di `03` §3.4–§3.5. **Jangan dibaca sebagai sudah.** Label di mobile tetap lama ("→ Buka kembali ke
+Dihubungi") karena cakupannya dashboard saja; ADR-015 mewajibkan **aturan** identik, bukan teks tombol.

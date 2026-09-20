@@ -60,6 +60,7 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 - [ ] Pencarian & filter status bekerja, filter bertahan setelah refresh (di URL)
 - [ ] Edit field lead tersimpan
 - [ ] Transisi status jalur utama: Baru → Dihubungi → Memenuhi Syarat → Penawaran → Menang
+- [ ] Area status (issue #141): stepper lima tahap dengan penanda "Saat ini"; tombol berjudul **Lanjutkan / Kembali / Tutup lead** dengan kata kerja ("Maju ke …", "Kembali ke …") — **tanpa panah**; bagian kosong tidak muncul; tanpa bergantung warna; tidak meluap di jendela sempit
 - [ ] Lompat status lebih dari satu langkah **ditolak**
 - [ ] Kalah **wajib** memilih alasan
 - [ ] "Buka kembali ke **Dihubungi**" dari status Kalah berhasil — dan **tidak ada** jalan kembali ke Baru dari status mana pun (issue #139, ADR-015)

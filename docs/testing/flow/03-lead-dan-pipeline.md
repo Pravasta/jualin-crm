@@ -46,11 +46,19 @@ tidak instan per huruf.
 
 ## 3.4 Transisi status — jalur utama sampai Menang
 
-Dari halaman detail `Andi Calon Pelanggan`:
+Dari halaman detail `Andi Calon Pelanggan`. Area status di kartu atas (issue #141) punya tiga bagian:
+**Tahapan lead** (lima titik: Baru → Dihubungi → Memenuhi Syarat → Penawaran → Menang, dengan penanda
+**"Saat ini"** di tahap lead berada), lalu tombol yang **dikelompokkan dan berjudul** — **Lanjutkan**,
+**Kembali**, **Tutup lead**. Bagian yang kosong **tidak muncul** (lead Baru tidak punya "Kembali"; lead
+Menang tidak punya "Lanjutkan"). Nama tombolnya kata kerja — **"Maju ke …"** / **"Kembali ke …"** —
+tanpa panah.
 
-1. Ubah status **Baru → Dihubungi**. Begitu berstatus Dihubungi, **jangan langsung lanjut**: periksa
-   tombol yang tersedia — hanya **"→ Memenuhi Syarat"** dan tiga tombol keluar; **tidak ada "→ Baru"**
-   (issue #139, ADR-015). Sebuah lead yang sudah dihubungi tidak bisa kembali ke "belum disentuh".
+1. Ubah status **Baru → Dihubungi** (tombol **"Maju ke Dihubungi"**). Begitu berstatus Dihubungi,
+   **jangan langsung lanjut**: periksa area status — titik **Baru** kini bercentang, **Dihubungi**
+   bertanda "Saat ini", dan tombol yang ada hanya **"Maju ke Memenuhi Syarat"** (bagian Lanjutkan) dan
+   Kalah / Tidak Memenuhi Syarat / Spam (bagian Tutup lead). **Tidak ada bagian "Kembali"** dan **tidak
+   ada "Kembali ke Baru"** (issue #139, ADR-015). Sebuah lead yang sudah dihubungi tidak bisa kembali ke
+   "belum disentuh".
 2. **Dihubungi → Memenuhi Syarat**.
 3. **Memenuhi Syarat → Penawaran**.
 4. **Penawaran → Menang**.
@@ -85,10 +93,20 @@ ditampilkan sebagai riwayat lama di timeline, bukan status aktif).
 
 4. Pada lead yang sama (kini **Dihubungi**), periksa tombol status yang tersedia.
 
-**Hasil yang diharapkan (issue #139):** **tidak ada** tombol **"→ Baru"** — hanya **"→ Memenuhi
-Syarat"** dan tiga tombol keluar (Kalah / Tidak Memenuhi Syarat / Spam). Sebelum ADR-015, tombol "→ Baru"
+**Hasil yang diharapkan (issue #139, #141):** bagian **Lanjutkan** hanya berisi **"Maju ke Memenuhi
+Syarat"**, bagian **Tutup lead** berisi Kalah / Tidak Memenuhi Syarat / Spam, dan **tidak ada bagian
+"Kembali"** sama sekali (bukan bagian kosong — bagiannya tidak muncul). Sebelum ADR-015, tombol "→ Baru"
 muncul di sini dan mengembalikan lead yang sudah dihubungi ke status "belum disentuh" — padahal
 timeline-nya sudah memuat perubahan status.
+
+Pada lead **Kalah** (langkah 1–2), area status berbeda: semua titik tahapan **redup** (lead yang ditutup
+tidak punya posisi), ada pita **"Lead ditutup: Kalah"**, dan satu-satunya bagian adalah **Buka kembali**
+dengan tombol **"Buka kembali ke Dihubungi"**. Untuk **Spam** / **Tidak Memenuhi Syarat**: pita "Lead
+ditutup: …", kalimat *"Status ini bersifat final."*, dan **tidak ada tombol**.
+
+**Periksa juga tanpa mengandalkan warna** (issue #141): tahap yang sudah lewat bertanda **centang**, tahap
+sekarang **lingkaran ganda + kata "Saat ini"**, tahap berikutnya **lingkaran kosong**. Kecilkan lebar
+jendela browser sampai sempit — label "Memenuhi Syarat" harus **membungkus**, tidak meluap keluar kartu.
 
 ## 3.6 Konflik versi (optimistic locking)
 
