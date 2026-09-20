@@ -15,7 +15,7 @@ sumbernya tidak ikut berubah saat customer-nya diedit.
 ke detail lead ini — tombol Konversi **sudah hilang** (tidak bisa dikonversi dua kali), dan timeline-nya
 punya entri konversi.
 
-3. Coba konversi lead yang **belum** menang (mis. `Citra Calon Pelanggan`, masih Dihubungi) — cek
+3. Coba konversi lead yang **belum** menang (mis. `Citra Calon Pelanggan`, masih Memenuhi Syarat) — cek
    apakah tombol Konversi memang tidak muncul/tidak bisa diklik untuk lead berstatus selain Menang.
 
 ## 4.2 Halaman detail customer

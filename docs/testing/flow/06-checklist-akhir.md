@@ -62,7 +62,7 @@ dari membaca kode. Kalau ada yang gagal, jangan dicentang; catat sebagai issue b
 - [ ] Transisi status jalur utama: Baru → Dihubungi → Memenuhi Syarat → Penawaran → Menang
 - [ ] Lompat status lebih dari satu langkah **ditolak**
 - [ ] Kalah **wajib** memilih alasan
-- [ ] "Buka kembali ke Baru" dari status Kalah berhasil
+- [ ] "Buka kembali ke **Dihubungi**" dari status Kalah berhasil — dan **tidak ada** jalan kembali ke Baru dari status mana pun (issue #139, ADR-015)
 - [ ] Edit dari tab basi (versi lama) → konflik `409`, **tidak** menimpa diam-diam
 - [ ] Penugasan lead tersimpan, entri activity muncul
 - [ ] Task: buat, tandai selesai, **tidak bisa** dibuka kembali lewat checkbox

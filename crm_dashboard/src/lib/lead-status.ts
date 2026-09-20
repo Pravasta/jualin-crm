@@ -18,6 +18,9 @@ function mainPathIndex(status: LeadStatus): number {
 export function isValidStatusTransition(from: LeadStatus, to: LeadStatus): boolean {
   if (from === "unqualified" || from === "spam") return false;
   if (to === from) return to === "lost";
+  // Nothing leads back to "new" (issue #139, ADR-015): it means "belum
+  // disentuh", which can never be true again once a lead has been touched.
+  if (to === "new") return false;
   if (to === "unqualified" || to === "spam" || to === "lost") return true;
 
   const toIdx = mainPathIndex(to);
@@ -37,20 +40,20 @@ export interface StatusTransitionOption {
   kind: "step" | "exit";
 }
 
-// The backend allows "lost" to reopen to ANY main-path status (a
-// documented simplification from TD phase 2 §5's ideal "one step back
-// to whatever it was before" — crm_be issue #20's notes: not
-// implementable without activity history). Offering all five as buttons
-// would be a wall of options for a case that's actually rare; the
-// design's own choice — reopen to "Baru" only — is the sensible default
-// and is unconditionally valid per the rule above, so it's kept here
-// rather than re-litigated.
+// The backend allows "lost" to reopen to ANY main-path status except
+// "new" (a documented simplification from TD phase 2 §5's ideal "one step
+// back to whatever it was before" — crm_be issue #20's notes: not
+// implementable without activity history). Offering all four as buttons
+// would be a wall of options for a case that's actually rare, so the UI
+// offers one: "Dihubungi" — the earliest stage a reopened lead can
+// honestly be in now that "Baru" is closed (ADR-015). It is valid per the
+// rule above, and the "every option is valid" test keeps that true.
 export function statusTransitionOptions(from: LeadStatus): StatusTransitionOption[] {
   if (from === "lost") {
     return [
       {
-        status: "new",
-        label: `→ Buka kembali ke ${STATUS_META.new.label}`,
+        status: "contacted",
+        label: `→ Buka kembali ke ${STATUS_META.contacted.label}`,
         kind: "step",
       },
     ];
@@ -59,13 +62,20 @@ export function statusTransitionOptions(from: LeadStatus): StatusTransitionOptio
   const options: StatusTransitionOption[] = [];
   const idx = mainPathIndex(from);
   if (idx !== -1) {
+    // Neighbors are offered only if the rule says so — this is what keeps
+    // "contacted" from showing a way back to "new". Deriving them from the
+    // path index alone is how that button appeared in the first place.
     if (idx - 1 >= 0) {
       const prev = MAIN_PATH[idx - 1];
-      options.push({ status: prev, label: `→ ${STATUS_META[prev].label}`, kind: "step" });
+      if (isValidStatusTransition(from, prev)) {
+        options.push({ status: prev, label: `→ ${STATUS_META[prev].label}`, kind: "step" });
+      }
     }
     if (idx + 1 < MAIN_PATH.length) {
       const next = MAIN_PATH[idx + 1];
-      options.push({ status: next, label: `→ ${STATUS_META[next].label}`, kind: "step" });
+      if (isValidStatusTransition(from, next)) {
+        options.push({ status: next, label: `→ ${STATUS_META[next].label}`, kind: "step" });
+      }
     }
   }
 

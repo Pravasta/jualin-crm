@@ -60,6 +60,8 @@ Assignment **ortogonal** terhadap status. Lead bisa `new` dan sudah ter-assign, 
 
 Bukan sekadar kolom bebas. Mundur satu langkah diizinkan (`qualified → contacted`); melompat dari `new` ke `won` tidak.
 
+> **Diamandemen oleh [ADR-015](./ADR-015-nothing-leads-back-to-new.md) (issue #139):** "mundur satu langkah" **tidak** mencakup langkah **ke** `new` — `contacted → new` dan `lost → new` ditolak. `new` berarti "belum disentuh", pernyataan tentang riwayat, bukan tahapan kerja. Contoh `qualified → contacted` di atas tetap berlaku.
+
 Tanpa validasi terpusat, mobile app dan dashboard akan menghasilkan riwayat dengan aturan yang berbeda.
 
 ### 4. `won` tidak otomatis membuat Customer

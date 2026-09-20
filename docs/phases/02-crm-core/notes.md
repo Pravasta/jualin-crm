@@ -325,3 +325,66 @@ atau dikerjakan di luar urutan. Ringkasan yang tidak sudah jelas dari tabel `STA
   terverifikasi, issue #11). Pola yang konsisten dua phase berturut-turut: smoke test manual bukan
   formalitas, ia benar-benar menangkap sesuatu yang test otomatis (yang ditulis sebelum bug-nya
   diketahui) tidak mencakup.
+
+---
+
+## #139 — Tidak ada jalan kembali ke `new` (perbaikan pasca-phase, ADR-015)
+
+Ditemukan pemilik produk saat uji manual `03-lead-dan-pipeline.md`: lead **Dihubungi** menawarkan tombol
+"→ Baru". Phase 2 sudah tutup; bagian ini dicatat di sini karena yang berubah adalah `validateStatusTransition`
+dari #20, bukan fitur baru. Keputusannya di [ADR-015](../../decisions/ADR-015-nothing-leads-back-to-new.md);
+di sini hanya apa yang ditemukan dan bagaimana ia dikerjakan.
+
+**Bukan bug kode.** Go, TypeScript, dan Dart menerapkan aturan yang sama persis dan sesuai teks: ADR-006 #3,
+`freeze.md` 2.4 #3, dan `td.md` §5 semuanya menulis "mundur satu langkah diizinkan" dengan contoh
+`qualified → contacted`. Tidak satu pun memeriksa `contacted → new` — aturan ditulis umum, diilustrasikan
+dengan kasus yang masuk akal, dan kasus yang tidak masuk akal tidak pernah dilihat.
+
+**Dua temuan yang memperluas cakupan, keduanya ditemukan sebelum kode ditulis:**
+
+1. **`lost → new` adalah pertentangan yang sama.** Satu-satunya tombol buka-kembali dari `lost` di dashboard
+   dan mobile adalah "→ Baru". Melarang hanya `contacted → new` akan menyelesaikan setengah masalah, dan
+   melarang semua `→ new` mematikan tombol itu — jadi tujuan buka-kembali harus diputuskan. Dipilih
+   **Dihubungi** (pemilik produk, atas pertanyaan langsung).
+2. **Mobile punya salinan ketiga.** Aturannya bukan dua tempat (Go + TS) tetapi tiga (`lead_status.dart`),
+   masing-masing dengan tes matriks tulis-tangan sendiri. Salinan Dart dan TS sama-sama membangun tombol
+   "mundur" dari **indeks jalur** (`idx - 1`), bukan dari aturan — itu sebabnya "→ Baru" muncul dan kenapa
+   mengubah `isValid…` saja **tidak cukup**: tombolnya tetap muncul sampai `statusTransitionOptions` disaring
+   lewat aturan yang sama. Diperbaiki di kedua salinan, dan tes "UI tidak pernah menawarkan jalan ke `new`
+   dari status mana pun" mengunci itu.
+
+**Perubahan.** Go: `if to == StatusNew { return false }` di `validateStatusTransition` (+ konstanta
+`StatusNew`, satu-satunya status jalur utama yang belum punya). TS dan Dart: aturan yang sama, tetangga
+jalur disaring lewat `isValid…`, dan tombol `lost` menjadi "→ Buka kembali ke Dihubungi". Ditegakkan di
+**usecase**, jadi mobile dan API publik ikut. Nol migration; lead yang sudah berstatus `new` tidak disentuh.
+
+**Test.** Backend: `contacted → new` dan `lost → new` → `422`, `lost → contacted` diterima, dan tes penjaga
+`OtherStepsBack_StillAccepted` (tiga sub-tes) — tanpanya seseorang bisa "memperbaiki" ini dengan menutup
+**semua** langkah mundur dan seluruh tes penolakan tetap hijau. Dashboard: matriks 8×8 tulis-tangan
+diperbarui + tiga tes baru (170 total). Mobile: hal yang sama (170 total, lewat `fvm`).
+
+**Dibuktikan bisa gagal** — lima tes dashboard dan lima tes mobile merah sebelum perbaikan; dua tes backend
+merah sebelum perbaikan (`ContactedToNew`, `LostToNew`), sementara tes penerimaan hijau sebagai garis dasar.
+Tes penjaga dibuktikan tidak kosong terpisah: `diff == 1 || diff == -1` diubah jadi `diff == 1` →
+`QualifiedToContacted_Accepted` dan ketiga sub-tes `OtherStepsBack` merah → dikembalikan → hijau,
+`git diff` diperiksa.
+
+`go test -race ./...` bersih (31 paket), `golangci-lint` 0 issues, `npm run typecheck && lint && test && build`
+bersih, `make mobile-analyze mobile-test` bersih (lewat `fvm`, bukan `flutter` di PATH — Makefile).
+
+**Efek berantai pada panduan uji manual, ditemukan saat memeriksa.** `03` §3.5 meminta "Buka kembali ke
+Baru"; setelah perubahan, Citra sudah **Dihubungi** sejak §3.5 sehingga §3.6 ("ubah statusnya ke Dihubungi")
+tidak lagi mengubah apa pun. Diperbarui: §3.6 mengubah ke Memenuhi Syarat, dan penyebutan status Citra di
+`03` (akhir) dan `04` mengikuti. `06` diperbarui, dan §3.4/§3.5 mendapat pemeriksaan eksplisit bahwa
+tombol "→ Baru" tidak ada.
+
+**Terus terang, yang tidak dibuktikan.** Verifikasi manual di browser dan di HP **belum dijalankan** — yang
+terbukti: tiga salinan aturan lewat tes tulis-tangan, dan usecase lewat tes backend. Tidak ada test HTTP
+baru: `PATCH /v1/leads/{id}/status` sudah memakai `UpdateStatus` yang sama dan ditutup tes usecase.
+
+**Di luar cakupan, dicatat.** `total_new` di `GET /v1/metrics/summary` **bukan** hitungan status `new` — ia
+total lead pada periode (`TotalNew: total`, `internal/metrics/repository_postgres.go`); namanya menyesatkan
+tetapi tidak berubah di sini. Backend masih membolehkan `lost` ke `qualified`/`proposal`/`won` lewat API
+(aproksimasi #20, tidak diubah). Jalur koreksi salah-klik yang eksplisit (mis. membatalkan perubahan status
+terakhir lewat timeline) **tidak dibangun** — ADR-015 menyebutnya sebagai jawaban yang benar bila pengguna
+nyata terjebak, bukan sebagai bagian dari perubahan ini.

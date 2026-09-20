@@ -110,6 +110,7 @@ var ErrAssigneeNotFound = errors.New("lead: assignee not found")
 var mainPath = []string{"new", "contacted", "qualified", "proposal", "won"}
 
 const (
+	StatusNew         = "new"
 	StatusLost        = "lost"
 	StatusUnqualified = "unqualified"
 	StatusSpam        = "spam"

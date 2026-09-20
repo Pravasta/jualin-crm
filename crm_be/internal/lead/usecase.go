@@ -462,19 +462,30 @@ func (u *Usecase) Delete(ctx context.Context, t tenant.Context, id uuid.UUID) er
 	return u.store.Repos().Lead.Delete(ctx, t, id)
 }
 
-// validateStatusTransition implements TD §5, with one documented
-// approximation: leaving "lost" allows moving to ANY main-path status,
-// not specifically the one it left from — that requires history only
-// activities (#21) provides, and leads itself never remembers what its
-// status was before the last transition. See notes.md's "## #20" for
-// the full reasoning; none of this issue's acceptance criteria exercise
-// that specific case.
+// validateStatusTransition implements TD §5, with two documented
+// deviations:
+//
+//   - Leaving "lost" allows moving to ANY main-path status, not
+//     specifically the one it left from — that requires history only
+//     activities (#21) provides, and leads itself never remembers what its
+//     status was before the last transition. See notes.md's "## #20".
+//   - Nothing leads back to "new" (issue #139, ADR-015). "new" is a
+//     statement about history — "baru masuk, belum disentuh" (ADR-006) —
+//     not a stage of work, and once a lead has been touched it can never be
+//     true again: activities are append-only, so a lead showing "new" next
+//     to a timeline of status changes contradicts itself. This also covers
+//     leaving "lost", so a reopened lead goes to contacted or beyond. The
+//     cost is deliberate: a misclicked new -> contacted can no longer be
+//     undone (it revises the rationale of PRD Phase 2 B7 for this one case).
 func validateStatusTransition(from, to string) bool {
 	if from == StatusUnqualified || from == StatusSpam {
 		return false // final — no outgoing transition at all
 	}
 	if to == from {
 		return to == StatusLost // only allowed same-status case: updating lost_reason
+	}
+	if to == StatusNew {
+		return false // ADR-015 — see above; a lead only ever STARTS as new
 	}
 	if to == StatusUnqualified || to == StatusSpam || to == StatusLost {
 		return true // reachable from any non-final status

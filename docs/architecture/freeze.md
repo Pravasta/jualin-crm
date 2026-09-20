@@ -419,7 +419,7 @@ new ──► contacted ──► qualified ──► proposal ──► won
 
 1. `spam` dan `unqualified` **dikecualikan** dari seluruh metrik konversi. Tanpa pemisahan ini, sampah dari form publik akan merusak angka yang justru menjadi alasan owner membayar.
 2. **Tidak ada status `assigned`.** Assignment ortogonal terhadap status — lead bisa `new` dan sudah ter-assign.
-3. Transisi divalidasi di service layer. Mundur satu langkah diizinkan (`qualified → contacted`); melompat dari `new` ke `won` tidak.
+3. Transisi divalidasi di service layer. Mundur satu langkah diizinkan (`qualified → contacted`); melompat dari `new` ke `won` tidak. **Tidak ada jalan kembali ke `new` dari status mana pun** — [ADR-015](../decisions/ADR-015-nothing-leads-back-to-new.md) (issue #139): `new` berarti "belum disentuh", bukan tahapan kerja.
 4. `lost_reason` wajib saat `lost`: `price` · `competitor` · `timing` · `no_response` · `not_interested` · `other`.
 5. Saat masuk `won`, konversi ke Customer **tidak otomatis** — ia aksi eksplisit. `won` berarti kesepakatan tercapai; konversi berarti relasi pelanggan dibuat.
 
@@ -920,7 +920,7 @@ Enam hal berikut diusulkan sebelum freeze, tidak ditolak, dan **diadopsi ke dala
 | # | Pertanyaan | Rekomendasi |
 |---|---|---|
 | B6 | Daftar `lost_reason` final | `price`, `competitor`, `timing`, `no_response`, `not_interested`, `other` |
-| B7 | Boleh mengubah status lead mundur? | Ya, satu langkah mundur; melompat maju tidak |
+| B7 | Boleh mengubah status lead mundur? | Ya, satu langkah mundur; melompat maju tidak. **Kecuali ke `new`** — [ADR-015](../decisions/ADR-015-nothing-leads-back-to-new.md) (alasan B7 "salah klik adalah kejadian normal" sengaja dikorbankan untuk kasus itu) |
 | B8 | Task boleh berdiri tanpa Lead? | **Tidak** di MVP — `lead_id NOT NULL`. Melonggarkan `NOT NULL` nanti murah; mengetatkannya mahal. |
 | B9 | Konversi ke Customer otomatis saat `won`? | **Tidak** — aksi eksplisit (lihat 2.4 aturan 5) |
 

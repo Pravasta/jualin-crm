@@ -518,6 +518,98 @@ func TestUnit_UpdateStatus_QualifiedToContacted_Accepted(t *testing.T) {
 	}
 }
 
+// --- issue #139 / ADR-015: `new` means "belum disentuh", so nothing leads back to it ---
+
+func requireInvalidStatusTransition(t *testing.T, err error) {
+	t.Helper()
+	var derr *httpx.DomainError
+	if !errors.As(err, &derr) || derr.Code != "invalid_status_transition" || derr.Status != 422 {
+		t.Fatalf("expected 422 invalid_status_transition, got: %v", err)
+	}
+}
+
+func TestUnit_UpdateStatus_ContactedToNew_Rejected(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
+	actor, _ := ownerActor()
+	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+	contacted, _ := u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: created.Version, Status: "contacted"})
+
+	_, err := u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: contacted.Version, Status: "new"})
+
+	requireInvalidStatusTransition(t, err)
+}
+
+func TestUnit_UpdateStatus_LostToNew_Rejected(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
+	actor, _ := ownerActor()
+	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+	reason := "timing"
+	lost, _ := u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: created.Version, Status: "lost", LostReason: &reason})
+
+	_, err := u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: lost.Version, Status: "new"})
+
+	requireInvalidStatusTransition(t, err)
+}
+
+// The reopen path the UI now offers. Together with the two rejections above
+// it pins the whole rule: `new` is unreachable, and the way out of `lost`
+// still exists.
+func TestUnit_UpdateStatus_LostToContacted_Accepted(t *testing.T) {
+	store := newFakeStore()
+	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
+	actor, _ := ownerActor()
+	created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+	reason := "timing"
+	lost, _ := u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: created.Version, Status: "lost", LostReason: &reason})
+
+	revived, err := u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: lost.Version, Status: "contacted"})
+	if err != nil {
+		t.Fatalf("expected lost->contacted (reopen) to succeed, got: %v", err)
+	}
+	if revived.Status != "contacted" || revived.LostReason != nil {
+		t.Errorf("expected contacted with lost_reason cleared, got %q / %v", revived.Status, revived.LostReason)
+	}
+}
+
+// One step back is still allowed everywhere it makes sense — only the step
+// INTO `new` is closed. A test that only checked the rejections would stay
+// green if someone "fixed" this by banning every backward move.
+func TestUnit_UpdateStatus_OtherStepsBack_StillAccepted(t *testing.T) {
+	for _, tc := range []struct{ name, from, to string }{
+		{"qualified to contacted", "qualified", "contacted"},
+		{"proposal to qualified", "proposal", "qualified"},
+		{"won to proposal", "won", "proposal"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakeStore()
+			u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
+			actor, _ := ownerActor()
+			created, _, _ := u.Create(context.Background(), actor, lead.CreateLeadInput{Name: "Budi"})
+
+			cur := created
+			for _, step := range []string{"contacted", "qualified", "proposal", "won"} {
+				cur, _ = u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: cur.Version, Status: step})
+				if cur.Status == tc.from {
+					break
+				}
+			}
+			if cur.Status != tc.from {
+				t.Fatalf("setup: could not reach %q", tc.from)
+			}
+
+			back, err := u.UpdateStatus(context.Background(), actor, created.ID, lead.UpdateStatusInput{Version: cur.Version, Status: tc.to})
+			if err != nil {
+				t.Fatalf("expected %s to succeed, got: %v", tc.name, err)
+			}
+			if back.Status != tc.to {
+				t.Errorf("expected status %q, got %q", tc.to, back.Status)
+			}
+		})
+	}
+}
+
 func TestUnit_UpdateStatus_Lost_RequiresReason(t *testing.T) {
 	store := newFakeStore()
 	u := lead.NewUsecase(store, openLeadQuota(), noopQuotaNotifier())
