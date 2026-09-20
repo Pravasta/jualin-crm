@@ -21,6 +21,49 @@ produk — luangkan waktu paling banyak di sini.
 pemilik. Buat **satu lead lagi** dengan data berbeda (mis. `Citra Calon Pelanggan`) — beberapa
 berkas berikutnya butuh lebih dari satu lead untuk menguji filter/pencarian secara berarti.
 
+### 3.1.1 Lead tanpa kontak (issue #143)
+
+`freeze.md` menerima lead tanpa email dan telepon (menolaknya di titik ingest berarti membuang data
+pelanggan) dan menjanjikan UI menampilkannya sebagai tidak dapat ditindaklanjuti. Sebelum #143 tidak ada
+penandanya. Uji dua hal: **penanda**, dan **konfirmasi lunak** saat buat manual.
+
+1. Klik buat lead baru. Isi **hanya Nama**: `Dodo Tanpa Kontak`. Klik **Buat lead**.
+
+**Hasil yang diharapkan:** dialog **tidak langsung menyimpan**. Muncul kotak netral (bukan merah):
+*"Lead ini belum punya kontak dan tidak bisa ditindaklanjuti. Tetap simpan?"*, dan tombol di bawah berganti
+menjadi **Kembali isi kontak** dan **Tetap simpan**.
+
+2. Klik **Kembali isi kontak**.
+
+**Hasil yang diharapkan:** kotak peringatan hilang dan kursor pindah ke kolom **Email**. Ketik sebuah
+email lalu hapus lagi, klik **Buat lead** — peringatannya muncul **lagi** (pertanyaan selalu tentang isi
+formulir saat ini). Kalau email **terisi**, **Buat lead** langsung menyimpan tanpa bertanya.
+
+3. Kosongkan lagi, klik **Buat lead**, lalu **Tetap simpan**.
+
+**Hasil yang diharapkan:** lead **dibuat** — ini konfirmasi, **bukan pemblokiran**.
+
+4. Buka daftar `/leads`.
+
+**Hasil yang diharapkan:** baris `Dodo Tanpa Kontak` punya badge abu-abu **"Belum ada kontak"** di sebelah
+`#N`; baris `Andi Calon Pelanggan` **tidak**.
+
+5. Buka detail `Dodo Tanpa Kontak`.
+
+**Hasil yang diharapkan:** badge yang sama, plus kalimat *"Tambahkan email atau telepon lewat Ubah agar bisa
+ditindaklanjuti."* Klik **Ubah**, isi email, simpan — badge dan kalimat **hilang**.
+
+6. **Spasi tidak dihitung kontak.** Buat lead baru, isi Nama, lalu **Telepon** dengan beberapa spasi saja
+   (kolom Email dibiarkan kosong; kolom Email sendiri tidak menerima spasi), klik **Buat lead**.
+
+**Hasil yang diharapkan:** peringatan muncul, dan bila disimpan lead itu **berbadge** "Belum ada kontak" —
+nomor yang hanya spasi bukan kontak.
+
+**Mobile** (`07`): lead tanpa kontak menampilkan badge yang sama di daftar dan di detail. Di detail,
+tombol **Telepon** dan **WhatsApp** mati **dan** ada kalimat *"Lead ini belum punya nomor telepon."* di
+atasnya. Lead yang punya **email tapi tanpa nomor** **tidak** berbadge (ia punya kontak), tetapi tombol
+telepon tetap mati dengan kalimat yang sama.
+
 ## 3.2 Filter & pencarian
 
 Di `/leads`:

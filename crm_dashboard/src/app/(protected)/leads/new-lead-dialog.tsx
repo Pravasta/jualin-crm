@@ -16,6 +16,7 @@ import {
 import { FieldError } from "@/components/field-error";
 import { FormErrorBanner } from "@/components/form-error-banner";
 import { createLead } from "@/lib/leads";
+import { hasContact, shouldConfirmNoContact } from "@/lib/lead-contact";
 import { fieldErrorsFrom, globalMessage, type FieldErrors } from "@/lib/auth-errors";
 import { isPlanQuotaExceeded } from "@/lib/plan";
 
@@ -32,6 +33,10 @@ export function NewLeadDialog({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  // True once the "belum ada kontak" warning has been shown. Cleared whenever
+  // email or phone changes, so the question is always about what is in the
+  // form NOW — and never a block: "Tetap simpan" is the same submit.
+  const [warned, setWarned] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   // Set only on a REAL 403 plan_quota_exceeded (subscription #123) — the
@@ -44,6 +49,7 @@ export function NewLeadDialog({
     setName("");
     setEmail("");
     setPhone("");
+    setWarned(false);
     setFieldErrors({});
     setError(null);
     setQuotaExceeded(false);
@@ -51,6 +57,13 @@ export function NewLeadDialog({
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    // A lead made by hand with no contact is asked about ONCE. Leads from a
+    // form or the API are never asked anything — nobody is there to ask, and
+    // refusing them would throw a customer away (freeze.md).
+    if (shouldConfirmNoContact({ email, phone }, warned)) {
+      setWarned(true);
+      return;
+    }
     setError(null);
     setFieldErrors({});
     setQuotaExceeded(false);
@@ -73,10 +86,19 @@ export function NewLeadDialog({
     }
   }
 
+  function backToContact() {
+    setWarned(false);
+    document.getElementById("lead-email")?.focus();
+  }
+
   function goToSubscription() {
     onOpenChange(false);
     router.push("/subscription");
   }
+
+  // Derived, not stored: typing a contact clears `warned`, and even if it did
+  // not, a warning about a form that now HAS a contact would be wrong.
+  const warningVisible = warned && !hasContact({ email, phone });
 
   return (
     <Dialog
@@ -122,7 +144,10 @@ export function NewLeadDialog({
               id="lead-email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setWarned(false);
+              }}
             />
             <FieldError message={fieldErrors.email} />
           </div>
@@ -133,18 +158,42 @@ export function NewLeadDialog({
               id="lead-phone"
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                setWarned(false);
+              }}
             />
             <FieldError message={fieldErrors.phone} />
           </div>
 
+          {warningVisible && (
+            // Neutral, not an error: a lead without contact is legitimate. The
+            // point is that the person creating it knows, not that they erred.
+            <div role="alert" className="rounded-md border border-border bg-muted px-3 py-2 text-[13px]">
+              Lead ini belum punya kontak dan tidak bisa ditindaklanjuti. Tetap simpan?
+            </div>
+          )}
+
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Batal
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Menyimpan…" : "Buat lead"}
-            </Button>
+            {warningVisible ? (
+              <>
+                <Button type="button" variant="outline" onClick={backToContact}>
+                  Kembali isi kontak
+                </Button>
+                <Button type="submit" disabled={loading}>
+                  {loading ? "Menyimpan…" : "Tetap simpan"}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                  Batal
+                </Button>
+                <Button type="submit" disabled={loading}>
+                  {loading ? "Menyimpan…" : "Buat lead"}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

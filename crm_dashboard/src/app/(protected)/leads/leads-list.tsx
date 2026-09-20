@@ -10,7 +10,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormErrorBanner } from "@/components/form-error-banner";
+import { NoContactBadge } from "@/components/no-contact-badge";
 import { dateInputToEndOfDayUTC, dateInputToStartOfDayUTC, formatDateID } from "@/lib/date";
+import { hasContact } from "@/lib/lead-contact";
 import { hasAnyLeadFilter, parseCSVParam, toggleCSVValue } from "@/lib/lead-filters";
 import { listLeads, type Lead } from "@/lib/leads";
 import { listMemberships, type Member } from "@/lib/memberships";
@@ -383,7 +385,8 @@ export function LeadsList() {
                         <div className="text-[13px] font-medium">{lead.name}</div>
                         <div className="text-[11.5px] text-muted-foreground">
                           #{lead.lead_number}
-                          {lead.email ? ` · ${lead.email}` : ""}
+                          {lead.email?.trim() ? ` · ${lead.email}` : ""}
+                          {!hasContact(lead) && <NoContactBadge className="ml-1.5 align-middle" />}
                         </div>
                       </td>
                       <td className="px-3.5 py-2.5">

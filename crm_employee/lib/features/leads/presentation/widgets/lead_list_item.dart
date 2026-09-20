@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../../shared/labels.dart';
 import '../../../../shared/relative_time.dart';
 import '../../../../shared/theme.dart';
+import '../../../../shared/widgets/no_contact_badge.dart';
 import '../../domain/entities/lead.dart';
+import '../../domain/lead_contact.dart';
 
 /// Design brief §6 — name, `#<lead_number>` (small, for talking to the
 /// Owner by number), when last touched, and a solid-fill status badge.
@@ -40,6 +42,13 @@ class LeadListItem extends StatelessWidget {
                     '#${lead.leadNumber} · disentuh ${relativeTime(lead.updatedAt)}',
                     style: AppTextStyles.metadata,
                   ),
+                  if (!leadHasContact(
+                    email: lead.email,
+                    phone: lead.phone,
+                  )) ...[
+                    const SizedBox(height: AppSpacing.space4),
+                    const NoContactBadge(),
+                  ],
                 ],
               ),
             ),
