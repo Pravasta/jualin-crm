@@ -1,3 +1,4 @@
+import 'package:crm_employee/features/leads/domain/entities/activity.dart';
 import 'package:crm_employee/features/leads/domain/lead_status.dart';
 import 'package:crm_employee/shared/labels.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -143,6 +144,31 @@ void main() {
           expect(isValidStatusTransition(from, option.status), isTrue);
         }
       }
+    });
+  });
+
+  // Issue #142. The timeline's `lead_converted` entry is the only "already
+  // converted" signal the client has (the Lead carries no such flag), so the
+  // predicate that drives "stop offering the status picker" is worth pinning.
+  group('hasBeenConverted', () {
+    Activity entry(String type) => Activity(
+          id: 'a-$type',
+          leadId: 'lead-1',
+          type: type,
+          createdAt: DateTime.utc(2026, 9, 21),
+        );
+
+    test('is true once the timeline carries a lead_converted entry, wherever it sits', () {
+      expect(hasBeenConverted([entry('lead_created'), entry('lead_converted')]), isTrue);
+      expect(hasBeenConverted([entry('lead_converted'), entry('status_changed')]), isTrue);
+    });
+
+    test('is false for a timeline without one — including a won lead that was never converted', () {
+      expect(hasBeenConverted(const []), isFalse);
+      expect(
+        hasBeenConverted([entry('lead_created'), entry('status_changed'), entry('note')]),
+        isFalse,
+      );
     });
   });
 }

@@ -317,7 +317,7 @@ new ──► contacted ──► qualified ──► proposal ──► won
 | Keluar dari terminal | `lost` → status jalur utama **diizinkan satu langkah** kembali ke status sebelum kalah (lead hidup lagi) — kecuali `new` (ADR-015); UI menawarkan **Dihubungi**; `unqualified` dan `spam` **final** |
 | `lost` | **Wajib** `lost_reason` ∈ B6 |
 | Keluar dari `lost` | `lost_reason` di-`NULL`-kan kembali |
-| `won` | **Tidak** mengonversi apapun secara otomatis (B9) |
+| `won` | **Tidak** mengonversi apapun secara otomatis (B9). Sebelum dikonversi masih bisa mundur/ditutup; **setelah dikonversi statusnya terkunci** (`422 lead_converted_locked`, [ADR-016](../../decisions/ADR-016-status-locked-after-conversion.md), issue #142) |
 
 Ditegakkan di **usecase**, bukan handler dan bukan repository — ia aturan bisnis, dan usecase adalah satu-satunya lapis yang tahu status lama *dan* status baru sekaligus. Transisi tidak sah → **422 `invalid_status_transition`** (sudah ada di katalog `api.md`).
 
@@ -548,7 +548,7 @@ POST /v1/leads/{id}/convert
 
 Dalam satu transaksi: `INSERT customers` (menyalin `name`/`email`/`phone`/`phone_e164`/`company`) + `INSERT activities (lead_converted)`.
 
-**Lead tidak dihapus dan statusnya tidak berubah.** Ia tetap `won` dan tetap menjadi jejak proses penjualannya; `customers.converted_from_lead_id` adalah tautannya. Menghapus lead setelah konversi berarti membuang seluruh timeline yang menjelaskan bagaimana pelanggan itu didapat.
+**Lead tidak dihapus dan statusnya tidak berubah.** Ia tetap `won` dan tetap menjadi jejak proses penjualannya — sejak issue #142 ([ADR-016](../../decisions/ADR-016-status-locked-after-conversion.md)) **ditegakkan**: status lead terkonversi terkunci, sebelumnya hanya digambarkan; `customers.converted_from_lead_id` adalah tautannya. Menghapus lead setelah konversi berarti membuang seluruh timeline yang menjelaskan bagaimana pelanggan itu didapat.
 
 Data disalin, bukan dirujuk: customer boleh berubah nama atau telepon tanpa mengubah catatan historis lead-nya.
 

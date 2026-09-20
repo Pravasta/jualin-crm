@@ -87,6 +87,17 @@ export function statusTransitionOptions(from: LeadStatus): StatusTransitionOptio
   return options;
 }
 
+// The Lead entity carries no "already converted" flag — converted_from_lead_id
+// lives on Customer, and conversion never touches the lead (TD §12) — so the
+// timeline's own "lead_converted" entry is the only signal the client has.
+// Once it exists the backend locks the lead's status (issue #142, ADR-016);
+// the screen uses this to stop OFFERING the buttons rather than offering them
+// and letting the backend refuse. The backend stays the authority: a stale
+// screen still gets lead_converted_locked, not a silent success.
+export function hasBeenConverted(activities: ReadonlyArray<{ type: string }>): boolean {
+  return activities.some((a) => a.type === "lead_converted");
+}
+
 // TD phase 3 §5 / issue #33: konversi hanya ditawarkan saat status
 // "won" — checked here once so the button and any future call site
 // agree, rather than each re-typing the string literal.

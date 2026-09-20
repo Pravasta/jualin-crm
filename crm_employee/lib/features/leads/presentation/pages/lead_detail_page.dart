@@ -287,7 +287,13 @@ class _StatusSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final options = statusTransitionOptions(state.lead.status);
+    // A converted lead offers no picker at all (issue #142): there is
+    // nothing left to choose, so the row says why instead of showing a
+    // button that could only end in a refusal.
+    final converted = hasBeenConverted(state.activities);
+    final options = converted
+        ? const <StatusTransitionOption>[]
+        : statusTransitionOptions(state.lead.status);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -300,7 +306,11 @@ class _StatusSection extends StatelessWidget {
         children: [
           Expanded(
             child: Text(
-              options.isEmpty ? 'Status ini bersifat final.' : 'Ubah status lead',
+              converted
+                  ? 'Lead ini sudah dikonversi menjadi Customer; statusnya tidak dapat diubah lagi.'
+                  : options.isEmpty
+                      ? 'Status ini bersifat final.'
+                      : 'Ubah status lead',
               style: AppTextStyles.body.copyWith(color: AppColors.mutedForeground),
             ),
           ),

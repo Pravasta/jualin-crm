@@ -8,12 +8,34 @@ sumbernya tidak ikut berubah saat customer-nya diedit.
 
 ## 4.1 Konversi lead yang menang
 
-1. Buka detail lead `Andi Calon Pelanggan` (masih status **Menang**).
+1. Buka detail lead `Andi Calon Pelanggan` (masih status **Menang**). **Sebelum** mengklik apa pun,
+   perhatikan tombol statusnya: **"→ Penawaran"** dan tiga tombol penutup (Kalah / Tidak Memenuhi Syarat
+   / Spam) **masih ada** — selama belum dikonversi, salah klik "Menang" masih bisa dikoreksi (issue #142,
+   ADR-016). **Jangan diklik**; lead ini dipakai terus di berkas berikutnya.
 2. Klik **Konversi menjadi customer**.
 
 **Hasil yang diharapkan:** berhasil, diarahkan (atau muncul tautan) ke halaman Customer baru. Kembali
 ke detail lead ini — tombol Konversi **sudah hilang** (tidak bisa dikonversi dua kali), dan timeline-nya
 punya entri konversi.
+
+**Hasil yang diharapkan (issue #142):** bagian tombol status **tidak lagi menampilkan tombol apa pun**,
+diganti satu kalimat: *"Lead ini sudah dikonversi menjadi Customer; statusnya tidak dapat diubah
+lagi."* Status lead tetap **Menang** — Customer dan lead tidak lagi bisa saling bertentangan.
+
+**Buktikan backend ikut menolak**, bukan hanya tombolnya disembunyikan (API dan mobile tidak melewati
+layar ini). Dengan cookie sesi Owner (langkah login `curl` di `01`), ambil `id` dan `version` lead Andi
+dari `GET /v1/leads?q=Andi`, lalu:
+
+```bash
+curl -s -b jar.txt -X PATCH "http://localhost:8080/v1/leads/$ID/status" \
+  -H 'Content-Type: application/json' -H "X-CSRF-Token: $CSRF" \
+  -d "{\"version\":$V,\"status\":\"proposal\"}"
+```
+
+**Hasil yang diharapkan:** HTTP `422` dengan `{"error":{"code":"lead_converted_locked",...}}`. Ulangi
+dengan `"status":"lost"` (sertakan `"lost_reason":"price"`), `"spam"`, dan `"unqualified"` — semuanya
+ditolak, dan status lead tetap Menang. Mengubah **nama** lead lewat `PATCH /v1/leads/$ID` tetap `200`:
+hanya status yang terkunci.
 
 3. Coba konversi lead yang **belum** menang (mis. `Citra Calon Pelanggan`, masih Memenuhi Syarat) — cek
    apakah tombol Konversi memang tidak muncul/tidak bisa diklik untuk lead berstatus selain Menang.

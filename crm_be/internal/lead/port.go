@@ -18,6 +18,14 @@ import (
 type Repository interface {
 	Create(ctx context.Context, t tenant.Context, in CreateInput) (*Lead, error)
 	FindByID(ctx context.Context, t tenant.Context, id uuid.UUID) (*Lead, error)
+	// FindByIDForUpdate is FindByID plus a row lock (SELECT … FOR UPDATE),
+	// held until the surrounding transaction ends. Usecase.UpdateStatus
+	// takes it BEFORE asking IsConverted so the answer cannot be
+	// invalidated by a Convert that is still in flight (#142).
+	FindByIDForUpdate(ctx context.Context, t tenant.Context, id uuid.UUID) (*Lead, error)
+	// IsConverted reports whether a customer was created from this lead.
+	// See the implementation for why it reads customers directly.
+	IsConverted(ctx context.Context, t tenant.Context, id uuid.UUID) (bool, error)
 	FindByIdempotencyKey(ctx context.Context, t tenant.Context, key string) (*Lead, error)
 	FindAllByOrg(ctx context.Context, t tenant.Context, filter ListFilter) ([]*Lead, int, error)
 	Update(ctx context.Context, t tenant.Context, id uuid.UUID, expectedVersion int, in UpdateInput) (*Lead, error)

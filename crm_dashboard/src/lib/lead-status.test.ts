@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LEAD_STATUSES, type LeadStatus } from "./labels";
-import { isValidStatusTransition, statusTransitionOptions } from "./lead-status";
+import { hasBeenConverted, isValidStatusTransition, statusTransitionOptions } from "./lead-status";
 
 // This is the literal transition matrix from
 // crm_be/internal/lead/usecase.go's validateStatusTransition, worked out
@@ -121,5 +121,22 @@ describe("statusTransitionOptions", () => {
         expect(isValidStatusTransition(from, option.status)).toBe(true);
       }
     }
+  });
+});
+
+// Issue #142. The timeline's "lead_converted" entry is the only "already
+// converted" signal the client has (the Lead carries no such flag), so the
+// predicate that drives "stop offering the status buttons" is worth pinning.
+describe("hasBeenConverted", () => {
+  it("is true once the timeline carries a lead_converted entry, wherever it sits", () => {
+    expect(hasBeenConverted([{ type: "lead_created" }, { type: "lead_converted" }])).toBe(true);
+    expect(hasBeenConverted([{ type: "lead_converted" }, { type: "status_changed" }])).toBe(true);
+  });
+
+  it("is false for a timeline without one — including a won lead that was never converted", () => {
+    expect(hasBeenConverted([])).toBe(false);
+    expect(
+      hasBeenConverted([{ type: "lead_created" }, { type: "status_changed" }, { type: "note" }])
+    ).toBe(false);
   });
 });

@@ -388,3 +388,84 @@ tetapi tidak berubah di sini. Backend masih membolehkan `lost` ke `qualified`/`p
 (aproksimasi #20, tidak diubah). Jalur koreksi salah-klik yang eksplisit (mis. membatalkan perubahan status
 terakhir lewat timeline) **tidak dibangun** — ADR-015 menyebutnya sebagai jawaban yang benar bila pengguna
 nyata terjebak, bukan sebagai bagian dari perubahan ini.
+
+---
+
+## #142 — Status lead terkunci setelah dikonversi (perbaikan pasca-phase, ADR-016)
+
+Ditemukan pemilik produk saat uji manual: "kok sudah menang masih bisa ditutup balik ke penawaran?". Phase 2
+sudah tutup; bagian ini dicatat di sini karena yang berubah adalah `UpdateStatus` dari #20 dan `Convert` dari
+#23. Keputusannya di [ADR-016](../../decisions/ADR-016-status-locked-after-conversion.md); di sini apa yang
+ditemukan dan bagaimana dikerjakan.
+
+**Bukan bug kode, tetapi celah yang lebih serius dari kasus `new` (#139).** Dua aturan umum meloloskan
+`won → proposal` (mundur satu langkah) dan `won → lost/unqualified/spam` (terminal samping dari mana pun),
+dan `UpdateStatus` tidak menjaga lead terkonversi sama sekali. Menang → Konversi → Kembali ke Penawaran
+meninggalkan Customer yang lead-nya berkata "Penawaran". `conversion_rate` dihitung dari `status = 'won'`,
+bukan dari Customer, jadi angka yang disebut ADR-006 sebagai "alasan owner membayar" ikut turun.
+
+**Yang ditemukan sebelum kode ditulis, dan mengubah rancangan issue:**
+
+1. **`UPDATE … WHERE NOT EXISTS` (usulan awal issue) tidak cukup.** Di `READ COMMITTED`, `UPDATE` yang menunggu
+   kunci baris mengevaluasi ulang kondisi baris itu, tetapi subquery ke tabel lain tetap memakai snapshot
+   awal statement. Yang benar: kunci baris dulu, lalu periksa dengan statement terpisah (snapshot baru).
+2. **`Convert` tidak mengunci baris lead dan tidak menaikkan `version`**, jadi optimistic locking tidak
+   melindunginya; kedua sisi harus mengunci baris yang sama.
+3. **Penyederhanaan dari rencana yang disetujui, dilaporkan:** rencana menyebut interface `ConversionReader`
+   di `lead/port.go` yang dijembatani di composition root. Diganti dua metode langsung di repository lead
+   (`FindByIDForUpdate`, `IsConverted`), karena repository customer **sudah** membaca `leads` lewat SQL di
+   `Convert` — menambah interface, implementasi, dan wiring untuk satu `EXISTS` adalah ceremony (Aturan
+   #27–29). `internal/lead` tetap tidak mengimpor `internal/customer`.
+4. **ADR-006 berselisih dengan skema:** ia menulis `converted_customer_id`/`converted_at` "sudah ada sejak awal"
+   di lead; tabel `leads` tidak punya kolom `converted` apa pun. Kode yang menang (Aturan #30); dicatat
+   sebagai errata di ADR-016 dan di ADR-006, tidak disunting diam-diam.
+
+**Perubahan.** `lead.Repository` +`FindByIDForUpdate` (cakupan sama dengan `FindByID`, plus `FOR UPDATE`) dan
++`IsConverted` (`EXISTS` atas `customers`, tenant-scoped, tanpa filter `deleted_at`). `UpdateStatus`: kunci
+baris → `IsConverted` → baru `validateStatusTransition`. `customer.Convert`: `FOR UPDATE` di `SELECT`-nya.
+Error baru `422 lead_converted_locked` (bukan 409: dashboard membaca 409 `version_conflict` sebagai "muat
+ulang dan coba lagi"). Dashboard dan mobile: fungsi murni `hasBeenConverted(activities)` dan tombol status
+diganti satu kalimat penjelas; layar yang basi tetap mendapat pesan backend. Nol migration.
+
+**Test — dan kenapa balapan diuji dua lapis.** Unit (fake): setiap tujuan ditolak untuk lead terkonversi
+(termasuk yang juga ditolak aturan transisi), won-belum-dikonversi tetap bisa mundur/ditutup, field lain tetap
+bisa diedit. Terhadap **Postgres sungguhan lewat router produksi** (`cmd/api/lead_conversion_lock_test.go`):
+
+- **Deterministik, kedua urutan.** Satu transaksi dibiarkan terbuka sebagai `Convert` (SQL repository customer
+  yang asli) atau sebagai perubahan status yang belum commit; sisi lain dijalankan, dibuktikan **benar-benar
+  menunggu kunci** lewat `pg_stat_activity`, lalu transaksi di-commit dan hasilnya diperiksa. Tanpa pembuktian
+  menunggu, "request belum kembali" tak bisa dibedakan dari "request belum mulai".
+- **Stres**, 40 pasangan `PATCH`+`convert` dilepas bersamaan: tepat satu pemenang tiap pasangan, dan tak ada
+  Customer untuk lead non-`won`. Ini pelengkap — tes berurutan/berharap-beruntung bisa hijau selamanya di mesin
+  cepat sementara logikanya salah (jebakan #19).
+- Isolasi tenant untuk `IsConverted` (organization lain tak pernah melihat konversi) dan aturan bahwa customer
+  yang di-soft-delete **tidak** membuka kunci.
+
+**Dibuktikan bisa gagal** — mutasi, masing-masing dikembalikan dan `git diff` diperiksa: `FOR UPDATE` dicabut dari
+`Convert` → tes urutan kedua + tes stres merah; kunci dicabut dari `FindByIDForUpdate` → tes urutan pertama +
+tes stres merah; filter organization dicabut dari `IsConverted` → tes isolasi merah; `IsConverted` mulai
+mengabaikan customer terhapus → tes yang sama merah; pemeriksaan terkonversi dimatikan → tes unit merah;
+"won final" menggantikan "terkunci setelah konversi" → tes `WonButNotConverted_StillMovable` merah (tanpa
+penjaga ini seseorang bisa "memperbaiki" masalah ini dengan menjadikan `won` final dan semua tes penolakan
+tetap hijau). Dua kesalahan mutasi sendiri (satu gagal *build* karena konstanta `StatusWon` tak ada) diulang
+dengan bentuk yang terkompilasi — itu bukan bukti. Satu tes yang saya tulis ternyata **kosong** (menandai id
+acak, lulus tanpa membuktikan apa pun soal tenant) dan dihapus, diganti tes Postgres sungguhan.
+
+`go test -race ./...` bersih (31 paket, tanpa *data race*), `golangci-lint` 0 issues, dashboard 174 test +
+build bersih, mobile `analyze` bersih + 172 test (lewat `fvm`).
+
+**Data yang sudah ada.** Query hanya-baca ke database dev: 1 lead terkonversi, **0** yang tidak konsisten.
+Tidak ada yang diperbaiki. Kunci ini berjalan ke depan; lead yang sudah dikonversi lalu dimundurkan sebelum
+kunci ada (di database lain) tidak diperbaiki otomatis — memilih status yang benar untuk tiap lead bukan
+keputusan kode.
+
+**Efek pada panduan uji manual.** `04` §4.1 kini memeriksa tombol **sebelum** konversi (masih bisa dikoreksi)
+dan **sesudahnya** (kalimat penjelas, tanpa tombol), plus bukti bahwa backend menolak lewat `curl`. `06`
+mendapat dua baris. Prosedur `curl` di `04` disusun dari kontrak API yang dibaca, **belum dijalankan agent**.
+
+**Terus terang, yang tidak dibuktikan.** Verifikasi manual di browser dan HP **belum dijalankan**; container
+`api` yang menyala perlu `docker compose up -d --build api` dulu. Jangan dibaca sebagai sudah.
+
+**Di luar cakupan, dicatat.** `lead.Delete` tidak menjaga lead terkonversi (`UPDATE leads SET deleted_at =
+now()` tanpa pemeriksaan), padahal `td.md` §10 menyatakan lead itu tidak dihapus dan timeline-nya adalah jejak
+bagaimana pelanggan itu didapat — kelas masalah yang sama, keputusan yang berbeda, **belum punya issue**.

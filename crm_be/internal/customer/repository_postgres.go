@@ -47,6 +47,7 @@ func (r *postgresRepository) Convert(ctx context.Context, t tenant.Context, lead
 		SELECT $1, $2, name, email, phone, phone_e164, company, notes, id, $3
 		FROM leads
 		WHERE id = $4 AND organization_id = $2 AND deleted_at IS NULL AND status = 'won'
+		FOR UPDATE
 		RETURNING ` + customerColumns
 
 	id := uuid.Must(uuid.NewV7())

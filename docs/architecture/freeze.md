@@ -421,7 +421,7 @@ new ──► contacted ──► qualified ──► proposal ──► won
 2. **Tidak ada status `assigned`.** Assignment ortogonal terhadap status — lead bisa `new` dan sudah ter-assign.
 3. Transisi divalidasi di service layer. Mundur satu langkah diizinkan (`qualified → contacted`); melompat dari `new` ke `won` tidak. **Tidak ada jalan kembali ke `new` dari status mana pun** — [ADR-015](../decisions/ADR-015-nothing-leads-back-to-new.md) (issue #139): `new` berarti "belum disentuh", bukan tahapan kerja.
 4. `lost_reason` wajib saat `lost`: `price` · `competitor` · `timing` · `no_response` · `not_interested` · `other`.
-5. Saat masuk `won`, konversi ke Customer **tidak otomatis** — ia aksi eksplisit. `won` berarti kesepakatan tercapai; konversi berarti relasi pelanggan dibuat.
+5. Saat masuk `won`, konversi ke Customer **tidak otomatis** — ia aksi eksplisit. `won` berarti kesepakatan tercapai; konversi berarti relasi pelanggan dibuat. **Setelah dikonversi, status lead terkunci** — [ADR-016](../decisions/ADR-016-status-locked-after-conversion.md) (issue #142); sebelum dikonversi `won` masih bisa dikoreksi.
 
 > **Catatan untuk masa depan:** ketika Deal dibangun (pasca-Phase 5), `proposal` dan `won` berpindah ke Deal dan daftar status Lead menyusut menjadi `new → contacted → qualified → converted | lost | unqualified | spam`. **Ini rencana yang disengaja, bukan inkonsistensi** — dicatat di `ADR-006`.
 

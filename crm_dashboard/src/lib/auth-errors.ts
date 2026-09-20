@@ -68,6 +68,14 @@ export function isLeadAlreadyConverted(err: unknown): boolean {
   return err instanceof ApiError && err.code === "lead_already_converted";
 }
 
+// lead_converted_locked (422, issue #142): the status of a lead that has been
+// converted to a Customer can no longer change. Only reachable from a screen
+// that was showing stale state (the buttons are hidden once the timeline
+// carries lead_converted) — the caller reloads so it stops offering them.
+export function isLeadConvertedLocked(err: unknown): boolean {
+  return err instanceof ApiError && err.code === "lead_converted_locked";
+}
+
 // membership_has_open_leads (409, freeze 2.3 ketentuan #3 / issue #34's
 // headline acceptance criterion): the count shown to the user MUST come
 // from this field, never be recomputed client-side — the whole point of

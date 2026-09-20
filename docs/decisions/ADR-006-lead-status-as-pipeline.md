@@ -62,6 +62,8 @@ Bukan sekadar kolom bebas. Mundur satu langkah diizinkan (`qualified → contact
 
 > **Diamandemen oleh [ADR-015](./ADR-015-nothing-leads-back-to-new.md) (issue #139):** "mundur satu langkah" **tidak** mencakup langkah **ke** `new` — `contacted → new` dan `lost → new` ditolak. `new` berarti "belum disentuh", pernyataan tentang riwayat, bukan tahapan kerja. Contoh `qualified → contacted` di atas tetap berlaku.
 
+> **Diamandemen oleh [ADR-016](./ADR-016-status-locked-after-conversion.md) (issue #142):** status lead **terkunci begitu ia dikonversi jadi Customer** (`422 lead_converted_locked`). Sebelum konversi, `won` tetap bisa mundur atau ditutup — salah klik "Menang" masih bisa dikoreksi.
+
 Tanpa validasi terpusat, mobile app dan dashboard akan menghasilkan riwayat dengan aturan yang berbeda.
 
 ### 4. `won` tidak otomatis membuat Customer
@@ -81,6 +83,8 @@ Alasannya: `proposal` dan `won` sebenarnya menggambarkan tahapan **transaksi**, 
 > **Ini rencana yang disengaja.** ADR ini ditulis justru agar session mendatang tidak membacanya sebagai inkonsistensi lalu "memperbaikinya" ke arah yang salah.
 
 Migrasinya nanti: `won` → buat Deal + set lead `converted`. Bisa di-backfill karena `converted_customer_id` dan `converted_at` sudah ada sejak awal.
+
+> **Errata ([ADR-016](./ADR-016-status-locked-after-conversion.md), issue #142):** klaim di atas **tidak sesuai skema**. Tabel `leads` tidak punya kolom `converted_*` apa pun (`migrations/0003_crm_core.sql`); `converted_at` hanya ada di `customers`, dan satu-satunya tautan adalah `customers.converted_from_lead_id`. Backfill `won → converted` harus mengambil sumbernya dari `customers`. Kode yang menang (Aturan #30).
 
 ## Konsekuensi
 
