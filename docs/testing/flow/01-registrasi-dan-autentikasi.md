@@ -60,7 +60,11 @@ Lead, Customer, Tugas, Tim, Pengaturan.
 
 - **Password salah**: coba login dengan password yang salah. Harus muncul pesan error yang **tidak**
   membedakan "email tidak ada" dari "password salah" (mis. "Email atau password salah.") — bukan
-  detail teknis, bukan status 500.
+  detail teknis, bukan status 500. Yang harus benar-benar terlihat di browser (issue #135, bug yang
+  lolos dari test otomatis karena gejalanya ada di layar): **halaman tidak ter-reload** dan email
+  yang sudah diketik masih ada di kolomnya. Buka DevTools → **Network** sebelum menekan Masuk:
+  harus tepat **satu** `POST /v1/auth/login` (`401`) dan **tidak ada** panggilan ke
+  `/v1/auth/refresh`.
 - **Login berkali-kali dengan password salah** (5–6 kali berturut dalam beberapa detik): percobaan
   berikutnya harus mulai ditolak dengan pesan "terlalu banyak percobaan" (backoff progresif,
   `auth.LoginLimiter`) — bukan terus mencoba tanpa batas.

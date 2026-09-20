@@ -15,6 +15,7 @@ import { CSRF_HEADER_NAME, readCsrfToken } from "./csrf";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 const REFRESH_PATH = "/v1/auth/refresh";
+const CREDENTIAL_PATH_PREFIX = "/v1/auth/";
 
 export interface ApiFetchOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
@@ -105,6 +106,26 @@ async function parseJSON(response: Response): Promise<{ data: unknown; meta?: Me
   return json ?? { data: undefined };
 }
 
+// Everything under /v1/auth/ (login, register, refresh, ...) is mounted
+// outside crm_be's authMW, so a 401 from it never means "your access
+// token expired" — it is an answer about the credentials IN that
+// request (login's invalid_credentials). Refreshing on it (issue #135)
+// either redirected to /login, a full page reload that erased the error
+// before it could render, or — when a valid refresh cookie happened to
+// exist — replayed the login with the same wrong password, so one
+// visible attempt cost two of crm_be's LoginLimiter failures.
+//
+// Deliberately a PREFIX, not a list: a future /v1/auth/* endpoint is
+// exempt without anyone remembering to add it here. Deliberately NOT
+// "every public route": /v1/invitations/accept sits behind
+// optionalAuthMW and its 401 means "log in first", which is exactly what
+// the refresh-then-redirect below is for. The prefix also covers
+// REFRESH_PATH itself (a 401 from refresh must never re-enter the retry
+// logic).
+function isCredentialEndpoint(path: string): boolean {
+  return path.startsWith(CREDENTIAL_PATH_PREFIX);
+}
+
 // Shared by apiFetch and apiFetchList — the 401/refresh/retry dance
 // (module doc comment above) doesn't care whether the caller wants
 // `data` alone or `{data, meta}`, so it lives in exactly one place.
@@ -114,8 +135,7 @@ async function fetchWithAuth(
 ): Promise<Response> {
   const response = await rawFetch(path, options);
 
-  const isRefreshCall = path === REFRESH_PATH;
-  if (response.status === 401 && !isRefreshCall && !options._isRetry) {
+  if (response.status === 401 && !isCredentialEndpoint(path) && !options._isRetry) {
     const refreshed = await doRefresh();
     if (refreshed) {
       return fetchWithAuth(path, { ...options, _isRetry: true });
