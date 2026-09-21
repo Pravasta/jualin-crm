@@ -114,6 +114,13 @@ ulang" — **tidak pernah** menimpa diam-diam perubahan dari dashboard.
 **Hasil yang diharapkan:** di atas daftar ada dua segmen, **Belum selesai** (terpilih) dan **Selesai**
 (issue #148). Task muncul di Belum selesai, dengan jatuh tempo bila diisi.
 
+**Periksa label jatuh tempo (issue #153)** — buat beberapa task dengan jatuh tempo berbeda dari dashboard:
+hari ini (jam nanti) → **"Jatuh tempo hari ini"**; besok → **"Jatuh tempo besok"**; 3 hari lagi →
+**"Jatuh tempo dalam 3 hari"**; 2 minggu lagi → tanggal, mis. **"Jatuh tempo 5 Okt"**; kemarin →
+**"Terlambat 1 hari"** (merah tebal). Tidak boleh ada **"Jatuh tempo Baru saja"** untuk tanggal mendatang — itu
+bug yang diperbaiki di sini. Hitungannya per tanggal kalender: task jatuh tempo besok pagi, dilihat malam ini,
+tetap "besok".
+
 3. Tandai selesai (checkbox).
 
 **Hasil yang diharapkan:** task hilang dari **Belum selesai**.
