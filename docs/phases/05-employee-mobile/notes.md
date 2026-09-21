@@ -1113,3 +1113,50 @@ baris kode plugin → manifest → README) dan perilaku bloc lewat tes. Manifest
 belum dideklarasikan; itu milik #149. Saat mengerjakan, tiga perubahan **yang bukan dari pekerjaan ini** muncul di
 working tree (`.metadata` kehilangan entri platform `ios`, `pubspec.lock` naik versi beberapa dependensi, dan
 salinan kedua `MainActivity.kt` di `kotlin/com/jualin/crm/crm_employee/`) — tidak disentuh dan tidak ikut commit.
+
+
+---
+
+## #148 — Tugas yang selesai hilang: tab Selesai sebagai riwayat (perbaikan pasca-phase)
+
+Ditemukan pemilik produk saat uji manual di HP: menandai tugas selesai membuatnya **hilang** tanpa jejak.
+Tugas Saya hanya pernah meminta `status: 'open'` (`tasks_bloc.dart`). Design brief §7.4 tidak memutuskan untuk
+menyembunyikan tugas selesai — hal itu tidak pernah dibahas. **Backend sudah siap**: `GET /v1/tasks` menerima
+`status=done` dan mengirim `completed_at`; dashboard sudah punya filter Selesai. Nol perubahan backend/dashboard.
+
+**Perubahan.** Dua segmen **Belum selesai** (default, perilaku lama) dan **Selesai**. `TaskFilter` (`open`/`done`)
+dibawa **di setiap state** (`TasksLoading`/`TasksLoaded`/`TasksError`), bukan variabel lokal di halaman — supaya
+tab tetap terpilih melewati loading, refresh, error, dan reload setelah menyelesaikan tugas, tanpa dua sumber
+kebenaran yang bisa berselisih. `Task` kini membawa `completedAt`. Selesai diurutkan **terbaru diselesaikan
+dulu** (bukan jatuh tempo); baris selesai menampilkan "Selesai … lalu", checkbox terkunci (satu arah), tetapi
+**barisnya tetap membuka lead** — dari riwayat, lead adalah tempat sisa ceritanya (keputusan di luar teks issue,
+dilaporkan: sebelumnya baris selesai sengaja tak bisa diketuk, meski dulu memang tak pernah tampil). Cache offline
+per tab otomatis karena `status` bagian dari path yang sekaligus kunci cache — dikunci tes.
+
+**Batas riwayat.** Selesai meminta `per_page=100` (batas backend; bawaan 25). Backend mengurutkan `created_at
+DESC` dan tak punya opsi urut lain, jadi yang dimuat adalah **100 tugas selesai yang paling baru DIBUAT**, lalu
+diurutkan ulang menurut waktu selesai di klien. Tugas lama yang baru diselesaikan setelah >100 tugas selesai lain
+bisa tak terlihat. Jujur, tidak disembunyikan: memperbaikinya butuh opsi urut di backend.
+
+**Test (189 total).** Bloc: pindah ke Selesai meminta `status=done`+`per_page=100` dan filter bertahan melewati
+loading; urutan menurut waktu selesai (tanggal jatuh tempo sengaja dibuat berlawanan supaya urut-menurut-jatuh-tempo
+menghasilkan daftar lain); refresh di Selesai tetap di Selesai. Model: `completed_at` terbaca. Path: open dan done
+berbeda (kunci cache terpisah), `per_page` hanya dikirim bila diminta. **Dibuktikan bisa gagal:** selalu meminta
+`status=open` (bug lama) → 2 merah; refresh kembali ke tab bawaan → 1 merah; `completed_at` tak dibaca → 1 merah.
+`make mobile-analyze mobile-test` bersih.
+
+**Terus terang, yang tidak dibuktikan.** **Belum dijalankan di HP.** Tidak ada tes widget di repo mobile, jadi
+segmen, keadaan kosong per tab, dan tampilan baris selesai belum terlihat. Langkahnya di `07` §7.5.
+
+**Temuan di luar cakupan, dilaporkan — keduanya di layar yang sama, belum punya issue:**
+
+1. **Tugas terbuka dipotong diam-diam di 25.** Belum selesai tak pernah mengirim `per_page`, dan backend bawaannya
+   25 dengan urutan `created_at DESC`. Karyawan dengan >25 tugas terbuka **tidak melihat tugas terlamanya** — yang
+   justru paling mungkin sudah lewat jatuh tempo — tanpa keterangan apa pun. Tidak diubah di sini karena itu
+   perilaku Belum selesai yang sudah ada, bukan riwayat.
+2. **"Jatuh tempo Baru saja" untuk tanggal di masa depan.** `relativeTime` hanya menangani waktu lampau; untuk
+   jatuh tempo mendatang selisihnya negatif dan fungsi itu mengembalikan "Baru saja". Tugas yang jatuh tempo minggu
+   depan tampil "Jatuh tempo Baru saja". Belum selesai sudah begitu sejak #73.
+
+Tiga perubahan working tree yang bukan dari pekerjaan ini (`.metadata`, `pubspec.lock`, salinan kedua
+`MainActivity.kt`, lihat `## #147`) masih ada; tidak disentuh dan tidak ikut commit.

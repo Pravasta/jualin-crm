@@ -1,12 +1,18 @@
 import 'package:equatable/equatable.dart';
 
 import '../../domain/entities/task.dart';
+import 'task_filter.dart';
 
+/// Every state carries the active [TaskFilter] (issue #148), so the tab
+/// stays selected through loading, refresh, and errors — the screen never
+/// has to remember it separately and drift from what the bloc loaded.
 sealed class TasksState extends Equatable {
-  const TasksState();
+  final TaskFilter filter;
+
+  const TasksState({this.filter = TaskFilter.open});
 
   @override
-  List<Object?> get props => [];
+  List<Object?> get props => [filter];
 }
 
 class TasksInitial extends TasksState {
@@ -14,7 +20,7 @@ class TasksInitial extends TasksState {
 }
 
 class TasksLoading extends TasksState {
-  const TasksLoading();
+  const TasksLoading({super.filter});
 }
 
 class TasksLoaded extends TasksState {
@@ -39,6 +45,7 @@ class TasksLoaded extends TasksState {
     this.fetchedAt,
     this.completingTaskId,
     this.errorMessage,
+    super.filter,
   });
 
   @override
@@ -48,14 +55,15 @@ class TasksLoaded extends TasksState {
     fetchedAt,
     completingTaskId,
     errorMessage,
+    filter,
   ];
 }
 
 class TasksError extends TasksState {
   final String message;
 
-  const TasksError(this.message);
+  const TasksError(this.message, {super.filter});
 
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [message, filter];
 }

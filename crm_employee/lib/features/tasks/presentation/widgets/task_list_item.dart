@@ -32,8 +32,11 @@ class TaskListItem extends StatelessWidget {
     final overdue =
         !isDone && task.dueAt != null && task.dueAt!.isBefore(DateTime.now());
 
+    // A completed row still opens its lead: from the history, the lead is
+    // exactly where the rest of the story is (issue #148). Only the
+    // checkbox is locked — completion stays one-way (design brief §7.4).
     return InkWell(
-      onTap: isDone ? null : onTap,
+      onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.space20,
@@ -63,7 +66,13 @@ class TaskListItem extends StatelessWidget {
                           )
                         : AppTextStyles.cardTitle,
                   ),
-                  if (task.dueAt != null) ...[
+                  if (isDone && task.completedAt != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      'Selesai ${relativeTime(task.completedAt!)}',
+                      style: AppTextStyles.metadata,
+                    ),
+                  ] else if (task.dueAt != null) ...[
                     const SizedBox(height: 3),
                     Text(
                       'Jatuh tempo ${relativeTime(task.dueAt!)}',

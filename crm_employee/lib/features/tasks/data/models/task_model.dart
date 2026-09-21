@@ -9,6 +9,7 @@ class TaskModel extends Task {
     super.dueAt,
     required super.status,
     required super.version,
+    super.completedAt,
   });
 
   factory TaskModel.fromJson(Map<String, dynamic> json) {
@@ -22,6 +23,9 @@ class TaskModel extends Task {
           : null,
       status: json['status'] as String,
       version: json['version'] as int,
+      completedAt: json['completed_at'] != null
+          ? DateTime.parse(json['completed_at'] as String)
+          : null,
     );
   }
 }

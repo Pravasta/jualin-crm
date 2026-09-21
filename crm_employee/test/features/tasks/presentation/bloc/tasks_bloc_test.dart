@@ -16,6 +16,7 @@ import 'package:crm_employee/features/tasks/domain/usecases/complete_task_usecas
 import 'package:crm_employee/features/tasks/domain/usecases/get_my_tasks_usecase.dart';
 import 'package:crm_employee/features/tasks/presentation/bloc/tasks_bloc.dart';
 import 'package:crm_employee/features/tasks/presentation/bloc/tasks_event.dart';
+import 'package:crm_employee/features/tasks/presentation/bloc/task_filter.dart';
 import 'package:crm_employee/features/tasks/presentation/bloc/tasks_state.dart';
 import 'package:dartz/dartz.dart' hide Task;
 import 'package:flutter_test/flutter_test.dart';
@@ -41,8 +42,16 @@ class MockLogoutUseCase extends Mock implements LogoutUseCase {}
 class MockGetCurrentUserUseCase extends Mock
     implements GetCurrentUserUseCase {}
 
-Task _task({String id = 't1', String status = 'open', DateTime? dueAt}) =>
-    Task(id: id, leadId: 'l1', title: 'Follow up', dueAt: dueAt, status: status, version: 1);
+Task _task({String id = 't1', String status = 'open', DateTime? dueAt, DateTime? completedAt}) =>
+    Task(
+      id: id,
+      leadId: 'l1',
+      title: 'Follow up',
+      dueAt: dueAt,
+      status: status,
+      version: 1,
+      completedAt: completedAt,
+    );
 
 const _me = AuthUser(
   userId: 'u1',
@@ -158,6 +167,85 @@ void main() {
       verify: (_) async {
         await Future<void>.delayed(const Duration(milliseconds: 50));
         expect(authBloc.state, isA<AuthSessionExpired>());
+      },
+    );
+  });
+
+  // Issue #148. A completed task used to vanish: the screen only ever asked
+  // for status=open. The "Selesai" tab is the history.
+  group('TaskFilterChanged', () {
+    blocTest<TasksBloc, TasksState>(
+      'switching to Selesai asks for status=done and keeps the filter through loading',
+      setUp: () async {
+        await authenticate();
+        when(() => getMyTasks(any())).thenAnswer(
+          (_) async => const Right(TaskListResult(tasks: [], fromCache: false)),
+        );
+      },
+      build: buildBloc,
+      act: (bloc) => bloc.add(const TaskFilterChanged(TaskFilter.done)),
+      expect: () => [
+        const TasksLoading(filter: TaskFilter.done),
+        isA<TasksLoaded>().having((s) => s.filter, 'filter', TaskFilter.done),
+      ],
+      verify: (_) {
+        verify(
+          () => getMyTasks(const GetMyTasksParams(assignedTo: 'm1', status: 'done', perPage: 100)),
+        ).called(1);
+      },
+    );
+
+    blocTest<TasksBloc, TasksState>(
+      'Selesai is ordered by completion time, most recent first — not by due date',
+      setUp: () async {
+        await authenticate();
+        when(() => getMyTasks(any())).thenAnswer(
+          (_) async => Right(
+            TaskListResult(
+              tasks: [
+                // Due dates deliberately in the OPPOSITE order, so sorting
+                // by due date would produce a different list.
+                _task(id: 'done-old', status: 'done', dueAt: DateTime(2026, 9, 30), completedAt: DateTime(2026, 9, 1)),
+                _task(id: 'done-new', status: 'done', dueAt: DateTime(2026, 9, 2), completedAt: DateTime(2026, 9, 20)),
+                _task(id: 'done-mid', status: 'done', completedAt: DateTime(2026, 9, 10)),
+              ],
+              fromCache: false,
+            ),
+          ),
+        );
+      },
+      build: buildBloc,
+      act: (bloc) => bloc.add(const TaskFilterChanged(TaskFilter.done)),
+      skip: 1,
+      expect: () => [
+        isA<TasksLoaded>().having(
+          (s) => s.tasks.map((t) => t.id).toList(),
+          'most recently completed first',
+          ['done-new', 'done-mid', 'done-old'],
+        ),
+      ],
+    );
+
+    blocTest<TasksBloc, TasksState>(
+      'pull-to-refresh on Selesai stays on Selesai',
+      setUp: () async {
+        await authenticate();
+        when(() => getMyTasks(any())).thenAnswer(
+          (_) async => const Right(TaskListResult(tasks: [], fromCache: false)),
+        );
+      },
+      build: buildBloc,
+      act: (bloc) async {
+        bloc.add(const TaskFilterChanged(TaskFilter.done));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        bloc.add(const TasksRefreshRequested());
+      },
+      verify: (bloc) {
+        expect(bloc.state.filter, TaskFilter.done);
+        verify(
+          () => getMyTasks(const GetMyTasksParams(assignedTo: 'm1', status: 'done', perPage: 100)),
+        ).called(2);
+        verifyNever(() => getMyTasks(const GetMyTasksParams(assignedTo: 'm1', status: 'open')));
       },
     );
   });
