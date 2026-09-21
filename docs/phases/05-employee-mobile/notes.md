@@ -1160,3 +1160,33 @@ segmen, keadaan kosong per tab, dan tampilan baris selesai belum terlihat. Langk
 
 Tiga perubahan working tree yang bukan dari pekerjaan ini (`.metadata`, `pubspec.lock`, salinan kedua
 `MainActivity.kt`, lihat `## #147`) masih ada; tidak disentuh dan tidak ikut commit.
+
+
+---
+
+## #149 — Email lead ditampilkan tanpa aksi: tautan `mailto` (perbaikan pasca-phase)
+
+Ditemukan pemilik produk saat uji manual di HP: telepon dan WhatsApp punya tombol, email hanya teks. PRD
+Phase 5 user story #3 hanya menyebut telepon dan WhatsApp — email **tidak pernah dibahas**, bukan ditolak.
+
+**Keputusan pemilik produk: tanpa log.** Membuka email **tidak** dicatat di timeline. Mencatatnya berarti
+migration (`ck_activities_type` adalah daftar tertutup tanpa tipe email) plus tipe baru di backend, dashboard, dan
+mobile — lebih besar dari tombolnya, untuk kanal sekunder. Bisa ditambahkan kelak tanpa membongkar tautannya.
+
+**Perubahan.** `ExternalActionRepository.launchEmail` → `mailto:<email>`; `LaunchEmailUseCase`;
+`LeadEmailRequested`; handler bloc yang **sengaja tidak** lewat `_launchAndLog` (tanpa log, tanpa refetch
+activity) tetapi **berbagi aturan #147**: serah-terima gagal menampilkan *"Tidak ada aplikasi email di perangkat
+ini."*, tidak pernah diam. `<queries>` untuk `mailto` (`VIEW`, karena `url_launcher` me-resolve setiap URI sebagai
+`ACTION_VIEW` — bukan `SENDTO` seperti contoh dokumentasi Android). Tautan di **header**, bukan di bilah bawah
+bersama Telepon/WhatsApp: itu kanal lapangan utama, email sekunder. Target sentuh 48px, label semantik
+"Kirim email ke …", nonaktif saat aplikasi lain sedang dibuka. Tampil hanya bila `hasEmailAddress` (predikat
+blank-aware yang sama dengan badge #143 — email `"   "` tidak menampilkan tautan).
+
+**Test (196 total).** URI `mailto`; bloc: email kosong/spasi no-op, berhasil **tanpa** log dan tanpa refetch
+activity, gagal dengan pesan; `hasEmailAddress`; manifest `mailto`. **Dibuktikan bisa gagal:** pesan ditelan →
+merah; handler mulai memuat ulang activity (seolah mencatat) → merah; entri `mailto` dihapus → merah.
+`make mobile-analyze mobile-test` bersih.
+
+**Terus terang, yang tidak dibuktikan.** **Belum dijalankan di HP.** Manifest berubah, jadi butuh build ulang
+penuh. Tampilan tautan (warna, garis bawah, pemotongan email panjang) belum terlihat — tidak ada tes widget.
+iOS butuh `mailto` di `LSApplicationQueriesSchemes`, bersama `tel`/`https` (#147) saat iOS diaktifkan.

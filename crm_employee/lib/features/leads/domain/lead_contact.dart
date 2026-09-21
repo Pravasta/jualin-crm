@@ -13,5 +13,9 @@ bool _isBlank(String? value) => value == null || value.trim().isEmpty;
 
 bool hasPhoneNumber(String? phone) => !_isBlank(phone);
 
+/// What decides whether the email action is offered (issue #149) — the same
+/// blank rule as the "Belum ada kontak" badge, so the two never disagree.
+bool hasEmailAddress(String? email) => !_isBlank(email);
+
 bool leadHasContact({String? email, String? phone}) =>
-    !_isBlank(email) || hasPhoneNumber(phone);
+    hasEmailAddress(email) || hasPhoneNumber(phone);

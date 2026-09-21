@@ -70,3 +70,9 @@ class LeadCallRequested extends LeadDetailEvent {
 class LeadWhatsAppRequested extends LeadDetailEvent {
   const LeadWhatsAppRequested();
 }
+
+/// Tapping the lead's email (issue #149). Opens the mail app; unlike call
+/// and WhatsApp, never logs an activity.
+class LeadEmailRequested extends LeadDetailEvent {
+  const LeadEmailRequested();
+}

@@ -18,4 +18,9 @@ class ExternalActionRepositoryImpl implements ExternalActionRepository {
     final digits = phoneE164.replaceAll('+', '');
     return dataSource.launch(Uri.parse('https://wa.me/$digits'));
   }
+
+  @override
+  Future<bool> launchEmail(String email) {
+    return dataSource.launch(Uri(scheme: 'mailto', path: email));
+  }
 }

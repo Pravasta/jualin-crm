@@ -11,6 +11,8 @@ import '../../domain/usecases/get_lead_activities_usecase.dart';
 import '../../domain/usecases/get_lead_detail_usecase.dart';
 import '../../domain/usecases/launch_dialer_usecase.dart';
 import '../../domain/usecases/launch_whatsapp_usecase.dart';
+import '../../domain/usecases/launch_email_usecase.dart';
+import '../../domain/lead_contact.dart';
 import '../../domain/usecases/log_call_usecase.dart';
 import '../../domain/usecases/log_whatsapp_opened_usecase.dart';
 import '../../domain/usecases/update_lead_status_usecase.dart';
@@ -26,6 +28,7 @@ class LeadDetailBloc extends Bloc<LeadDetailEvent, LeadDetailState> {
   final LogWhatsAppOpenedUseCase logWhatsAppOpened;
   final LaunchDialerUseCase launchDialer;
   final LaunchWhatsAppUseCase launchWhatsApp;
+  final LaunchEmailUseCase launchEmail;
 
   /// Same reasoning as `LeadsBloc.authBloc` — only to dispatch
   /// `AuthSessionInvalidated` when a call here surfaces
@@ -42,6 +45,7 @@ class LeadDetailBloc extends Bloc<LeadDetailEvent, LeadDetailState> {
     required this.logWhatsAppOpened,
     required this.launchDialer,
     required this.launchWhatsApp,
+    required this.launchEmail,
     required this.authBloc,
   }) : super(const LeadDetailInitial()) {
     on<LeadDetailRequested>(_onRequested);
@@ -51,6 +55,7 @@ class LeadDetailBloc extends Bloc<LeadDetailEvent, LeadDetailState> {
     on<LeadNoteSubmitted>(_onNoteSubmitted);
     on<LeadCallRequested>(_onCallRequested);
     on<LeadWhatsAppRequested>(_onWhatsAppRequested);
+    on<LeadEmailRequested>(_onEmailRequested);
   }
 
   Future<void> _onRequested(
@@ -265,6 +270,28 @@ class LeadDetailBloc extends Bloc<LeadDetailEvent, LeadDetailState> {
       launch: () => launchWhatsApp(phoneE164),
       log: () => logWhatsAppOpened(current.lead.id),
       unavailableMessage: 'WhatsApp tidak dapat dibuka di perangkat ini.',
+    );
+  }
+
+  /// Issue #149. Deliberately NOT routed through [_launchAndLog]: opening an
+  /// email is not recorded on the timeline (owner's decision — the closed
+  /// activity-type list has no email type). What it DOES share with call and
+  /// WhatsApp is the #147 rule: a failed hand-off says so, never goes silent.
+  Future<void> _onEmailRequested(
+    LeadEmailRequested event,
+    Emitter<LeadDetailState> emit,
+  ) async {
+    final current = state;
+    if (current is! LeadDetailLoaded) return;
+    final email = current.lead.email;
+    if (!hasEmailAddress(email)) return;
+
+    emit(_transient(current, isLaunchingExternalAction: true));
+    final opened = await launchEmail(email!.trim());
+    emit(
+      opened
+          ? _transient(current)
+          : _transient(current, externalActionError: 'Tidak ada aplikasi email di perangkat ini.'),
     );
   }
 

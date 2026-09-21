@@ -26,4 +26,10 @@ abstract class ExternalActionRepository {
   /// [Lead.phoneE164] is non-null — this method does not itself defend
   /// against a null/malformed number.
   Future<bool> launchWhatsApp(String phoneE164);
+
+  /// `mailto:` with [email] as stored (issue #149). Unlike the two above,
+  /// a successful hand-off is NOT logged as an activity — the activity-type
+  /// list is closed and has no email type; adding one is a migration the
+  /// product owner chose not to make for a secondary channel.
+  Future<bool> launchEmail(String email);
 }

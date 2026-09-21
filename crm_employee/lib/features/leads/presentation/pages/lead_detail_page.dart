@@ -179,7 +179,7 @@ class _LoadedBody extends StatelessWidget {
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
                 if (state.fromCache) CacheBanner(fetchedAt: state.fetchedAt),
-                _LeadHeader(lead: lead),
+                _LeadHeader(lead: lead, isBusy: state.isLaunchingExternalAction),
                 _StatusSection(state: state),
                 const Divider(height: 1, color: AppColors.border),
                 _NoteForm(
@@ -206,7 +206,11 @@ class _LoadedBody extends StatelessWidget {
 class _LeadHeader extends StatelessWidget {
   final Lead lead;
 
-  const _LeadHeader({required this.lead});
+  /// An external app is being opened — the email link is disabled like the
+  /// call/WhatsApp buttons, so one tap can't launch two apps.
+  final bool isBusy;
+
+  const _LeadHeader({required this.lead, required this.isBusy});
 
   @override
   Widget build(BuildContext context) {
@@ -265,11 +269,44 @@ class _LeadHeader extends StatelessWidget {
             const SizedBox(height: AppSpacing.space12),
             Text(lead.company!, style: AppTextStyles.body),
           ],
-          if (lead.email != null) ...[
+          if (hasEmailAddress(lead.email)) ...[
             const SizedBox(height: AppSpacing.space4),
-            Text(
-              lead.email!,
-              style: AppTextStyles.body.copyWith(color: AppColors.mutedForeground),
+            // Issue #149: tappable, opens the mail app. Placed here and not
+            // beside Telepon/WhatsApp in the bottom bar — those are the field
+            // channels; email is secondary. Opening it is NOT logged.
+            Semantics(
+              button: true,
+              label: 'Kirim email ke ${lead.email}',
+              excludeSemantics: true,
+              child: InkWell(
+                onTap: isBusy
+                    ? null
+                    : () => context.read<LeadDetailBloc>().add(
+                        const LeadEmailRequested(),
+                      ),
+                borderRadius: BorderRadius.circular(6),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: kMinTouchTarget),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.mail_outline, size: 18, color: AppColors.accentStrong),
+                      const SizedBox(width: AppSpacing.space8),
+                      Flexible(
+                        child: Text(
+                          lead.email!,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.body.copyWith(
+                            color: AppColors.accentStrong,
+                            decoration: TextDecoration.underline,
+                            decorationColor: AppColors.accentStrong,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ],
           if (lead.notes != null && lead.notes!.isNotEmpty) ...[

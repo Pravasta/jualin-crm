@@ -28,6 +28,7 @@ import '../../features/leads/domain/usecases/get_lead_detail_usecase.dart';
 import '../../features/leads/domain/usecases/get_my_leads_usecase.dart';
 import '../../features/leads/domain/usecases/launch_dialer_usecase.dart';
 import '../../features/leads/domain/usecases/launch_whatsapp_usecase.dart';
+import '../../features/leads/domain/usecases/launch_email_usecase.dart';
 import '../../features/leads/domain/usecases/log_call_usecase.dart';
 import '../../features/leads/domain/usecases/log_whatsapp_opened_usecase.dart';
 import '../../features/leads/domain/usecases/update_lead_status_usecase.dart';
@@ -169,6 +170,7 @@ Future<void> initDependencyInjection() async {
   sl.registerLazySingleton(() => LogWhatsAppOpenedUseCase(sl()));
   sl.registerLazySingleton(() => LaunchDialerUseCase(sl()));
   sl.registerLazySingleton(() => LaunchWhatsAppUseCase(sl()));
+  sl.registerLazySingleton(() => LaunchEmailUseCase(sl()));
 
   // --- feature: leads (detail, #72) — bloc ---
   // registerFactory, same reasoning as LeadsBloc — one instance per time
@@ -183,6 +185,7 @@ Future<void> initDependencyInjection() async {
       logWhatsAppOpened: sl(),
       launchDialer: sl(),
       launchWhatsApp: sl(),
+      launchEmail: sl(),
       authBloc: sl(),
     ),
   );

@@ -62,5 +62,11 @@
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>
         </intent>
+        <!-- Issue #149: the lead's email opens the mail app via mailto:.
+             url_launcher resolves it as ACTION_VIEW, like tel/https. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="mailto"/>
+        </intent>
     </queries>
 </manifest>
