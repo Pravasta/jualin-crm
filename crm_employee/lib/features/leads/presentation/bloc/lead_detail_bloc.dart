@@ -242,6 +242,7 @@ class LeadDetailBloc extends Bloc<LeadDetailEvent, LeadDetailState> {
       emit: emit,
       launch: () => launchDialer(phone),
       log: () => logCall(LogCallParams(leadId: current.lead.id, phone: phone)),
+      unavailableMessage: 'Tidak ada aplikasi telepon yang bisa membuka nomor ini.',
     );
   }
 
@@ -263,6 +264,7 @@ class LeadDetailBloc extends Bloc<LeadDetailEvent, LeadDetailState> {
       emit: emit,
       launch: () => launchWhatsApp(phoneE164),
       log: () => logWhatsAppOpened(current.lead.id),
+      unavailableMessage: 'WhatsApp tidak dapat dibuka di perangkat ini.',
     );
   }
 
@@ -273,15 +275,21 @@ class LeadDetailBloc extends Bloc<LeadDetailEvent, LeadDetailState> {
     required Emitter<LeadDetailState> emit,
     required Future<bool> Function() launch,
     required Future<Either<Failure, Activity>> Function() log,
+    required String unavailableMessage,
   }) async {
     emit(_transient(current, isLaunchingExternalAction: true));
 
     final opened = await launch();
     if (!opened) {
-      // Canceled before handoff (the OS app-picker/permission prompt) —
-      // no activity, and no error either: a deliberate choice, not a
-      // failure.
-      emit(_transient(current));
+      // Nothing could take the hand-off — NOT a user cancel. url_launcher
+      // returns false only when canLaunchUrl finds no handler or
+      // startActivity throws ActivityNotFoundException
+      // (UrlLauncher.java); backing out of the dialer happens after a
+      // successful hand-off and is invisible to this app. Until #147 this
+      // branch was read as a cancel and stayed silent, so a missing
+      // <queries> entry looked like a dead button. Still no activity
+      // (design brief §8.3): nothing was opened.
+      emit(_transient(current, externalActionError: unavailableMessage));
       return;
     }
 

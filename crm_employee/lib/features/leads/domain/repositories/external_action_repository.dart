@@ -5,10 +5,13 @@
 /// can ever get; neither this app nor any other can observe what
 /// happens INSIDE that external app afterward (a call actually
 /// connecting, or being hung up seconds later) without OS-level
-/// permissions far outside this feature's scope. "Menekan lalu
-/// membatalkan" (acceptance criterion) is read as canceling the OS's own
-/// app-picker/permission prompt BEFORE handoff — the one cancellation
-/// this layer can actually detect.
+/// permissions far outside this feature's scope.
+///
+/// `false` means nothing on the device could take the hand-off — never
+/// that the user canceled (issue #147). A user backing out of the dialer
+/// happens AFTER a successful hand-off and cannot be observed here, so
+/// "menekan lalu membatalkan" (acceptance criterion) is satisfied simply
+/// because no activity is logged until the hand-off itself succeeds.
 abstract class ExternalActionRepository {
   /// `tel:` — always attempted with [phone] exactly as stored (never
   /// [Lead.phoneE164]); a dialer accepts almost any string a human could
