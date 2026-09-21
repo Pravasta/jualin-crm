@@ -62,19 +62,25 @@ HH:mm". Bukan layar error, bukan daftar kosong. Matikan mode pesawat setelah lan
 Dari dashboard (mesin dev), **assign** salah satu lead dari [`03-lead-dan-pipeline.md`](./03-lead-dan-pipeline.md) ke employee ini kalau belum.
 
 1. Di HP, buka lead itu dari Lead Saya.
-2. Tekan **Telepon** — dialer OS terbuka. **Batalkan** panggilan itu (jangan benar-benar menelepon).
+2. Tekan **Telepon**. Biarkan dialer OS terbuka dengan nomor lead **sudah terisi** (tidak perlu benar-benar
+   menelepon), lalu kembali ke aplikasi.
 
-**Hasil yang diharapkan:** kembali ke aplikasi, **tidak ada** entri baru di timeline — activity hanya
-dicatat setelah dialer benar-benar terbuka, bukan saat tombol ditekan, dan bukan sesuatu yang terjadi
-di dalam aplikasi (§8.3 design brief), jadi pastikan juga langkah 3 di bawah untuk yang benar-benar
-tercatat.
+**Hasil yang diharapkan:** dialer terbuka, dan entri `call_logged` muncul di timeline HP.
 
-3. Tekan **Telepon** lagi, kali ini biarkan dialer benar-benar terbuka (tidak perlu benar-benar
-   menelepon — cukup sampai layar dialer OS muncul), lalu kembali ke aplikasi.
+> **Koreksi (issue #147).** Versi lama panduan ini meminta dialer dibuka, panggilannya dibatalkan, lalu
+> mengharapkan **tidak ada** entri. Itu tidak mungkin: activity dicatat saat serah-terima ke dialer
+> **berhasil** (§8.3 design brief), dan apa yang terjadi **di dalam** dialer sesudahnya — menelepon atau
+> membatalkan — tidak bisa dilihat aplikasi mana pun. Yang tidak mencatat entri adalah serah-terima yang
+> **gagal**: tidak ada aplikasi yang bisa menanganinya. Kasus itu kini menampilkan pesan *"Tidak ada
+> aplikasi telepon yang bisa membuka nomor ini."* Sebelum #147, di Android 11+ tombol Telepon/WhatsApp
+> **tidak melakukan apa pun tanpa pesan** (entri `<queries>` hilang dari manifest, dan kegagalannya
+> dibaca sebagai "dibatalkan"). Kalau gejala itu muncul lagi, periksa log perangkat untuk
+> `component name for tel:… is null`.
 
-**Hasil yang diharapkan:** entri `call_logged` muncul di timeline HP. **Buka dashboard di mesin dev**
-dan lihat lead yang sama — entri yang sama harus muncul di sana juga (acceptance criterion eksplisit:
-"diverifikasi dari sisi Owner, bukan hanya dari mobile").
+3. **Buka dashboard di mesin dev** dan lihat lead yang sama.
+
+**Hasil yang diharapkan:** entri `call_logged` yang sama muncul di dashboard (acceptance criterion
+eksplisit: "diverifikasi dari sisi Owner, bukan hanya dari mobile").
 
 4. Tekan **WhatsApp** (hanya aktif bila lead punya nomor valid), biarkan WhatsApp benar-benar
    terbuka, kembali ke aplikasi.

@@ -49,5 +49,18 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Issue #147. Since Android 11 (API 30) url_launcher's canLaunchUrl
+             only sees apps declared here (package visibility). Without these
+             two, it returned false for every tap: "Telepon" (tel:) and
+             "WhatsApp" (https://wa.me/...) did nothing. Every scheme the app
+             hands to url_launcher needs an entry. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="tel"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>

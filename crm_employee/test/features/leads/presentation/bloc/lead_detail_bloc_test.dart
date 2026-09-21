@@ -381,8 +381,13 @@ void main() {
       verify: (_) => verifyNever(() => launchDialer(any())),
     );
 
+    // Issue #147. url_launcher returns false only when NOTHING on the device
+    // can handle the URI (canLaunchUrl) or startActivity throws
+    // ActivityNotFoundException — never because the user backed out. On
+    // Android 11+ without a <queries> entry that is every tap. It used to be
+    // swallowed as a "cancel": the button simply did nothing, with no word.
     blocTest<LeadDetailBloc, LeadDetailState>(
-      'a canceled launch (OS never handed off) logs nothing — design brief §8.3',
+      'a launch that could not hand off logs nothing AND tells the user why',
       seed: () => LeadDetailLoaded(
         lead: _lead(phone: '0812'),
         activities: const [],
@@ -399,11 +404,13 @@ void main() {
           'isLaunchingExternalAction',
           isTrue,
         ),
-        isA<LeadDetailLoaded>().having(
-          (s) => s.isLaunchingExternalAction,
-          'isLaunchingExternalAction',
-          isFalse,
-        ),
+        isA<LeadDetailLoaded>()
+            .having((s) => s.isLaunchingExternalAction, 'isLaunchingExternalAction', isFalse)
+            .having(
+              (s) => s.externalActionError,
+              'externalActionError',
+              'Tidak ada aplikasi telepon yang bisa membuka nomor ini.',
+            ),
       ],
       verify: (_) => verifyNever(() => logCall(any())),
     );
@@ -463,6 +470,33 @@ void main() {
       act: (bloc) => bloc.add(const LeadWhatsAppRequested()),
       expect: () => <LeadDetailState>[],
       verify: (_) => verifyNever(() => launchWhatsApp(any())),
+    );
+
+    blocTest<LeadDetailBloc, LeadDetailState>(
+      'a WhatsApp launch that could not hand off logs nothing AND says so (issue #147)',
+      seed: () => LeadDetailLoaded(
+        lead: _lead(phone: '0812', phoneE164: '+62812'),
+        activities: const [],
+        fromCache: false,
+      ),
+      setUp: () {
+        when(() => launchWhatsApp('+62812')).thenAnswer((_) async => false);
+      },
+      build: buildBloc,
+      act: (bloc) => bloc.add(const LeadWhatsAppRequested()),
+      expect: () => [
+        isA<LeadDetailLoaded>().having(
+          (s) => s.isLaunchingExternalAction,
+          'isLaunchingExternalAction',
+          isTrue,
+        ),
+        isA<LeadDetailLoaded>().having(
+          (s) => s.externalActionError,
+          'externalActionError',
+          'WhatsApp tidak dapat dibuka di perangkat ini.',
+        ),
+      ],
+      verify: (_) => verifyNever(() => logWhatsAppOpened(any())),
     );
   });
 }

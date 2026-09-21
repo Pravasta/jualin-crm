@@ -1064,3 +1064,52 @@ Tidak rilis ke Play Store — phase selesai di APK debug yang jalan di HP nyata 
 ini). Tidak mengaktifkan iOS (keputusan M1). Service account FCM untuk backend sengaja tidak dibuat —
 menunggu pemilik produk.
 
+
+---
+
+## #147 — Telepon dan WhatsApp tidak berfungsi di Android 11+ (perbaikan pasca-phase)
+
+Ditemukan pemilik produk saat uji manual di HP fisik (Xiaomi, Android 13): tombol **Telepon** dan
+**WhatsApp** tidak melakukan apa pun padahal lead punya nomor. Log perangkat:
+`component name for tel:082244047278 is null`.
+
+**Dua cacat yang saling menutupi.**
+
+1. **`<queries>` hilang dari `AndroidManifest.xml`.** Sejak Android 11 (API 30) berlaku *package visibility*:
+   `canLaunchUrl` hanya melihat aplikasi yang dideklarasikan di `<queries>`. Baris log di atas berasal dari
+   `url_launcher_android` `UrlLauncher.java:71`, setelah `intent.resolveActivity(...)` mengembalikan `null`.
+   Manifest hanya berisi entri `PROCESS_TEXT` bawaan template Flutter. README `url_launcher` mewajibkan entri
+   untuk setiap skema yang dikirim ke `canLaunchUrl`. `tel` dan `https` (untuk `wa.me`) ditambahkan.
+2. **Kegagalannya ditelan diam-diam.** `_launchAndLog` membaca `launch() == false` sebagai "dibatalkan
+   pengguna" dan tidak menampilkan apa pun. **Dibaca dari sumber plugin, bukan diduga:** `launchUrl` hanya
+   mengembalikan `false` saat `ActivityNotFoundException`, dan `canLaunchUrl` hanya `false` saat tak ada
+   aplikasi yang bisa menangani. **Tidak ada jalur yang berarti "pengguna membatalkan"**; mundur dari dialer
+   terjadi setelah serah-terima berhasil dan tidak terlihat aplikasi mana pun. Komentar di bloc dan doc comment
+   `ExternalActionRepository` yang mengklaim sebaliknya diperbaiki. `false` kini menampilkan pesan per aksi.
+
+Cacat 2 adalah sebab cacat 1 tak pernah ketahuan: tombol yang diam tanpa pesan terlihat seperti tidak ada apa-apa,
+bukan seperti kerusakan.
+
+**Test (182 total).** Dua tes bloc: serah-terima yang gagal tidak mencatat activity **dan** menampilkan pesan, untuk
+Telepon dan WhatsApp — menggantikan tes lama yang menegaskan kegagalan itu diam. Ditambah
+`test/android/manifest_queries_test.dart` yang **membaca manifest itu sendiri**: tidak ada tes Dart yang bisa
+menangkap entri manifest yang hilang, dan itulah persis bentuk bug ini. **Dibuktikan bisa gagal:** entri `tel`
+dihapus → tes manifest merah; pesan ditelan lagi → dua tes bloc merah. `make mobile-analyze mobile-test` bersih.
+
+**Koreksi panduan uji `07` §7.4.** Langkah 2 lama meminta dialer dibuka, panggilan dibatalkan, lalu mengharapkan
+**tidak ada** entri — kesalahpahaman yang sama dengan kode lama. Begitu dialer terbuka, serah-terima berhasil dan
+`call_logged` tercatat, sesuai design brief §8.3 (*"Aktivitas hanya dicatat bila aplikasi eksternal benar-benar
+terbuka"*). Ditulis ulang supaya pemilik produk tidak mengira entri itu bug. Kriteria issue #72 (*"menekan lalu
+membatalkan tidak boleh meninggalkan catatan palsu"*) **ambigu** — ia bisa dibaca sebagai "membatalkan panggilan
+di dialer" — tetapi design brief yang menentukan, dan **perilaku pencatatan tidak diubah** di sini.
+
+**Terus terang, yang tidak dibuktikan.** **Belum dijalankan di HP.** Yang terbukti: rantai sebab (log perangkat →
+baris kode plugin → manifest → README) dan perilaku bloc lewat tes. Manifest butuh **build ulang penuh**
+(hot reload tidak cukup) untuk berlaku. Bahwa `https` saja cukup untuk `wa.me` di HP tanpa WhatsApp terpasang
+(harus jatuh ke browser) juga belum dicoba.
+
+**Di luar cakupan, dicatat.** iOS punya kewajiban yang sama (`LSApplicationQueriesSchemes` untuk `tel`/`https` di
+`Info.plist`), tetapi iOS belum dikonfigurasi (PRD M1: Android saja) — dikerjakan saat iOS diaktifkan. `mailto`
+belum dideklarasikan; itu milik #149. Saat mengerjakan, tiga perubahan **yang bukan dari pekerjaan ini** muncul di
+working tree (`.metadata` kehilangan entri platform `ios`, `pubspec.lock` naik versi beberapa dependensi, dan
+salinan kedua `MainActivity.kt` di `kotlin/com/jualin/crm/crm_employee/`) — tidak disentuh dan tidak ikut commit.

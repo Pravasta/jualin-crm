@@ -9,6 +9,11 @@ abstract class ExternalAppDataSource {
   /// True only if the OS reports it actually launched something —
   /// `canLaunchUrl` failing (no app can handle it) or the launch itself
   /// failing both return false here, never an exception.
+  ///
+  /// On Android 11+ `canLaunchUrl` can only see apps the manifest declares
+  /// under `<queries>` (package visibility). Every scheme passed here —
+  /// `tel`, `https` — must have an entry in AndroidManifest.xml, or this
+  /// returns false for every tap (issue #147).
   Future<bool> launch(Uri uri);
 }
 
