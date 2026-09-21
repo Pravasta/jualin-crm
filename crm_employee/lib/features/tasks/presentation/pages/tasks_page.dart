@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../shared/theme.dart';
+import '../../../../shared/truncation_notice.dart';
 import '../../../../shared/widgets/cache_banner.dart';
 import '../../../leads/presentation/open_lead_detail.dart';
 import '../bloc/task_filter.dart';
@@ -60,6 +61,14 @@ class _TasksPageState extends State<TasksPage> {
               _FilterBar(active: state.filter),
               if (state is TasksLoaded && state.fromCache)
                 CacheBanner(fetchedAt: state.fetchedAt),
+              if (state is TasksLoaded)
+                TruncationNotice(
+                  message: truncationNotice(
+                    shown: state.tasks.length,
+                    total: state.total,
+                    noun: 'tugas',
+                  ),
+                ),
               Expanded(child: _Body(state: state)),
             ],
           ),

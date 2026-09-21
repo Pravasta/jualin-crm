@@ -106,6 +106,17 @@ dashboard.
 **Hasil yang diharapkan:** HP menampilkan dialog konflik ("data sudah diubah") dengan tombol "muat
 ulang" — **tidak pernah** menimpa diam-diam perubahan dari dashboard.
 
+### 7.4.1 Daftar panjang tidak dipotong diam-diam (issue #152)
+
+Lead Saya dan Tugas Saya memuat hingga **100** item. Sebelumnya mobile tidak mengirim `per_page` dan hanya
+menampilkan **25**, tanpa keterangan. Menyiapkan lebih dari 100 lead untuk satu employee lewat UI tidak praktis;
+cara tercepat lewat API key (`05-api-publik.md`) dengan loop `curl`, lalu tugaskan ke employee dari dashboard.
+
+**Hasil yang diharapkan:** dengan ≤ 100 lead, **semuanya** tampil dan tidak ada pita tambahan. Dengan > 100,
+di atas daftar muncul pita kuning *"Menampilkan 100 dari N lead. M lead terlama tidak ditampilkan. Persempit dengan
+status atau pencarian."* — daftar tidak pernah lagi berhenti diam-diam. Hal yang sama berlaku di Tugas Saya (kedua
+tab), dengan kata "tugas".
+
 ## 7.5 Tugas Saya
 
 1. Dari dashboard, buat task untuk lead ini, tugaskan ke employee ini.

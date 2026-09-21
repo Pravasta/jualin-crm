@@ -1,4 +1,5 @@
 import '../../../../core/api_client.dart';
+import '../../../../shared/truncation_notice.dart';
 
 /// Talks to `/v1/leads` — list, detail, status update. Employee
 /// visibility is enforced by `crm_be` itself at the repository level
@@ -73,7 +74,9 @@ class LeadRemoteDataSourceImpl implements LeadRemoteDataSource {
 /// own example key shape: `"GET /v1/leads?status=new&page=1"`), so the
 /// same request always resolves to the same cache row.
 String leadsListPath({String? status, String? query}) {
-  final params = <String, String>{};
+  // per_page is ALWAYS sent (issue #152): without it crm_be returns its
+  // default 25, and Lead Saya silently showed no more than that.
+  final params = <String, String>{'per_page': '$kListPageSize'};
   // `null`/empty means "no filter" — the presentation layer's "Semua"
   // chip is responsible for sending null, not a magic string that would
   // need handling at every layer between here and there.
@@ -83,6 +86,5 @@ String leadsListPath({String? status, String? query}) {
   if (query != null && query.trim().isNotEmpty) {
     params['q'] = query.trim();
   }
-  if (params.isEmpty) return '/v1/leads';
   return '/v1/leads?${Uri(queryParameters: params).query}';
 }

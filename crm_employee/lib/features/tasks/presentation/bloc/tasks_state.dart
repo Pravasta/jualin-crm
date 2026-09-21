@@ -25,6 +25,11 @@ class TasksLoading extends TasksState {
 
 class TasksLoaded extends TasksState {
   final List<Task> tasks;
+
+  /// `meta.total` from the server (issue #152) — so the screen can say when
+  /// [tasks] is not everything. A getter so the constructor stays `const`.
+  final int? _total;
+  int get total => _total ?? tasks.length;
   final bool fromCache;
   final DateTime? fetchedAt;
 
@@ -41,16 +46,21 @@ class TasksLoaded extends TasksState {
 
   const TasksLoaded({
     required this.tasks,
+    int? total,
     required this.fromCache,
     this.fetchedAt,
     this.completingTaskId,
     this.errorMessage,
     super.filter,
-  });
+    // A named parameter cannot start with `_`, so `this._total` is not an
+    // option here; the lint's suggestion does not compile.
+    // ignore: prefer_initializing_formals
+  }) : _total = total;
 
   @override
   List<Object?> get props => [
     tasks,
+    total,
     fromCache,
     fetchedAt,
     completingTaskId,

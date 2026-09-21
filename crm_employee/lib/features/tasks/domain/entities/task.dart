@@ -52,6 +52,12 @@ class Task extends Equatable {
 /// treatment `LeadListResult` gets for `/v1/leads`).
 class TaskListResult extends Equatable {
   final List<Task> tasks;
+
+  /// The server's `meta.total` — how many exist, not how many came back
+  /// (issue #152). Falls back to `tasks.length` when absent. A getter, not an
+  /// initializer, so the constructor stays `const`.
+  final int? _total;
+  int get total => _total ?? tasks.length;
   final bool fromCache;
   final DateTime? fetchedAt;
 
@@ -59,8 +65,12 @@ class TaskListResult extends Equatable {
     required this.tasks,
     required this.fromCache,
     this.fetchedAt,
-  });
+    int? total,
+    // A named parameter cannot start with `_`, so `this._total` is not an
+    // option here; the lint's suggestion does not compile.
+    // ignore: prefer_initializing_formals
+  }) : _total = total;
 
   @override
-  List<Object?> get props => [tasks, fromCache, fetchedAt];
+  List<Object?> get props => [tasks, total, fromCache, fetchedAt];
 }

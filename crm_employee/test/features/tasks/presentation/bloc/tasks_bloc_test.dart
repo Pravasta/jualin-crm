@@ -147,8 +147,10 @@ void main() {
         ),
       ],
       verify: (_) {
+        // per_page is sent for Belum selesai too since #152 — this used to
+        // assert its ABSENCE, which is exactly what cut the list at 25.
         verify(
-          () => getMyTasks(const GetMyTasksParams(assignedTo: 'm1', status: 'open')),
+          () => getMyTasks(const GetMyTasksParams(assignedTo: 'm1', status: 'open', perPage: 100)),
         ).called(1);
       },
     );
@@ -245,7 +247,7 @@ void main() {
         verify(
           () => getMyTasks(const GetMyTasksParams(assignedTo: 'm1', status: 'done', perPage: 100)),
         ).called(2);
-        verifyNever(() => getMyTasks(const GetMyTasksParams(assignedTo: 'm1', status: 'open')));
+        verifyNever(() => getMyTasks(const GetMyTasksParams(assignedTo: 'm1', status: 'open', perPage: 100)));
       },
     );
   });
@@ -315,4 +317,20 @@ void main() {
       ],
     );
   });
+
+  // Issue #152: the screen can only say "Menampilkan 100 dari 134" if the
+  // server's meta.total survives into the state.
+  blocTest<TasksBloc, TasksState>(
+    'meta.total reaches the loaded state, not the length of the page',
+    setUp: () async {
+      await authenticate();
+      when(() => getMyTasks(any())).thenAnswer(
+        (_) async => Right(TaskListResult(tasks: [_task()], total: 134, fromCache: false)),
+      );
+    },
+    build: buildBloc,
+    act: (bloc) => bloc.add(const TasksRequested()),
+    skip: 1,
+    expect: () => [isA<TasksLoaded>().having((s) => s.total, 'total', 134)],
+  );
 }

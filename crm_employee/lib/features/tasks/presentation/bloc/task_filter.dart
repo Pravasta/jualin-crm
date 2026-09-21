@@ -1,3 +1,5 @@
+import '../../../../shared/truncation_notice.dart';
+
 /// Which half of Tugas Saya is showing (issue #148). Until then the screen
 /// only ever asked for `status=open`, so a task disappeared the moment it
 /// was completed — no history anywhere on the phone.
@@ -11,8 +13,8 @@ enum TaskFilter {
 
   const TaskFilter(this.status, this.label);
 
-  /// crm_be defaults to 25 per page and caps at 100. History is the list
-  /// that keeps growing, so Selesai asks for the cap; Belum selesai keeps
-  /// the default it has always used.
-  int? get perPage => this == TaskFilter.done ? 100 : null;
+  /// Both tabs ask for [kListPageSize] (issue #152). Belum selesai used to
+  /// send nothing and silently got crm_be's default 25 — the OLDEST open
+  /// tasks, the ones most likely overdue, were the ones cut.
+  int get perPage => kListPageSize;
 }

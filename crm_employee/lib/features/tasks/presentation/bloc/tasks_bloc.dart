@@ -83,6 +83,7 @@ class TasksBloc extends Bloc<TasksEvent, TasksState> {
       (list) => emit(
         TasksLoaded(
           tasks: _sorted(list.tasks, active),
+          total: list.total,
           fromCache: list.fromCache,
           fetchedAt: list.fetchedAt,
           filter: active,
@@ -101,6 +102,7 @@ class TasksBloc extends Bloc<TasksEvent, TasksState> {
     emit(
       TasksLoaded(
         tasks: current.tasks,
+        total: current.total,
         fromCache: current.fromCache,
         fetchedAt: current.fetchedAt,
         completingTaskId: event.id,
@@ -133,6 +135,7 @@ class TasksBloc extends Bloc<TasksEvent, TasksState> {
           emit(
             TasksLoaded(
               tasks: reloaded.tasks,
+              total: reloaded.total,
               fromCache: reloaded.fromCache,
               fetchedAt: reloaded.fetchedAt,
               errorMessage: failure.message,

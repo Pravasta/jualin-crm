@@ -41,12 +41,14 @@ class TaskRepositoryImpl implements TaskRepository {
       );
       final envelope = result.data as Map<String, dynamic>;
       final data = envelope['data'] as List<dynamic>? ?? const [];
+      final meta = envelope['meta'] as Map<String, dynamic>?;
       final tasks = data
           .map((json) => TaskModel.fromJson(json as Map<String, dynamic>))
           .toList();
 
       return TaskListResult(
         tasks: tasks,
+        total: meta?['total'] as int?,
         fromCache: result.fromCache,
         fetchedAt: result.fetchedAt,
       );
