@@ -7,6 +7,7 @@ abstract class TaskRemoteDataSource {
   Future<Map<String, dynamic>> listMyTasks({
     required String assignedTo,
     String? status,
+    int? perPage,
   });
 
   /// `POST /v1/tasks/{id}/complete`. Never cached — a write. `409`
@@ -27,9 +28,10 @@ class TaskRemoteDataSourceImpl implements TaskRemoteDataSource {
   Future<Map<String, dynamic>> listMyTasks({
     required String assignedTo,
     String? status,
+    int? perPage,
   }) {
     return client.sendListEnvelope(
-      tasksListPath(assignedTo: assignedTo, status: status),
+      tasksListPath(assignedTo: assignedTo, status: status, perPage: perPage),
     );
   }
 
@@ -49,10 +51,13 @@ class TaskRemoteDataSourceImpl implements TaskRemoteDataSource {
 
 /// Pure — also what `TaskRepositoryImpl` uses as the cache key, same
 /// pattern `leadsListPath` follows.
-String tasksListPath({required String assignedTo, String? status}) {
+String tasksListPath({required String assignedTo, String? status, int? perPage}) {
   final params = <String, String>{'assigned_to': assignedTo};
   if (status != null && status.isNotEmpty) {
     params['status'] = status;
+  }
+  if (perPage != null) {
+    params['per_page'] = '$perPage';
   }
   return '/v1/tasks?${Uri(queryParameters: params).query}';
 }

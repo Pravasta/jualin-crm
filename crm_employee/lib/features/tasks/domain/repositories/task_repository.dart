@@ -17,6 +17,7 @@ abstract class TaskRepository {
   Future<Either<Failure, TaskListResult>> getMyTasks({
     required String assignedTo,
     String? status,
+    int? perPage,
   });
 
   /// `POST /v1/tasks/{id}/complete`. One-way (design brief §7.4) — there

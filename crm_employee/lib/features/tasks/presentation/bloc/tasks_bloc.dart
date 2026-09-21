@@ -5,7 +5,9 @@ import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_event.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../domain/usecases/complete_task_usecase.dart';
+import '../../domain/entities/task.dart';
 import '../../domain/usecases/get_my_tasks_usecase.dart';
+import 'task_filter.dart';
 import 'tasks_event.dart';
 import 'tasks_state.dart';
 
@@ -29,6 +31,14 @@ class TasksBloc extends Bloc<TasksEvent, TasksState> {
     on<TasksRequested>(_onRequested);
     on<TasksRefreshRequested>(_onRefreshRequested);
     on<TaskCompletionRequested>(_onCompletionRequested);
+    on<TaskFilterChanged>(_onFilterChanged);
+  }
+
+  Future<void> _onFilterChanged(
+    TaskFilterChanged event,
+    Emitter<TasksState> emit,
+  ) async {
+    await _load(emit, filter: event.filter);
   }
 
   Future<void> _onRequested(
@@ -45,14 +55,21 @@ class TasksBloc extends Bloc<TasksEvent, TasksState> {
     await _load(emit);
   }
 
-  Future<void> _load(Emitter<TasksState> emit) async {
+  /// [filter] defaults to whatever is showing now, so refresh and the
+  /// reload after completing a task stay on the same tab.
+  Future<void> _load(Emitter<TasksState> emit, {TaskFilter? filter}) async {
     final authState = authBloc.state;
     if (authState is! AuthAuthenticated) return;
+    final active = filter ?? state.filter;
 
-    emit(const TasksLoading());
+    emit(TasksLoading(filter: active));
 
     final result = await getMyTasks(
-      GetMyTasksParams(assignedTo: authState.user.membershipId, status: 'open'),
+      GetMyTasksParams(
+        assignedTo: authState.user.membershipId,
+        status: active.status,
+        perPage: active.perPage,
+      ),
     );
 
     result.fold(
@@ -61,15 +78,14 @@ class TasksBloc extends Bloc<TasksEvent, TasksState> {
           authBloc.add(const AuthSessionInvalidated());
           return;
         }
-        emit(TasksError(failure.message));
+        emit(TasksError(failure.message, filter: active));
       },
       (list) => emit(
-        _sorted(
-          TasksLoaded(
-            tasks: list.tasks,
-            fromCache: list.fromCache,
-            fetchedAt: list.fetchedAt,
-          ),
+        TasksLoaded(
+          tasks: _sorted(list.tasks, active),
+          fromCache: list.fromCache,
+          fetchedAt: list.fetchedAt,
+          filter: active,
         ),
       ),
     );
@@ -88,6 +104,7 @@ class TasksBloc extends Bloc<TasksEvent, TasksState> {
         fromCache: current.fromCache,
         fetchedAt: current.fetchedAt,
         completingTaskId: event.id,
+        filter: current.filter,
       ),
     );
 
@@ -119,6 +136,7 @@ class TasksBloc extends Bloc<TasksEvent, TasksState> {
               fromCache: reloaded.fromCache,
               fetchedAt: reloaded.fetchedAt,
               errorMessage: failure.message,
+              filter: reloaded.filter,
             ),
           );
         }
@@ -127,23 +145,26 @@ class TasksBloc extends Bloc<TasksEvent, TasksState> {
     );
   }
 
-  /// Client-side, ascending by due date (nulls last) — `crm_be` sorts
-  /// `GET /v1/tasks` by `created_at DESC` (confirmed directly in
-  /// `repository_postgres.go`, no `due_at` order option exists), which
-  /// isn't what "Tugas Saya, dengan jatuh tempo" (design brief §7.4) is
-  /// actually for: knowing what's due soonest. Cheap and safe on one
-  /// unpaginated page (#71's own no-pagination precedent).
-  TasksLoaded _sorted(TasksLoaded state) {
-    final sorted = [...state.tasks]..sort((a, b) {
-      if (a.dueAt == null && b.dueAt == null) return 0;
-      if (a.dueAt == null) return 1;
-      if (b.dueAt == null) return -1;
-      return a.dueAt!.compareTo(b.dueAt!);
-    });
-    return TasksLoaded(
-      tasks: sorted,
-      fromCache: state.fromCache,
-      fetchedAt: state.fetchedAt,
+  /// Client-side — `crm_be` sorts `GET /v1/tasks` by `created_at DESC`
+  /// (confirmed in `repository_postgres.go`; no other order option exists),
+  /// which is what neither tab is for.
+  ///
+  /// Belum selesai: ascending by due date, nulls last — "Tugas Saya, dengan
+  /// jatuh tempo" (design brief §7.4) is about what's due soonest.
+  /// Selesai: most recently COMPLETED first — history reads backwards from
+  /// now, and a task's due date says nothing about when it was done.
+  List<Task> _sorted(List<Task> tasks, TaskFilter filter) {
+    int nullsLast(DateTime? a, DateTime? b, int Function(DateTime, DateTime) cmp) {
+      if (a == null && b == null) return 0;
+      if (a == null) return 1;
+      if (b == null) return -1;
+      return cmp(a, b);
+    }
+
+    return [...tasks]..sort(
+      (a, b) => filter == TaskFilter.done
+          ? nullsLast(a.completedAt, b.completedAt, (x, y) => y.compareTo(x))
+          : nullsLast(a.dueAt, b.dueAt, (x, y) => x.compareTo(y)),
     );
   }
 }

@@ -24,8 +24,9 @@ class TaskRepositoryImpl implements TaskRepository {
   Future<Either<Failure, TaskListResult>> getMyTasks({
     required String assignedTo,
     String? status,
+    int? perPage,
   }) {
-    final path = tasksListPath(assignedTo: assignedTo, status: status);
+    final path = tasksListPath(assignedTo: assignedTo, status: status, perPage: perPage);
     final cacheKey = 'GET $path';
 
     return runApiCall(() async {
@@ -35,6 +36,7 @@ class TaskRepositoryImpl implements TaskRepository {
         fetch: () => remoteDataSource.listMyTasks(
           assignedTo: assignedTo,
           status: status,
+          perPage: perPage,
         ),
       );
       final envelope = result.data as Map<String, dynamic>;

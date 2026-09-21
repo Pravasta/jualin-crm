@@ -10,10 +10,14 @@ class GetMyTasksParams extends Equatable {
   final String assignedTo;
   final String? status;
 
-  const GetMyTasksParams({required this.assignedTo, this.status});
+  /// Null = crm_be's default page (25). The Selesai tab asks for more,
+  /// since history is the list that keeps growing.
+  final int? perPage;
+
+  const GetMyTasksParams({required this.assignedTo, this.status, this.perPage});
 
   @override
-  List<Object?> get props => [assignedTo, status];
+  List<Object?> get props => [assignedTo, status, perPage];
 }
 
 class GetMyTasksUseCase
@@ -27,6 +31,7 @@ class GetMyTasksUseCase
     return repository.getMyTasks(
       assignedTo: params.assignedTo,
       status: params.status,
+      perPage: params.perPage,
     );
   }
 }

@@ -18,6 +18,11 @@ class Task extends Equatable {
   final String status;
   final int version;
 
+  /// Set once the task is `'done'` — what the Selesai tab (issue #148)
+  /// shows and orders by. `crm_be` has always sent it; this screen simply
+  /// never showed a completed task before.
+  final DateTime? completedAt;
+
   const Task({
     required this.id,
     required this.leadId,
@@ -26,6 +31,7 @@ class Task extends Equatable {
     this.dueAt,
     required this.status,
     required this.version,
+    this.completedAt,
   });
 
   @override
@@ -37,6 +43,7 @@ class Task extends Equatable {
     dueAt,
     status,
     version,
+    completedAt,
   ];
 }
 

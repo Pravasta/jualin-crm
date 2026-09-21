@@ -4,15 +4,16 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../shared/theme.dart';
 import '../../../../shared/widgets/cache_banner.dart';
 import '../../../leads/presentation/open_lead_detail.dart';
+import '../bloc/task_filter.dart';
 import '../bloc/tasks_bloc.dart';
 import '../bloc/tasks_event.dart';
 import '../bloc/tasks_state.dart';
 import '../widgets/task_list_item.dart';
 
 /// Design brief §7.4 — task list with due dates, one-way completion.
-/// Always `status=open` (see `TasksBloc._load`'s doc comment) — no
-/// filter UI, unlike Lead Saya's status chips, since the design brief
-/// gives this screen no such state to build.
+/// Two tabs since issue #148: Belum selesai (the default, what it always
+/// was) and Selesai, the history. Before that the screen only ever asked
+/// for `status=open`, so a completed task simply vanished.
 class TasksPage extends StatefulWidget {
   const TasksPage({super.key});
 
@@ -56,6 +57,7 @@ class _TasksPageState extends State<TasksPage> {
           },
           child: Column(
             children: [
+              _FilterBar(active: state.filter),
               if (state is TasksLoaded && state.fromCache)
                 CacheBanner(fetchedAt: state.fetchedAt),
               Expanded(child: _Body(state: state)),
@@ -77,7 +79,8 @@ class _Body extends StatelessWidget {
     return switch (state) {
       TasksInitial() || TasksLoading() => const _LoadingSkeleton(),
       TasksError(:final message) => _ErrorView(message: message),
-      TasksLoaded(:final tasks) when tasks.isEmpty => const _EmptyView(),
+      TasksLoaded(:final tasks, :final filter) when tasks.isEmpty =>
+        _EmptyView(filter: filter),
       TasksLoaded(:final tasks, :final completingTaskId) => ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
         itemCount: tasks.length,
@@ -94,6 +97,41 @@ class _Body extends StatelessWidget {
         },
       ),
     };
+  }
+}
+
+class _FilterBar extends StatelessWidget {
+  final TaskFilter active;
+
+  const _FilterBar({required this.active});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.space20,
+        AppSpacing.space12,
+        AppSpacing.space20,
+        AppSpacing.space8,
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        child: SegmentedButton<TaskFilter>(
+          showSelectedIcon: false,
+          segments: [
+            for (final f in TaskFilter.values)
+              ButtonSegment(value: f, label: Text(f.label)),
+          ],
+          selected: {active},
+          onSelectionChanged: (selection) {
+            final next = selection.first;
+            if (next != active) {
+              context.read<TasksBloc>().add(TaskFilterChanged(next));
+            }
+          },
+        ),
+      ),
+    );
   }
 }
 
@@ -121,7 +159,9 @@ class _LoadingSkeleton extends StatelessWidget {
 }
 
 class _EmptyView extends StatelessWidget {
-  const _EmptyView();
+  final TaskFilter filter;
+
+  const _EmptyView({required this.filter});
 
   @override
   Widget build(BuildContext context) {
@@ -146,14 +186,18 @@ class _EmptyView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.space20),
-        const Text(
-          'Tidak ada tugas terbuka',
+        Text(
+          filter == TaskFilter.done
+              ? 'Belum ada tugas yang selesai'
+              : 'Tidak ada tugas terbuka',
           textAlign: TextAlign.center,
           style: AppTextStyles.cardTitle,
         ),
         const SizedBox(height: AppSpacing.space8),
         Text(
-          'Tugas yang dibuat untuk Anda akan muncul di sini.',
+          filter == TaskFilter.done
+              ? 'Tugas yang Anda tandai selesai akan tercatat di sini.'
+              : 'Tugas yang dibuat untuk Anda akan muncul di sini.',
           textAlign: TextAlign.center,
           style: AppTextStyles.body.copyWith(color: AppColors.mutedForeground),
         ),

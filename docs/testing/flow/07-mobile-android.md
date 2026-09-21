@@ -103,12 +103,20 @@ ulang" — **tidak pernah** menimpa diam-diam perubahan dari dashboard.
 1. Dari dashboard, buat task untuk lead ini, tugaskan ke employee ini.
 2. Di HP, buka tab **Tugas Saya**.
 
-**Hasil yang diharapkan:** task muncul, dengan jatuh tempo bila diisi.
+**Hasil yang diharapkan:** di atas daftar ada dua segmen, **Belum selesai** (terpilih) dan **Selesai**
+(issue #148). Task muncul di Belum selesai, dengan jatuh tempo bila diisi.
 
 3. Tandai selesai (checkbox).
 
-**Hasil yang diharapkan:** task hilang dari daftar (tampilan default hanya task terbuka). **Tidak ada**
-cara membukanya kembali dari UI — coba cari, memang tidak ada (satu arah, by design).
+**Hasil yang diharapkan:** task hilang dari **Belum selesai**.
+
+4. Ketuk segmen **Selesai**.
+
+**Hasil yang diharapkan:** task tadi ada di sini — dicoret, checkbox tercentang, dengan keterangan
+**"Selesai … lalu"** alih-alih jatuh tempo. Yang paling baru diselesaikan di paling atas. **Tidak ada** cara
+membukanya kembali (checkbox tidak bisa diketuk — satu arah, by design), tetapi mengetuk barisnya membuka
+lead-nya. Tarik ke bawah untuk refresh: tetap di tab Selesai. Aktifkan mode pesawat, tutup lalu buka aplikasi:
+tab Selesai tetap terbaca dari cache.
 
 ## 7.6 Push notification + deeplink — tiga keadaan (kriteria #10)
 

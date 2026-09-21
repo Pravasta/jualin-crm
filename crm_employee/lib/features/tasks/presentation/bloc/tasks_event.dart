@@ -2,6 +2,8 @@
 // own `Equatable` still applies.
 import 'package:equatable/equatable.dart';
 
+import 'task_filter.dart';
+
 sealed class TasksEvent extends Equatable {
   const TasksEvent();
 
@@ -28,4 +30,14 @@ class TaskCompletionRequested extends TasksEvent {
 
   @override
   List<Object?> get props => [id, version];
+}
+
+/// Switching between Belum selesai and Selesai (issue #148).
+class TaskFilterChanged extends TasksEvent {
+  final TaskFilter filter;
+
+  const TaskFilterChanged(this.filter);
+
+  @override
+  List<Object?> get props => [filter];
 }
