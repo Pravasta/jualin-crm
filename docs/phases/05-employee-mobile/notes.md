@@ -1190,3 +1190,29 @@ merah; handler mulai memuat ulang activity (seolah mencatat) → merah; entri `m
 **Terus terang, yang tidak dibuktikan.** **Belum dijalankan di HP.** Manifest berubah, jadi butuh build ulang
 penuh. Tampilan tautan (warna, garis bawah, pemotongan email panjang) belum terlihat — tidak ada tes widget.
 iOS butuh `mailto` di `LSApplicationQueriesSchemes`, bersama `tel`/`https` (#147) saat iOS diaktifkan.
+
+
+---
+
+## #153 — "Jatuh tempo Baru saja" untuk tanggal di masa depan (perbaikan pasca-phase)
+
+Ditemukan saat mengerjakan #148. `relativeTime` hanya menjawab "sudah berapa lama" (waktu lampau); untuk jatuh
+tempo mendatang selisihnya negatif, `diff.inSeconds < 60` benar, dan ia mengembalikan "Baru saja" — tugas yang
+jatuh tempo minggu depan tampil "Jatuh tempo Baru saja". Sudah begitu sejak #73.
+
+**Perubahan.** Fungsi terpisah `dueLabel` (`lib/shared/due_label.dart`), **bukan** memperluas `relativeTime` — dua
+pertanyaan berbeda, dan empat pemanggil lain memakai `relativeTime` untuk waktu lampau. Bentuk: "Jatuh tempo hari ini",
+"besok", "dalam N hari" (≤7), lalu tanggal ("12 Okt", tahun ditambah bila berbeda); "Terlambat" / "Terlambat N hari".
+Dihitung per **tanggal kalender lokal**, bukan blok 24 jam (tanggal dinormalkan ke tengah malam UTC supaya selisih
+hari tepat tanpa jam DST). "Terlambat" muncul **tepat** saat `dueAt` sebelum sekarang — uji yang sama yang mewarnai
+baris merah, jadi kata dan warna tidak pernah berselisih.
+
+**Test (210 total).** 12 tes `dueLabel` dengan `now` diinjeksi (hari ini/besok/beberapa hari/tanggal/tahun lain,
+terlambat, tiga kasus batas tengah malam, dan kesepakatan "Terlambat" ⇔ merah). **Tes widget pertama di repo mobile**
+(`task_list_item_test.dart`): mutasi mengembalikan baris ke `relativeTime` — bug aslinya — ternyata **tidak membuat
+satu tes pun merah**, karena tes `dueLabel` menguji fungsinya, bukan barisnya. Tes widget menutup celah itu. Tanggalnya
+sengaja jauh dari sekarang supaya tidak bergantung jam berapa tes dijalankan (sisa risiko: dijalankan dalam hitungan
+milidetik di sekitar tengah malam). **Dibuktikan bisa gagal:** blok 24 jam → merah; "Terlambat" menurut tanggal alih-alih
+jam → merah; baris kembali ke `relativeTime` → dua tes widget merah. `make mobile-analyze mobile-test` bersih.
+
+**Terus terang, yang tidak dibuktikan.** Belum dijalankan di HP. Hot restart cukup (tanpa perubahan manifest).

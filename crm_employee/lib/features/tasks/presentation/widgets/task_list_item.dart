@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../shared/due_label.dart';
 import '../../../../shared/relative_time.dart';
 import '../../../../shared/theme.dart';
 import '../../domain/entities/task.dart';
@@ -75,7 +76,7 @@ class TaskListItem extends StatelessWidget {
                   ] else if (task.dueAt != null) ...[
                     const SizedBox(height: 3),
                     Text(
-                      'Jatuh tempo ${relativeTime(task.dueAt!)}',
+                      dueLabel(task.dueAt!),
                       style: AppTextStyles.metadata.copyWith(
                         color: overdue
                             ? AppColors.danger
