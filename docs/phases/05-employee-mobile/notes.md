@@ -1216,3 +1216,42 @@ milidetik di sekitar tengah malam). **Dibuktikan bisa gagal:** blok 24 jam → m
 jam → merah; baris kembali ke `relativeTime` → dua tes widget merah. `make mobile-analyze mobile-test` bersih.
 
 **Terus terang, yang tidak dibuktikan.** Belum dijalankan di HP. Hot restart cukup (tanpa perubahan manifest).
+
+
+---
+
+## #152 — Lead Saya dan Tugas Saya dipotong diam-diam di 25 (perbaikan pasca-phase)
+
+Ditemukan saat mengerjakan #148. Mobile **tidak pernah** mengirim `per_page` — `leadsListPath` dan `tasksListPath`
+(Belum selesai) — dan backend memakai `defaultPerPage = 25` dengan urutan `created_at DESC`. Komentar di
+`tasks_bloc.dart` menyebut daftar itu *"one unpaginated page"*; padahal backend memaginasinya. Karyawan dengan
+lebih dari 25 lead atau tugas terbuka **tidak melihat yang terlama** — untuk tugas, justru yang paling mungkin sudah
+lewat jatuh tempo — tanpa keterangan. `meta.total` sudah dikirim backend dan untuk lead bahkan sudah sampai ke
+state (`LeadsLoaded.total`), tetapi **tidak pernah ditampilkan**.
+
+**Keputusan pemilik produk: opsi A** — muat 100 (batas backend) dan umumkan sisanya, bukan pagination sungguhan.
+Untuk UMKM, satu karyawan dengan >100 item aktif jarang; pagination bisa menyusul bila pengguna nyata melewatinya.
+
+**Perubahan.** `kListPageSize = 100` di satu tempat. `leadsListPath` **selalu** mengirim `per_page=100`; kedua tab
+tugas juga (sebelumnya hanya Selesai, #148). `TaskListResult`/`TasksLoaded` kini membawa `meta.total` (getter, supaya
+konstruktor tetap `const`). Fungsi murni `truncationNotice` + pita `TruncationNotice` di kedua layar: diam bila semua
+tampil, dan bila tidak — *"Menampilkan 100 dari 134 lead. 34 lead terlama tidak ditampilkan."* Kalimatnya sengaja
+menyebut **yang mana** yang hilang (yang terlama, karena urutan backend). Lead menambah petunjuk "Persempit dengan
+status atau pencarian"; tugas tidak, karena tak punya pencarian. Diam juga bila `total` lebih kecil dari yang tampil
+(total cache yang basi), daripada mengumumkan "-3 lead terlama". Warna `warning` di atas `warningTint` (6,65:1 menurut
+`theme.dart`). Ini sekaligus **menampakkan batas riwayat #148** di layar, yang sebelumnya hanya tertulis di notes.
+
+**Test (216 total).** `truncationNotice` (semua muat, sisa, petunjuk, total basi); path lead selalu `per_page=100`;
+path tugas; repository tugas membaca `meta.total`; bloc membawa `total` ke state. **Satu tes lama diubah asersinya:**
+tes bloc Belum selesai **menegaskan ketiadaan** `per_page` — persis perilaku yang memotong daftar di 25; kini menegaskan
+`per_page=100`. **Dibuktikan bisa gagal:** lead berhenti mengirim `per_page` → merah; repository mengabaikan
+`meta.total` → **awalnya tidak ada tes yang merah** (tes bloc memalsukan use case), jadi tes repository ditambahkan dan
+kini merah; pemberitahuan tak pernah muncul → merah. `make mobile-analyze mobile-test` bersih.
+
+**Efek samping, dicatat.** Path adalah **kunci cache offline**. Karena path lead berubah, cache Lead Saya yang lama tidak
+terpakai sampai app online sekali lagi — mode pesawat tepat setelah pembaruan menampilkan daftar kosong, bukan cache lama.
+Satu lint (`prefer_initializing_formals`) ditekan dengan alasan tertulis: saran lint-nya (`this._total` sebagai parameter
+bernama) tidak bisa dikompilasi di Dart.
+
+**Terus terang, yang tidak dibuktikan.** Belum dijalankan di HP, dan pita di layar belum terlihat. Menguji >100 item butuh
+data sebanyak itu (`07` §7.4.1). Lebih dari 100 item tetap **tidak terlihat** — hanya diumumkan.

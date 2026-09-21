@@ -77,6 +77,26 @@ void main() {
       });
     });
 
+    // Issue #152: Tugas Saya can only say "Menampilkan 100 dari 134" if the
+    // repository keeps meta.total instead of the page's own length.
+    test('reads meta.total — how many exist, not how many came back', () async {
+      when(
+        () => remoteDataSource.listMyTasks(assignedTo: 'm1', status: 'open', perPage: 100),
+      ).thenAnswer(
+        (_) async => {
+          'data': _envelope['data'],
+          'meta': {'page': 1, 'per_page': 100, 'total': 134},
+        },
+      );
+
+      final result = await repository.getMyTasks(assignedTo: 'm1', status: 'open', perPage: 100);
+
+      result.fold((f) => fail('expected Right, got Left(${f.message})'), (list) {
+        expect(list.tasks, hasLength(1));
+        expect(list.total, 134);
+      });
+    });
+
     test('network failure with a cache hit returns the cached tasks marked fromCache', () async {
       when(
         () => remoteDataSource.listMyTasks(assignedTo: 'm1', status: 'open'),

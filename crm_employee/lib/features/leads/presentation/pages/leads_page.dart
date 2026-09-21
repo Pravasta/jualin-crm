@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../shared/labels.dart';
 import '../../../../shared/theme.dart';
 import '../../../../shared/widgets/cache_banner.dart';
+import '../../../../shared/truncation_notice.dart';
 import '../bloc/leads_bloc.dart';
 import '../bloc/leads_event.dart';
 import '../bloc/leads_state.dart';
@@ -77,6 +78,15 @@ class _LeadsPageState extends State<LeadsPage> {
               ),
               if (state is LeadsLoaded && state.fromCache)
                 CacheBanner(fetchedAt: state.fetchedAt),
+              if (state is LeadsLoaded)
+                TruncationNotice(
+                  message: truncationNotice(
+                    shown: state.leads.length,
+                    total: state.total,
+                    noun: 'lead',
+                    hint: 'Persempit dengan status atau pencarian.',
+                  ),
+                ),
               Expanded(child: _Body(state: state)),
             ],
           ),
