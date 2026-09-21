@@ -61,4 +61,25 @@ void main() {
       expect(result, isFalse);
     });
   });
+
+  // Issue #149.
+  group('launchEmail', () {
+    test('builds a mailto: URI with the address as stored', () async {
+      when(() => dataSource.launch(any())).thenAnswer((_) async => true);
+
+      final result = await repository.launchEmail('budi@example.com');
+
+      expect(result, isTrue);
+      final uri = verify(() => dataSource.launch(captureAny())).captured.single as Uri;
+      expect(uri.scheme, 'mailto');
+      expect(uri.path, 'budi@example.com');
+      expect(uri.toString(), 'mailto:budi@example.com');
+    });
+
+    test('propagates false when no email app could take it', () async {
+      when(() => dataSource.launch(any())).thenAnswer((_) async => false);
+
+      expect(await repository.launchEmail('budi@example.com'), isFalse);
+    });
+  });
 }

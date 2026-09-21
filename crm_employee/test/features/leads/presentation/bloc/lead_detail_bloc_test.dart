@@ -15,6 +15,7 @@ import 'package:crm_employee/features/leads/domain/usecases/get_lead_activities_
 import 'package:crm_employee/features/leads/domain/usecases/get_lead_detail_usecase.dart';
 import 'package:crm_employee/features/leads/domain/usecases/launch_dialer_usecase.dart';
 import 'package:crm_employee/features/leads/domain/usecases/launch_whatsapp_usecase.dart';
+import 'package:crm_employee/features/leads/domain/usecases/launch_email_usecase.dart';
 import 'package:crm_employee/features/leads/domain/usecases/log_call_usecase.dart';
 import 'package:crm_employee/features/leads/domain/usecases/log_whatsapp_opened_usecase.dart';
 import 'package:crm_employee/features/leads/domain/usecases/update_lead_status_usecase.dart';
@@ -45,6 +46,8 @@ class MockLaunchDialerUseCase extends Mock implements LaunchDialerUseCase {}
 class MockLaunchWhatsAppUseCase extends Mock
     implements LaunchWhatsAppUseCase {}
 
+class MockLaunchEmailUseCase extends Mock implements LaunchEmailUseCase {}
+
 // Same reasoning as leads_bloc_test.dart — a real AuthBloc wired to
 // mocked (never-called) use cases, since LeadDetailBloc only ever calls
 // authBloc.add(...), never inspects its state.
@@ -70,10 +73,12 @@ Lead _lead({
   int version = 1,
   String? phone,
   String? phoneE164,
+  String? email,
 }) => Lead(
   id: id,
   leadNumber: 1024,
   name: 'Rina Wijaya',
+  email: email,
   phone: phone,
   phoneE164: phoneE164,
   status: status,
@@ -100,6 +105,7 @@ void main() {
   late MockLogWhatsAppOpenedUseCase logWhatsAppOpened;
   late MockLaunchDialerUseCase launchDialer;
   late MockLaunchWhatsAppUseCase launchWhatsApp;
+  late MockLaunchEmailUseCase launchEmail;
   late AuthBloc authBloc;
 
   setUpAll(() {
@@ -119,6 +125,7 @@ void main() {
     logWhatsAppOpened = MockLogWhatsAppOpenedUseCase();
     launchDialer = MockLaunchDialerUseCase();
     launchWhatsApp = MockLaunchWhatsAppUseCase();
+    launchEmail = MockLaunchEmailUseCase();
     authBloc = AuthBloc(
       checkStoredSession: MockCheckStoredSessionUseCase(),
       checkBiometricAvailability: MockCheckBiometricAvailabilityUseCase(),
@@ -145,6 +152,7 @@ void main() {
     logWhatsAppOpened: logWhatsAppOpened,
     launchDialer: launchDialer,
     launchWhatsApp: launchWhatsApp,
+    launchEmail: launchEmail,
     authBloc: authBloc,
   );
 
@@ -497,6 +505,71 @@ void main() {
         ),
       ],
       verify: (_) => verifyNever(() => logWhatsAppOpened(any())),
+    );
+  });
+
+  // Issue #149. Opening an email is NOT logged (owner's decision): the
+  // closed activity-type list has no email type, and adding one means a
+  // migration across backend, dashboard, and mobile for a secondary channel.
+  group('LeadEmailRequested', () {
+    blocTest<LeadDetailBloc, LeadDetailState>(
+      'no email (or a blank one) is a defensive no-op',
+      seed: () => LeadDetailLoaded(
+        lead: _lead(email: '   '),
+        activities: const [],
+        fromCache: false,
+      ),
+      build: buildBloc,
+      act: (bloc) => bloc.add(const LeadEmailRequested()),
+      expect: () => <LeadDetailState>[],
+      verify: (_) => verifyNever(() => launchEmail(any())),
+    );
+
+    blocTest<LeadDetailBloc, LeadDetailState>(
+      'a successful hand-off logs NOTHING and leaves the screen as it was',
+      seed: () => LeadDetailLoaded(
+        lead: _lead(email: 'budi@example.com'),
+        activities: const [],
+        fromCache: false,
+      ),
+      setUp: () {
+        when(() => launchEmail('budi@example.com')).thenAnswer((_) async => true);
+      },
+      build: buildBloc,
+      act: (bloc) => bloc.add(const LeadEmailRequested()),
+      expect: () => [
+        isA<LeadDetailLoaded>().having((s) => s.isLaunchingExternalAction, 'busy', isTrue),
+        isA<LeadDetailLoaded>()
+            .having((s) => s.isLaunchingExternalAction, 'busy', isFalse)
+            .having((s) => s.externalActionError, 'error', isNull),
+      ],
+      verify: (_) {
+        verifyNever(() => logCall(any()));
+        verifyNever(() => logWhatsAppOpened(any()));
+        verifyNever(() => getLeadActivities(any()));
+      },
+    );
+
+    blocTest<LeadDetailBloc, LeadDetailState>(
+      'no email app on the device says so — never a silent dead button (#147)',
+      seed: () => LeadDetailLoaded(
+        lead: _lead(email: 'budi@example.com'),
+        activities: const [],
+        fromCache: false,
+      ),
+      setUp: () {
+        when(() => launchEmail('budi@example.com')).thenAnswer((_) async => false);
+      },
+      build: buildBloc,
+      act: (bloc) => bloc.add(const LeadEmailRequested()),
+      expect: () => [
+        isA<LeadDetailLoaded>().having((s) => s.isLaunchingExternalAction, 'busy', isTrue),
+        isA<LeadDetailLoaded>().having(
+          (s) => s.externalActionError,
+          'error',
+          'Tidak ada aplikasi email di perangkat ini.',
+        ),
+      ],
     );
   });
 }

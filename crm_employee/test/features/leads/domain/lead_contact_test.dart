@@ -47,4 +47,15 @@ void main() {
       expect(hasPhoneNumber('   '), isFalse);
     });
   });
+
+  // Issue #149: the email action shows only for a real address, with the
+  // same blank rule as the badge.
+  group('hasEmailAddress', () {
+    test('agrees with leadHasContact about what a blank email is', () {
+      expect(hasEmailAddress('budi@example.com'), isTrue);
+      expect(hasEmailAddress(null), isFalse);
+      expect(hasEmailAddress(''), isFalse);
+      expect(hasEmailAddress('   '), isFalse);
+    });
+  });
 }

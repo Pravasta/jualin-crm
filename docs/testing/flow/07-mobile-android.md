@@ -87,12 +87,20 @@ eksplisit: "diverifikasi dari sisi Owner, bukan hanya dari mobile").
 
 **Hasil yang diharapkan:** entri `whatsapp_opened` muncul di timeline HP **dan** dashboard.
 
-5. Ubah status lead (mis. Baru → Dihubungi). Tambah satu catatan.
+5. **Email** (issue #149, hanya bila lead punya email). Di header lead, email tampil sebagai tautan bergaris
+   bawah dengan ikon surat. Ketuk.
+
+**Hasil yang diharapkan:** aplikasi email terbuka dengan penerima sudah terisi. **Tidak ada** entri baru di
+timeline — membuka email sengaja tidak dicatat (keputusan pemilik produk: daftar tipe activity tertutup dan
+tidak punya tipe email). Lead tanpa email tidak menampilkan tautan ini. Bila tidak ada aplikasi email di HP,
+muncul pesan *"Tidak ada aplikasi email di perangkat ini."*, bukan tautan yang diam.
+
+6. Ubah status lead (mis. Baru → Dihubungi). Tambah satu catatan.
 
 **Hasil yang diharapkan:** status berubah, catatan muncul di timeline — keduanya juga terlihat dari
 dashboard.
 
-6. **Konflik**: buka lead yang sama di dashboard (tab lain) DAN di HP secara bersamaan. Ubah status
+7. **Konflik**: buka lead yang sama di dashboard (tab lain) DAN di HP secara bersamaan. Ubah status
    dari dashboard dulu, baru dari HP (tanpa refresh HP-nya lebih dulu).
 
 **Hasil yang diharapkan:** HP menampilkan dialog konflik ("data sudah diubah") dengan tombol "muat

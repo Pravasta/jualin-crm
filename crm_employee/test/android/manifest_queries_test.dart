@@ -28,4 +28,11 @@ void main() {
   test('declares https — the WhatsApp button opens https://wa.me/...', () {
     expect(declaresViewFor('https'), isTrue);
   });
+
+  test('declares mailto — the email action hands mailto: URIs over (issue #149)', () {
+    // mailto is a SENDTO intent in Android's own docs, but url_launcher
+    // resolves every URI as ACTION_VIEW (UrlLauncher.java), so VIEW is
+    // what package visibility has to allow.
+    expect(declaresViewFor('mailto'), isTrue);
+  });
 }
