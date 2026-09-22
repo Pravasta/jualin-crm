@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<![CDATA[<helmet>
+<meta name="design_doc_mode" content="page">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#fffdfb; font-family:'Plus Jakarta Sans',system-ui,sans-serif; color:#1f1915; -webkit-font-smoothing:antialiased; }
+  a { color:#a72b00; text-decoration:underline; text-underline-offset:2px; }
+  a:hover { color:#7e2000; }
+  textarea::placeholder, input::placeholder { color:#94897f; }
+</style>
+</helmet>
+
+<div style="position:sticky;top:0;z-index:40;background:#fff;border-bottom:1px solid #e2ddd9;padding:8px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12.5px">
+  <span style="font-weight:700;color:#a72b00;text-transform:uppercase;letter-spacing:.08em;font-size:11px">Pratinjau lead</span>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <sc-for list="{{ demoOptions }}" as="opt" hint-placeholder-count="5">
+      <button type="button" onClick="{{ setDemo }}" data-demo="{{ opt.key }}" style="cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;padding:5px 10px;border-radius:6px;border:1px solid {{ opt.border }};background:{{ opt.bg }};color:{{ opt.fg }}">{{ opt.label }}</button>
+    </sc-for>
+  </div>
+  <span style="margin-left:auto;color:#6a635e;font-family:'JetBrains Mono',monospace">{{ widthLabel }}</span>
+</div>
+
+<div style="box-sizing:border-box;max-width:1100px;margin:0 auto;padding:{{ pagePad }}">
+  <a href="Daftar Lead.dc.html" style="display:inline-flex;align-items:center;gap:6px;font-size:13.5px;font-weight:600;color:#6a635e;text-decoration:none;margin-bottom:16px">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+    Kembali ke Lead
+  </a>
+
+  <div style="display:{{ gridDisplay }};grid-template-columns:{{ gridCols }};gap:{{ gridGap }};align-items:start">
+
+    <!-- MAIN COLUMN -->
+    <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+
+      <!-- Header card -->
+      <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;padding:{{ cardPad }}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div style="min-width:0">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#6a635e">#{{ lead.num }}</div>
+            <h1 style="margin:4px 0 0;font-size:{{ h1Size }};font-weight:800;letter-spacing:-0.015em;overflow-wrap:anywhere">{{ lead.name }}</h1>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+            <span style="{{ lead.badgeStyle }}">{{ lead.statusLabel }}</span>
+            <button type="button" style="cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:8px 14px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915">Ubah</button>
+          </div>
+        </div>
+
+        <sc-if value="{{ lead.noContact }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top:12px;padding:10px 12px;border-radius:8px;background:#f5ede7;color:#4a443f;font-size:13.5px;display:flex;align-items:center;gap:8px">
+            <span style="font-weight:700">Belum ada kontak.</span> Tambahkan email atau telepon lewat Ubah agar bisa ditindaklanjuti.
+          </div>
+        </sc-if>
+        <sc-if value="{{ lead.closeReason }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top:12px;padding:10px 12px;border-radius:8px;background:#ffece9;color:#ab000e;font-size:13.5px">
+            <span style="font-weight:700">Alasan kalah:</span> {{ lead.closeReason }}
+          </div>
+        </sc-if>
+
+        <div style="display:grid;grid-template-columns:{{ metaCols }};gap:14px;margin-top:18px;font-size:13.5px">
+          <div><div style="color:#6a635e;font-size:12px;font-weight:600;margin-bottom:3px">Email</div><div style="overflow-wrap:anywhere">{{ lead.email }}</div></div>
+          <div><div style="color:#6a635e;font-size:12px;font-weight:600;margin-bottom:3px">Telepon</div><div>{{ lead.phone }}</div></div>
+          <div><div style="color:#6a635e;font-size:12px;font-weight:600;margin-bottom:3px">Perusahaan</div><div>{{ lead.company }}</div></div>
+          <div><div style="color:#6a635e;font-size:12px;font-weight:600;margin-bottom:3px">Sumber</div><div>{{ lead.source }}</div></div>
+          <div><div style="color:#6a635e;font-size:12px;font-weight:600;margin-bottom:3px">Tanggal masuk</div><div>{{ lead.date }}</div></div>
+        </div>
+        <sc-if value="{{ lead.note }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid #f0ebe7;font-size:13.5px;color:#4a443f;font-style:italic">"{{ lead.note }}"</div>
+        </sc-if>
+      </div>
+
+      <!-- Status area -->
+      <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;padding:{{ cardPad }}">
+        <h2 style="margin:0 0 16px;font-size:15px;font-weight:700">Status</h2>
+
+        <sc-if value="{{ lead.converted }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:12px 14px;border-radius:8px;background:#e9f9e9;color:#1d802b;font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6"></path></svg>
+            Lead ini sudah dikonversi menjadi Customer; statusnya tidak dapat diubah lagi.
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ !lead.converted }}" hint-placeholder-val="{{ true }}">
+          <!-- stepper -->
+          <div style="display:flex;align-items:center;margin-bottom:20px;overflow-x:{{ stepperOverflow }}">
+            <sc-for list="{{ steps }}" as="step" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;flex:{{ step.grow }}">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:6px;min-width:{{ stepMinW }}">
+                  <div style="width:18px;height:18px;border-radius:999px;border:2.5px solid {{ step.dotBorder }};background:{{ step.dotBg }};flex-shrink:0"></div>
+                  <div style="font-size:11.5px;font-weight:600;text-align:center;color:{{ step.textColor }};line-height:1.3">{{ step.label }}</div>
+                  <sc-if value="{{ step.current }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-size:10px;font-weight:700;color:#ca3c00;text-transform:uppercase;letter-spacing:.04em">Saat ini</div>
+                  </sc-if>
+                </div>
+                <sc-if value="{{ step.hasLine }}" hint-placeholder-val="{{ true }}">
+                  <div style="height:2px;flex:1;background:{{ step.lineColor }};margin:0 4px;margin-bottom:20px"></div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+
+          <sc-if value="{{ lead.closed }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:10px 14px;border-radius:8px;background:#f7f3ef;color:#4a443f;font-size:13.5px;font-weight:600;margin-bottom:16px">Lead ditutup: {{ lead.statusLabel }}</div>
+          </sc-if>
+
+          <div style="display:flex;flex-wrap:wrap;gap:10px">
+            <sc-if value="{{ lead.canAdvance }}" hint-placeholder-val="{{ false }}">
+              <button type="button" onClick="{{ advance }}" style="cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:9px 15px;border-radius:8px;border:none;background:#ca3c00;color:#fff">Lanjutkan — {{ lead.nextLabel }}</button>
+            </sc-if>
+            <sc-if value="{{ lead.canGoBack }}" hint-placeholder-val="{{ false }}">
+              <button type="button" onClick="{{ goBack }}" style="cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:9px 15px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915">Kembali — {{ lead.backLabel }}</button>
+            </sc-if>
+            <sc-if value="{{ lead.canReopen }}" hint-placeholder-val="{{ false }}">
+              <button type="button" onClick="{{ reopen }}" style="cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:9px 15px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915">Buka kembali — Dihubungi</button>
+            </sc-if>
+            <sc-if value="{{ lead.canClose }}" hint-placeholder-val="{{ false }}">
+              <button type="button" onClick="{{ openCloseMenu }}" style="cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:9px 15px;border-radius:8px;border:1px solid #ffb3a8;background:#fff5f3;color:#ab000e">Tutup lead</button>
+            </sc-if>
+          </div>
+
+          <sc-if value="{{ closeMenuOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:12px;border:1px solid #e2ddd9;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;background:#fdfaf8">
+              <div style="font-size:12.5px;font-weight:700;color:#6a635e">Tutup sebagai</div>
+              <button type="button" onClick="{{ chooseClose }}" data-reason="lost" style="text-align:left;cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:8px 12px;border-radius:7px;border:1px solid #e2ddd9;background:#fff;color:#ce2930">Kalah</button>
+              <button type="button" onClick="{{ chooseClose }}" data-reason="unqualified" style="text-align:left;cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:8px 12px;border-radius:7px;border:1px solid #e2ddd9;background:#fff;color:#6d6d6d">Tidak Memenuhi Syarat</button>
+              <button type="button" onClick="{{ chooseClose }}" data-reason="spam" style="text-align:left;cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:8px 12px;border-radius:7px;border:1px solid #e2ddd9;background:#fff;color:#7f6964">Spam</button>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ lostReasonOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:12px;border:1px solid #e2ddd9;border-radius:10px;padding:14px;background:#fdfaf8">
+              <div style="font-size:13px;font-weight:700;margin-bottom:10px">Alasan kalah — wajib dipilih</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px">
+                <sc-for list="{{ lostReasons }}" as="r" hint-placeholder-count="6">
+                  <button type="button" onClick="{{ confirmLost }}" data-reason="{{ r }}" style="cursor:pointer;font:inherit;font-size:13px;font-weight:600;padding:7px 12px;border-radius:999px;border:1px solid #c9c3be;background:#fff;color:#1f1915">{{ r }}</button>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </sc-if>
+
+        <sc-if value="{{ lead.showConvert }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid #f0ebe7;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <span style="font-size:13.5px;color:#4a443f">Lead ini Menang dan belum dikonversi.</span>
+            <a href="Daftar Customer.dc.html" style="cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:9px 15px;border-radius:8px;border:none;background:#1d802b;color:#fff;text-decoration:none;display:inline-block">Konversi jadi Customer</a>
+          </div>
+        </sc-if>
+      </div>
+
+      <!-- Tambah catatan -->
+      <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;padding:{{ cardPad }}">
+        <h2 style="margin:0 0 14px;font-size:15px;font-weight:700">Tambah catatan</h2>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <sc-for list="{{ noteTypes }}" as="nt" hint-placeholder-count="3">
+            <button type="button" onClick="{{ pickNoteType }}" data-type="{{ nt.key }}" style="cursor:pointer;font:inherit;font-size:13px;font-weight:600;padding:7px 13px;border-radius:999px;border:1px solid {{ nt.border }};background:{{ nt.bg }};color:{{ nt.fg }}">{{ nt.label }}</button>
+          </sc-for>
+        </div>
+        <textarea value="{{ noteText }}" onChange="{{ onNoteText }}" placeholder="Tulis catatan..." rows="3" style="width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 12px;border-radius:8px;border:1px solid #c9c3be;resize:vertical"></textarea>
+        <div style="display:flex;justify-content:flex-end;margin-top:10px">
+          <button type="button" onClick="{{ addNote }}" style="cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:8px 15px;border-radius:8px;border:none;background:#ca3c00;color:#fff">Tambah</button>
+        </div>
+      </div>
+
+      <!-- Timeline -->
+      <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;padding:{{ cardPad }}">
+        <h2 style="margin:0 0 14px;font-size:15px;font-weight:700">Timeline</h2>
+        <div style="display:flex;flex-direction:column">
+          <sc-for list="{{ timeline }}" as="t" hint-placeholder-count="5">
+            <div style="display:flex;gap:12px;padding:10px 0;border-top:1px solid #f0ebe7">
+              <div style="width:26px;height:26px;border-radius:999px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:{{ t.iconBg }};color:{{ t.iconFg }}" dangerouslySetInnerHTML="{{ t.icon }}"></div>
+              <div style="min-width:0;flex:1">
+                <div style="font-size:13.5px;color:#1f1915">{{ t.text }}</div>
+                <div style="font-size:12px;color:#94897f;margin-top:2px">{{ t.meta }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+
+      <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;padding:{{ cardPad }}">
+        <h2 style="margin:0 0 12px;font-size:14px;font-weight:700">Penugasan</h2>
+        <select value="{{ owner }}" onChange="{{ onOwnerChange }}" style="width:100%;box-sizing:border-box;font:inherit;font-size:13.5px;padding:9px 10px;border-radius:8px;border:1px solid #c9c3be;background:#fff">
+          <option value="">— Tanpa pemilik aktif —</option>
+          <option value="Budi Santoso">Budi Santoso</option>
+          <option value="Sari Wulandari">Sari Wulandari</option>
+          <option value="Andi Pratama">Andi Pratama</option>
+        </select>
+      </div>
+
+      <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;padding:{{ cardPad }}">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h2 style="margin:0;font-size:14px;font-weight:700">Tugas</h2>
+          <button type="button" onClick="{{ toggleNewTask }}" style="cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;color:#a72b00;background:none;border:none">+ Tambah</button>
+        </div>
+        <sc-if value="{{ newTaskOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;padding:10px;border:1px solid #e2ddd9;border-radius:8px;background:#fdfaf8">
+            <input value="{{ taskTitle }}" onChange="{{ onTaskTitle }}" placeholder="Judul tugas" style="font:inherit;font-size:13.5px;padding:7px 9px;border-radius:6px;border:1px solid #c9c3be" />
+            <div style="display:flex;justify-content:flex-end"><button type="button" onClick="{{ addTask }}" style="cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:7px;border:none;background:#ca3c00;color:#fff">Simpan</button></div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ !tasks.length }}" hint-placeholder-val="{{ false }}">
+          <p style="margin:0;font-size:13px;color:#94897f">Belum ada tugas.</p>
+        </sc-if>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <sc-for list="{{ tasks }}" as="task" hint-placeholder-count="2">
+            <div style="display:flex;gap:8px;align-items:flex-start">
+              <input type="checkbox" checked="{{ task.done }}" onChange="{{ toggleTask }}" data-id="{{ task.id }}" disabled="{{ task.done }}" style="margin-top:2px;width:16px;height:16px;flex-shrink:0" />
+              <div style="min-width:0">
+                <div style="font-size:13.5px;{{ task.textStyle }}">{{ task.title }}</div>
+                <div style="font-size:12px;{{ task.dueColor }};margin-top:2px">{{ task.due }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <sc-if value="{{ lead.showDelete }}" hint-placeholder-val="{{ true }}">
+        <div style="border:1px solid #ffd6cf;border-radius:12px;background:#fff5f3;padding:{{ cardPad }}">
+          <h2 style="margin:0 0 8px;font-size:14px;font-weight:700;color:#ab000e">Hapus lead</h2>
+          <p style="margin:0 0 12px;font-size:12.5px;color:#4a443f">Tidak bisa dibatalkan. Hanya Owner/Admin.</p>
+          <button type="button" onClick="{{ openDelete }}" style="cursor:pointer;font:inherit;font-size:13px;font-weight:600;padding:8px 14px;border-radius:8px;border:1px solid #c0000f;background:#fff;color:#c0000f">Hapus lead ini</button>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+
+<sc-if value="{{ deleteOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeDelete }}" style="position:fixed;inset:0;background:rgba(31,25,21,.45);z-index:50"></div>
+  <div style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:380px;max-width:92vw;background:#fff;border-radius:14px;z-index:51;padding:22px;box-shadow:0 24px 60px rgba(31,25,21,.25)">
+    <h3 style="margin:0 0 8px;font-size:16px;font-weight:700">Hapus lead #{{ lead.num }}?</h3>
+    <p style="margin:0 0 18px;font-size:13.5px;color:#4a443f">Seluruh riwayat, catatan, dan tugas pada lead ini akan hilang permanen.</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button type="button" onClick="{{ closeDelete }}" style="cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:9px 14px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915">Batal</button>
+      <button type="button" onClick="{{ closeDelete }}" style="cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:9px 14px;border-radius:8px;border:none;background:#c0000f;color:#fff">Hapus permanen</button>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f1915;color:#fff;padding:10px 18px;border-radius:8px;font-size:13.5px;font-weight:600;box-shadow:0 8px 24px rgba(31,25,21,.24);z-index:60">{{ toast }}</div>
+</sc-if>
+]]>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{}">
+const STAGES = ['new', 'contacted', 'qualified', 'proposal', 'won'];
+const STAGE_LABELS = { new: 'Baru', contacted: 'Dihubungi', qualified: 'Memenuhi Syarat', proposal: 'Penawaran', won: 'Menang' };
+const STATUS_DEF = {
+  new: { label: 'Baru', fg: '#006cd3', shape: 'pill' }, contacted: { label: 'Dihubungi', fg: '#8156c0', shape: 'pill' },
+  qualified: { label: 'Memenuhi Syarat', fg: '#007b7d', shape: 'pill' }, proposal: { label: 'Penawaran', fg: '#a05d00', shape: 'pill' },
+  won: { label: 'Menang', fg: '#1d802b', shape: 'square' }, lost: { label: 'Kalah', fg: '#ce2930', shape: 'square' },
+  unqualified: { label: 'Tidak Memenuhi Syarat', fg: '#6d6d6d', shape: 'dashed' }, spam: { label: 'Spam', fg: '#7f6964', shape: 'dashed' }
+};
+function badgeStyle(key) {
+  const d = STATUS_DEF[key];
+  const base = 'display:inline-flex;align-items:center;padding:4px 12px;font-size:13px;font-weight:600;white-space:nowrap;';
+  if (d.shape === 'pill') return base + `border-radius:999px;border:1.5px solid ${d.fg};color:${d.fg};background:#fff;`;
+  if (d.shape === 'square') return base + `border-radius:5px;border:2px solid ${d.fg};color:${d.fg};font-weight:700;background:#fff;`;
+  return base + `border-radius:5px;border:1.5px dashed ${d.fg};color:${d.fg};background:#fff;`;
+}
+const ICON_SYS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v4l3 2"></path></svg>';
+const ICON_CALL = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3h3l1.5 4-2 1.5a12 12 0 006.5 6.5L17 13l4 1.5v3a2 2 0 01-2.2 2A16 16 0 014.5 5.2 2 2 0 016.5 3z"></path></svg>';
+const ICON_NOTE = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h9l3 3v13H6z"></path><path d="M9 10h6M9 14h6"></path></svg>';
+const ICON_WA = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1.3-3.9A8 8 0 1112 20a8.4 8.4 0 01-4-1z"></path></svg>';
+
+const LEADS = {
+  '1024': { num: '1024', name: 'Dewi Lestari', status: 'proposal', converted: false, closed: false,
+    email: 'dewi@contoh.id', phone: '0812-3456-7890', company: '—', source: 'Formulir', date: '18 Sep 2026',
+    note: 'Tertarik paket katering 50 porsi', noContact: false, closeReason: null, owner: 'Andi Pratama',
+    timeline: [
+      { type: 'sys', text: 'Status: Memenuhi Syarat → Penawaran', meta: '18 Sep, 10:02' },
+      { type: 'human', text: 'Tugas dibuat: Kirim penawaran ke Dewi', meta: 'Andi Pratama · 18 Sep, 09:55' },
+      { type: 'human', text: 'Catatan: "Minta dikirim menu"', meta: 'Andi Pratama · 17 Sep, 15:20' },
+      { type: 'human', text: 'Telepon — dari HP', meta: 'Andi Pratama · 17 Sep, 15:10' },
+      { type: 'sys', text: 'Status: Baru → Dihubungi', meta: '17 Sep, 14:40' },
+      { type: 'sys', text: 'Ditugaskan ke Andi Pratama', meta: '16 Sep, 09:12' },
+      { type: 'sys', text: 'Lead dibuat dari Formulir', meta: '16 Sep, 09:10' }
+    ], tasks: [{ id: 't1', title: 'Kirim penawaran ke Dewi', due: 'Jatuh tempo besok', done: false, dueClass: 'normal' }] },
+  '1026': { num: '1026', name: 'CV Sinar Abadi', status: 'won', converted: true, closed: false,
+    email: 'sinar@contoh.id', phone: '—', company: 'CV Sinar Abadi', source: 'Manual', date: '12 Sep 2026',
+    note: null, noContact: false, closeReason: null, owner: 'Sari Wulandari',
+    timeline: [
+      { type: 'sys', text: 'Dikonversi menjadi Customer', meta: '20 Sep, 11:00' },
+      { type: 'sys', text: 'Status: Penawaran → Menang', meta: '19 Sep, 16:30' },
+      { type: 'sys', text: 'Lead dibuat secara Manual', meta: '12 Sep, 08:00' }
+    ], tasks: [{ id: 't2', title: 'Konfirmasi order CV Sinar Abadi', due: 'Selesai kemarin', done: true, dueClass: 'normal' }] },
+  '1027': { num: '1027', name: 'Maya Anggraini', status: 'lost', converted: false, closed: true,
+    email: '—', phone: '0857-9999-0000', company: '—', source: 'Webhook', date: '15 Sep 2026',
+    note: null, noContact: false, closeReason: 'Harga', owner: 'Andi Pratama',
+    timeline: [
+      { type: 'sys', text: 'Status: Penawaran → Kalah (Harga)', meta: '20 Sep, 09:40' },
+      { type: 'sys', text: 'Lead dibuat dari Webhook', meta: '15 Sep, 13:00' }
+    ], tasks: [] },
+  '1028': { num: '1028', name: 'Dodo', status: 'new', converted: false, closed: false,
+    email: '—', phone: '—', company: '—', source: 'Manual', date: '21 Sep 2026',
+    note: null, noContact: true, closeReason: null, owner: 'Budi Santoso',
+    timeline: [{ type: 'sys', text: 'Lead dibuat secara Manual', meta: '21 Sep, 08:30' }], tasks: [] },
+  '1030': { num: '1030', name: 'promo-bot', status: 'spam', converted: false, closed: true,
+    email: 'spam@spam.xyz', phone: '—', company: '—', source: 'Formulir', date: '19 Sep 2026',
+    note: null, noContact: false, closeReason: null, owner: null,
+    timeline: [
+      { type: 'sys', text: 'Status: Baru → Spam', meta: '19 Sep, 09:05' },
+      { type: 'sys', text: 'Lead dibuat dari Formulir', meta: '19 Sep, 09:00' }
+    ], tasks: [] },
+  '1025': { num: '1025', name: 'Hendra Wijaya', status: 'new', converted: false, closed: false,
+    email: '—', phone: '0813-1111-2222', company: '—', source: 'API', date: '20 Sep 2026',
+    note: null, noContact: false, closeReason: null, owner: null,
+    timeline: [{ type: 'sys', text: 'Lead dibuat dari API', meta: '20 Sep, 07:40' }], tasks: [
+      { id: 't3', title: 'Telepon ulang Hendra', due: 'Terlambat 2 hari', done: false }
+    ] },
+  '1029': { num: '1029', name: 'Rudi Hartono', status: 'contacted', converted: false, closed: false,
+    email: '—', phone: '0821-4444-5555', company: '—', source: 'Formulir', date: '17 Sep 2026',
+    note: 'Lead tanpa pemilik aktif', noContact: false, closeReason: null, owner: 'Rina Kartika',
+    timeline: [
+      { type: 'sys', text: 'Status: Baru → Dihubungi', meta: '17 Sep, 12:00' },
+      { type: 'sys', text: 'Lead dibuat dari Formulir', meta: '17 Sep, 11:40' }
+    ], tasks: [{ id: 't4', title: 'Follow up Rudi', due: 'Jatuh tempo hari ini', done: false }] }
+};
+
+class Component extends DCLogic {
+  state = {
+    demo: '1024', vw: 1440, closeMenuOpen: false, lostReasonOpen: false,
+    noteType: 'note', noteText: '', owner: LEADS['1024'].owner, newTaskOpen: false, taskTitle: '',
+    deleteOpen: false, toast: '', overrideStatus: {}, extraTasks: {}, extraTimeline: {}
+  };
+
+  componentDidMount() {
+    this._onResize = () => this.setState({ vw: window.innerWidth });
+    window.addEventListener('resize', this._onResize);
+    this.setState({ vw: window.innerWidth });
+    try {
+      const q = new URLSearchParams(window.location.search).get('lead');
+      if (q && LEADS[q]) this.setState({ demo: q, owner: LEADS[q].owner });
+    } catch (e) {}
+  }
+  componentWillUnmount() { window.removeEventListener('resize', this._onResize); }
+
+  setDemo = (e) => {
+    const key = e.currentTarget.dataset.demo;
+    this.setState({ demo: key, closeMenuOpen: false, lostReasonOpen: false, owner: LEADS[key].owner, deleteOpen: false });
+  };
+  pickNoteType = (e) => this.setState({ noteType: e.currentTarget.dataset.type });
+  onNoteText = (e) => this.setState({ noteText: e.target.value });
+  addNote = () => {
+    if (!this.state.noteText.trim()) return;
+    this.setState({ noteText: '', toast: 'Catatan ditambahkan ke timeline.' });
+    clearTimeout(this._tt); this._tt = setTimeout(() => this.setState({ toast: '' }), 2200);
+  };
+  onOwnerChange = (e) => this.setState({ owner: e.target.value });
+  toggleNewTask = () => this.setState(s => ({ newTaskOpen: !s.newTaskOpen }));
+  onTaskTitle = (e) => this.setState({ taskTitle: e.target.value });
+  addTask = () => { if (!this.state.taskTitle.trim()) return; this.setState({ taskTitle: '', newTaskOpen: false, toast: 'Tugas ditambahkan.' }); clearTimeout(this._tt); this._tt = setTimeout(() => this.setState({ toast: '' }), 2200); };
+  toggleTask = () => {};
+
+  advance = () => {
+    const key = this.state.demo, cur = this.overrideOr(key);
+    const idx = STAGES.indexOf(cur);
+    if (idx < STAGES.length - 1) this.setState(s => ({ overrideStatus: { ...s.overrideStatus, [key]: STAGES[idx + 1] } }));
+  };
+  goBack = () => {
+    const key = this.state.demo, cur = this.overrideOr(key);
+    const idx = STAGES.indexOf(cur);
+    if (idx > 1) this.setState(s => ({ overrideStatus: { ...s.overrideStatus, [key]: STAGES[idx - 1] } }));
+  };
+  reopen = () => { const key = this.state.demo; this.setState(s => ({ overrideStatus: { ...s.overrideStatus, [key]: 'contacted' } })); };
+  overrideOr = (key) => this.state.overrideStatus[key] || LEADS[key].status;
+
+  openCloseMenu = () => this.setState({ closeMenuOpen: true });
+  chooseClose = (e) => {
+    const reason = e.currentTarget.dataset.reason;
+    if (reason === 'lost') { this.setState({ closeMenuOpen: false, lostReasonOpen: true }); return; }
+    const key = this.state.demo;
+    this.setState(s => ({ overrideStatus: { ...s.overrideStatus, [key]: reason }, closeMenuOpen: false }));
+  };
+  confirmLost = () => { const key = this.state.demo; this.setState(s => ({ overrideStatus: { ...s.overrideStatus, [key]: 'lost' }, lostReasonOpen: false })); };
+  convertLead = () => this.setState({ toast: 'Lead dikonversi menjadi Customer (contoh).' });
+  openDelete = () => this.setState({ deleteOpen: true });
+  closeDelete = () => this.setState({ deleteOpen: false });
+
+  renderVals() {
+    const vw = this.state.vw;
+    const isMobile = vw < 768;
+    const isTablet = vw >= 768 && vw < 1024;
+    const key = this.state.demo;
+    const base = LEADS[key];
+    const status = this.overrideOr(key);
+    const closed = ['lost', 'unqualified', 'spam'].includes(status);
+    const stageIdx = STAGES.indexOf(status);
+    const inMainPath = stageIdx !== -1;
+
+    const lead = {
+      num: base.num, name: base.name, status, statusLabel: STATUS_DEF[status].label, badgeStyle: badgeStyle(status),
+      email: base.email, phone: base.phone, company: base.company, source: base.source, date: base.date,
+      note: base.note, noContact: base.noContact, converted: base.converted,
+      closeReason: status === 'lost' ? (base.closeReason || 'Harga') : null,
+      closed, showConvert: status === 'won' && !base.converted,
+      canAdvance: inMainPath && !closed && stageIdx < 4,
+      canGoBack: inMainPath && !closed && stageIdx > 1,
+      canClose: inMainPath && !closed,
+      canReopen: status === 'lost',
+      nextLabel: inMainPath && stageIdx < 4 ? `${STAGE_LABELS[STAGES[stageIdx + 1]]}` : '',
+      backLabel: inMainPath && stageIdx > 0 ? `${STAGE_LABELS[STAGES[stageIdx - 1]]}` : '',
+      showDelete: true
+    };
+
+    const steps = STAGES.map((s, i) => {
+      const dimmed = closed || !inMainPath;
+      const passed = inMainPath && i < stageIdx;
+      const current = inMainPath && i === stageIdx;
+      const future = inMainPath && i > stageIdx;
+      let dotBorder = '#c9c3be', dotBg = '#fff', textColor = '#94897f';
+      if (!dimmed) {
+        if (passed || current) { dotBorder = '#ca3c00'; dotBg = current ? '#fff' : '#ca3c00'; textColor = '#1f1915'; }
+        if (future) { dotBorder = '#c9c3be'; dotBg = '#fff'; textColor = '#94897f'; }
+      } else {
+        dotBorder = '#d8d3ce'; dotBg = '#d8d3ce'; textColor = '#b3aca5';
+      }
+      return { label: STAGE_LABELS[s], current, hasLine: i < STAGES.length - 1, grow: 1,
+        dotBorder, dotBg, textColor, lineColor: (!dimmed && i < stageIdx) ? '#ca3c00' : '#e2ddd9' };
+    });
+
+    const iconMap = { sys: { html: ICON_SYS, bg: '#f7f3ef', fg: '#6a635e' }, human: { html: ICON_CALL, bg: '#fff1e0', fg: '#a72b00' } };
+    const timeline = base.timeline.map(t => {
+      const m = iconMap[t.type];
+      return { text: t.text, meta: t.meta, icon: { __html: m.html }, iconBg: m.bg, iconFg: m.fg };
+    });
+
+    const tasks = base.tasks.map(t => ({
+      id: t.id, title: t.title, due: t.due, done: t.done,
+      textStyle: t.done ? 'text-decoration:line-through;color:#94897f' : 'color:#1f1915',
+      dueColor: t.due.includes('Terlambat') ? 'color:#ab000e;font-weight:700' : 'color:#94897f'
+    }));
+
+    const noteTypes = ['note', 'call', 'wa'].map(k => {
+      const map = { note: 'Catatan', call: 'Telepon', wa: 'WhatsApp' };
+      const active = this.state.noteType === k;
+      return { key: k, label: map[k], border: active ? '#ca3c00' : '#c9c3be', bg: active ? '#ca3c00' : '#fff', fg: active ? '#fff' : '#1f1915' };
+    });
+
+    const demoMeta = [['1024', 'Penawaran'], ['1026', 'Menang · terkonversi'], ['1027', 'Kalah'], ['1028', 'Baru · tanpa kontak'], ['1030', 'Spam · final']];
+    const demoOptions = demoMeta.map(([k, label]) => ({
+      key: k, label,
+      border: this.state.demo === k ? '#ca3c00' : '#e2ddd9', bg: this.state.demo === k ? '#fff1e0' : '#fff', fg: this.state.demo === k ? '#a72b00' : '#4a443f'
+    }));
+
+    return {
+      widthLabel: `${vw}px — ${isMobile ? 'HP' : isTablet ? 'Tablet' : 'Desktop'}`,
+      setDemo: this.setDemo, demoOptions,
+      pagePad: isMobile ? '14px 14px 40px' : '32px 24px 60px',
+      cardPad: isMobile ? '16px' : '20px',
+      h1Size: isMobile ? '20px' : '24px',
+      metaCols: isMobile ? 'repeat(2,minmax(0,1fr))' : 'repeat(auto-fit,minmax(120px,1fr))',
+      gridDisplay: isMobile ? 'flex' : 'grid',
+      gridCols: isMobile ? '' : '1fr 300px',
+      gridGap: isMobile ? '16px' : '20px',
+      stepperOverflow: isMobile ? 'auto' : 'visible',
+      stepMinW: isMobile ? '64px' : '86px',
+      lead, steps, timeline, tasks, noteTypes,
+      advance: this.advance, goBack: this.goBack, reopen: this.reopen,
+      openCloseMenu: this.openCloseMenu, closeMenuOpen: this.state.closeMenuOpen, chooseClose: this.chooseClose,
+      lostReasonOpen: this.state.lostReasonOpen, lostReasons: ['Harga', 'Kompetitor', 'Waktu Tidak Tepat', 'Tidak Merespons', 'Tidak Tertarik', 'Lainnya'], confirmLost: this.confirmLost,
+      convertLead: this.convertLead,
+      pickNoteType: this.pickNoteType, noteText: this.state.noteText, onNoteText: this.onNoteText, addNote: this.addNote,
+      owner: this.state.owner, onOwnerChange: this.onOwnerChange,
+      toggleNewTask: this.toggleNewTask, newTaskOpen: this.state.newTaskOpen, taskTitle: this.state.taskTitle, onTaskTitle: this.onTaskTitle, addTask: this.addTask, toggleTask: this.toggleTask,
+      openDelete: this.openDelete, closeDelete: this.closeDelete, deleteOpen: this.state.deleteOpen,
+      toast: this.state.toast
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<![CDATA[<helmet>
+<meta name="design_doc_mode" content="page">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#fffdfb; font-family:'Plus Jakarta Sans',system-ui,sans-serif; color:#1f1915; -webkit-font-smoothing:antialiased; }
+  a { color:#a72b00; text-decoration:underline; text-underline-offset:2px; }
+  a:hover { color:#7e2000; }
+  ::selection { background:#ffe0cf; }
+</style>
+</helmet>
+
+<div style="max-width:1180px;margin:0 auto;padding:clamp(20px,4vw,56px) clamp(16px,4vw,40px) 96px">
+
+  <header style="display:flex;flex-direction:column;gap:14px;padding-bottom:28px;border-bottom:1px solid #e2ddd9">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:26px;height:26px;border-radius:7px;background:#ca3c00"></div>
+      <span style="font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#6a635e">Jualin CRM</span>
+    </div>
+    <h1 style="margin:0;font-size:clamp(30px,5vw,46px);line-height:1.08;font-weight:800;letter-spacing:-0.025em;max-width:16ch">Token Desain</h1>
+    <p style="margin:0;max-width:60ch;font-size:16px;line-height:1.6;color:#4a443f;text-wrap:pretty">Fondasi visual untuk dashboard web, Laporan, dan aplikasi mobile Employee. Semua rasio kontras di halaman ini dihitung dari nilai <span style="font-family:'JetBrains Mono',monospace;font-size:13px">oklch</span> yang tertulis, bukan diperkirakan. Klik nilai mana pun untuk menyalin.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
+      <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;background:#e9f9e9;color:#1d802b;font-size:12.5px;font-weight:600">WCAG AA lolos — 42/42 pasangan</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;background:#f7f3ef;color:#6a635e;font-size:12.5px;font-weight:600">Tema terang saja</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;background:#f7f3ef;color:#6a635e;font-size:12.5px;font-weight:600">shadcn/ui base-nova · Material 3</span>
+    </div>
+  </header>
+
+  <!-- 1. Keputusan -->
+  <section style="padding-top:44px">
+    <h2 style="margin:0 0 6px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a72b00">01 — Keputusan</h2>
+    <p style="margin:0 0 22px;font-size:15px;color:#6a635e">Empat hal yang berubah dari sistem sekarang, dan alasannya.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px">
+      <div style="background:#ffffff;border:1px solid #e2ddd9;border-radius:10px;padding:18px">
+        <h3 style="margin:0 0 8px;font-size:15px;font-weight:700">Amber tetap jangkar</h3>
+        <p style="margin:0;font-size:14px;line-height:1.55;color:#4a443f">Hue 41 dipertahankan persis. Yang ditambah hanya netral hangat (hue 60) supaya amber tidak terlihat berdiri sendiri di atas abu-abu dingin.</p>
+      </div>
+      <div style="background:#ffffff;border:1px solid #e2ddd9;border-radius:10px;padding:18px">
+        <h3 style="margin:0 0 8px;font-size:15px;font-weight:700">Delapan status dinaikkan</h3>
+        <p style="margin:0;font-size:14px;line-height:1.55;color:#4a443f">Lima badge sebelumnya gagal AA. Lightness setiap teks status diturunkan sampai <strong>≥4.6:1</strong> di atas latar tintnya sendiri — bukan di atas putih.</p>
+      </div>
+      <div style="background:#ffffff;border:1px solid #e2ddd9;border-radius:10px;padding:18px">
+        <h3 style="margin:0 0 8px;font-size:15px;font-weight:700">Mobile punya skala sendiri</h3>
+        <p style="margin:0;font-size:14px;line-height:1.55;color:#4a443f">Satu keluarga warna, target berbeda: <strong>≥7:1</strong> untuk teks status di aplikasi Employee, karena dibaca di bawah matahari.</p>
+      </div>
+      <div style="background:#ffffff;border:1px solid #e2ddd9;border-radius:10px;padding:18px">
+        <h3 style="margin:0 0 8px;font-size:15px;font-weight:700">Radius 8px, bukan 10px</h3>
+        <p style="margin:0;font-size:14px;line-height:1.55;color:#4a443f">Sedikit lebih rapat. Pada tabel padat, sudut besar memakan ruang baris dan membuat kartu terasa seperti etalase.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Warna -->
+  <section style="padding-top:56px">
+    <h2 style="margin:0 0 6px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a72b00">02 — Warna merek &amp; netral</h2>
+    <p style="margin:0 0 22px;font-size:15px;color:#6a635e">Latar aplikasi <span style="font-family:'JetBrains Mono',monospace;font-size:13px">#fffdfb</span> — putih yang dihangatkan sedikit agar kartu putih murni tetap terbaca sebagai permukaan terpisah tanpa bayangan berat.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px">
+      <button type="button" data-val="oklch(0.56 0.19 41)" onClick="{{ copy }}" style="text-align:left;cursor:pointer;font:inherit;border:1px solid #e2ddd9;border-radius:10px;overflow:hidden;background:#fff;padding:0" style-hover="border-color:#c9c3be">
+        <div style="background:#ca3c00;color:#fff;padding:20px 16px;font-size:14px;font-weight:700">Aa — teks putih 5.05:1</div>
+        <div style="padding:12px 16px 14px">
+          <div style="font-size:14px;font-weight:700">primary</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e;margin-top:3px">oklch(0.56 0.19 41) · #ca3c00</div>
+          <div style="font-size:12.5px;color:#6a635e;margin-top:6px">Latar tombol utama, bar aktif, ring fokus.</div>
+        </div>
+      </button>
+      <button type="button" data-val="oklch(0.48 0.17 41)" onClick="{{ copy }}" style="text-align:left;cursor:pointer;font:inherit;border:1px solid #e2ddd9;border-radius:10px;overflow:hidden;background:#fff;padding:0" style-hover="border-color:#c9c3be">
+        <div style="background:#fff;color:#a72b00;padding:20px 16px;font-size:14px;font-weight:700;border-bottom:1px solid #f0ebe7">Aa — di atas putih 7.04:1</div>
+        <div style="padding:12px 16px 14px">
+          <div style="font-size:14px;font-weight:700">accent-strong</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e;margin-top:3px">oklch(0.48 0.17 41) · #a72b00</div>
+          <div style="font-size:12.5px;color:#6a635e;margin-top:6px">Tautan, ikon aksen, judul bagian. Tidak pernah jadi latar.</div>
+        </div>
+      </button>
+      <button type="button" data-val="oklch(0.505 0.21 27)" onClick="{{ copy }}" style="text-align:left;cursor:pointer;font:inherit;border:1px solid #e2ddd9;border-radius:10px;overflow:hidden;background:#fff;padding:0" style-hover="border-color:#c9c3be">
+        <div style="background:#c0000f;color:#fff;padding:20px 16px;font-size:14px;font-weight:700">Aa — teks putih 6.47:1</div>
+        <div style="padding:12px 16px 14px">
+          <div style="font-size:14px;font-weight:700">destructive</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e;margin-top:3px">oklch(0.505 0.21 27) · #c0000f</div>
+          <div style="font-size:12.5px;color:#6a635e;margin-top:6px">Hapus lead, nonaktifkan anggota, cabut API key.</div>
+        </div>
+      </button>
+    </div>
+
+    <div style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px">
+      <button type="button" data-val="oklch(0.22 0.012 60)" onClick="{{ copy }}" style="text-align:left;cursor:pointer;font:inherit;background:#fff;border:1px solid #e2ddd9;border-radius:10px;padding:0;overflow:hidden">
+        <div style="height:48px;background:#1f1915"></div>
+        <div style="padding:10px 12px 12px"><div style="font-size:13.5px;font-weight:700">foreground</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e;margin-top:2px">0.22 0.012 60</div><div style="font-size:12px;color:#4a443f;margin-top:5px">17.1:1</div></div>
+      </button>
+      <button type="button" data-val="oklch(0.505 0.012 60)" onClick="{{ copy }}" style="text-align:left;cursor:pointer;font:inherit;background:#fff;border:1px solid #e2ddd9;border-radius:10px;padding:0;overflow:hidden">
+        <div style="height:48px;background:#6a635e"></div>
+        <div style="padding:10px 12px 12px"><div style="font-size:13.5px;font-weight:700">muted-foreground</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e;margin-top:2px">0.505 0.012 60</div><div style="font-size:12px;color:#4a443f;margin-top:5px">5.8:1 — batas bawah teks sekunder</div></div>
+      </button>
+      <button type="button" data-val="oklch(0.95 0.012 60)" onClick="{{ copy }}" style="text-align:left;cursor:pointer;font:inherit;background:#fff;border:1px solid #e2ddd9;border-radius:10px;padding:0;overflow:hidden">
+        <div style="height:48px;background:#f5ede7"></div>
+        <div style="padding:10px 12px 12px"><div style="font-size:13.5px;font-weight:700">secondary</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e;margin-top:2px">0.95 0.012 60</div><div style="font-size:12px;color:#4a443f;margin-top:5px">11.8:1 dengan teks 0.30</div></div>
+      </button>
+      <button type="button" data-val="oklch(0.965 0.006 60)" onClick="{{ copy }}" style="text-align:left;cursor:pointer;font:inherit;background:#fff;border:1px solid #e2ddd9;border-radius:10px;padding:0;overflow:hidden">
+        <div style="height:48px;background:#f7f3ef"></div>
+        <div style="padding:10px 12px 12px"><div style="font-size:13.5px;font-weight:700">muted</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e;margin-top:2px">0.965 0.006 60</div><div style="font-size:12px;color:#4a443f;margin-top:5px">Header tabel, baris zebra</div></div>
+      </button>
+      <button type="button" data-val="oklch(0.90 0.008 60)" onClick="{{ copy }}" style="text-align:left;cursor:pointer;font:inherit;background:#fff;border:1px solid #e2ddd9;border-radius:10px;padding:0;overflow:hidden">
+        <div style="height:48px;background:#e2ddd9"></div>
+        <div style="padding:10px 12px 12px"><div style="font-size:13.5px;font-weight:700">border</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e;margin-top:2px">0.90 0.008 60</div><div style="font-size:12px;color:#4a443f;margin-top:5px">Garis kartu &amp; tabel</div></div>
+      </button>
+      <button type="button" data-val="oklch(0.82 0.01 60)" onClick="{{ copy }}" style="text-align:left;cursor:pointer;font:inherit;background:#fff;border:1px solid #e2ddd9;border-radius:10px;padding:0;overflow:hidden">
+        <div style="height:48px;background:#c9c3be"></div>
+        <div style="padding:10px 12px 12px"><div style="font-size:13.5px;font-weight:700">border-strong</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e;margin-top:2px">0.82 0.01 60</div><div style="font-size:12px;color:#4a443f;margin-top:5px">Input, tepi kontrol — 1.75:1 vs putih</div></div>
+      </button>
+    </div>
+
+    <p style="margin:16px 0 0;font-size:13.5px;line-height:1.6;color:#6a635e;max-width:70ch">Catatan: PRD mencatat primary sebagai 4.83:1 dengan teks putih; perhitungan ulang dari nilai oklch yang sama memberi <strong style="color:#1f1915">5.05:1</strong>. Selisihnya berasal dari pembulatan konversi oklch→sRGB. Keduanya lolos AA, tetapi nilai di halaman ini yang dipakai sebagai acuan.</p>
+  </section>
+
+  <!-- 3. Status -->
+  <section style="padding-top:56px">
+    <h2 style="margin:0 0 6px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a72b00">03 — Delapan status lead</h2>
+    <p style="margin:0 0 22px;font-size:15px;color:#6a635e;max-width:70ch">Setiap teks status diuji terhadap latar tintnya sendiri, bukan terhadap putih — itu sebab lima badge lama lolos di atas kertas tapi gagal di layar. <strong style="color:#1f1915">Diputuskan: Opsi B untuk dashboard, Opsi A untuk mobile.</strong></p>
+
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:18px">
+      <button type="button" onClick="{{ toggleSun }}" style="cursor:pointer;font:inherit;font-size:13px;font-weight:600;padding:9px 14px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915" style-hover="background:#f7f3ef">Simulasi cahaya matahari</button>
+      <span style="font-size:13px;color:#6a635e">{{ sunLabel }}</span>
+    </div>
+
+    <div style="border:1px solid #e2ddd9;border-radius:12px;overflow:hidden;background:#fff;filter:{{ sunFilter }}">
+      <div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:12px;padding:12px 16px;background:#f7f3ef;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6a635e">
+        <div>Opsi A — dipakai di mobile</div><div>Opsi B — dipakai di dashboard</div><div>Opsi C — tidak dipakai</div><div style="text-align:right">Kontras</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:12px;align-items:center;padding:12px 16px;border-top:1px solid #f0ebe7">
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 7px;border-radius:6px;background:#e6f5ff;color:#006cd3;font-size:13px;font-weight:600"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v8M8 12h8"></path></svg>Baru</span>
+        <span style="justify-self:start;padding:3px 10px;border-radius:999px;border:1.5px solid #006cd3;color:#006cd3;font-size:13px;font-weight:600">Baru</span>
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:6px;background:#f7f3ef;color:#1f1915;font-size:13px;font-weight:600"><span style="width:9px;height:9px;border-radius:999px;background:#006cd3"></span>Baru</span>
+        <span style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:#4a443f">4.62:1</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:12px;align-items:center;padding:12px 16px;border-top:1px solid #f0ebe7">
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 7px;border-radius:6px;background:#f6f0ff;color:#8156c0;font-size:13px;font-weight:600"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3h3l1.5 4-2 1.5a12 12 0 0 0 6.5 6.5L17 13l4 1.5v3a2 2 0 0 1-2.2 2A16 16 0 0 1 4.5 5.2 2 2 0 0 1 6.5 3z"></path></svg>Dihubungi</span>
+        <span style="justify-self:start;padding:3px 10px;border-radius:999px;border:1.5px solid #8156c0;color:#8156c0;font-size:13px;font-weight:600">Dihubungi</span>
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:6px;background:#f7f3ef;color:#1f1915;font-size:13px;font-weight:600"><span style="width:9px;height:9px;border-radius:999px;background:#8156c0"></span>Dihubungi</span>
+        <span style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:#4a443f">4.65:1</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:12px;align-items:center;padding:12px 16px;border-top:1px solid #f0ebe7">
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 7px;border-radius:6px;background:#e4f8f8;color:#007b7d;font-size:13px;font-weight:600"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6"></path></svg>Memenuhi Syarat</span>
+        <span style="justify-self:start;padding:3px 10px;border-radius:999px;border:1.5px solid #007b7d;color:#007b7d;font-size:13px;font-weight:600">Memenuhi Syarat</span>
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:6px;background:#f7f3ef;color:#1f1915;font-size:13px;font-weight:600"><span style="width:9px;height:9px;border-radius:999px;background:#007b7d"></span>Memenuhi Syarat</span>
+        <span style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:#4a443f">4.60:1</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:12px;align-items:center;padding:12px 16px;border-top:1px solid #f0ebe7">
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 7px;border-radius:6px;background:#fff1e0;color:#a05d00;font-size:13px;font-weight:600"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M7 3h7l5 5v13H7z"></path><path d="M14 3v5h5"></path></svg>Penawaran</span>
+        <span style="justify-self:start;padding:3px 10px;border-radius:999px;border:1.5px solid #a05d00;color:#a05d00;font-size:13px;font-weight:600">Penawaran</span>
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:6px;background:#f7f3ef;color:#1f1915;font-size:13px;font-weight:600"><span style="width:9px;height:9px;border-radius:999px;background:#a05d00"></span>Penawaran</span>
+        <span style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:#4a443f">4.65:1</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:12px;align-items:center;padding:12px 16px;border-top:1px solid #f0ebe7">
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 7px;border-radius:6px;background:#e9f9e9;color:#1d802b;font-size:13px;font-weight:600"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3l2.7 5.6 6 .9-4.35 4.25 1.03 6-5.38-2.83L6.62 19.75l1.03-6L3.3 9.5l6-.9z"></path></svg>Menang</span>
+        <span style="justify-self:start;padding:3px 10px;border-radius:5px;border:2px solid #1d802b;color:#1d802b;font-size:13px;font-weight:700">Menang</span>
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:6px;background:#f7f3ef;color:#1f1915;font-size:13px;font-weight:600"><span style="width:9px;height:9px;background:#1d802b"></span>Menang</span>
+        <span style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:#4a443f">4.61:1</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:12px;align-items:center;padding:12px 16px;border-top:1px solid #f0ebe7">
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 7px;border-radius:6px;background:#ffece9;color:#ce2930;font-size:13px;font-weight:600"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>Kalah</span>
+        <span style="justify-self:start;padding:3px 10px;border-radius:5px;border:2px solid #ce2930;color:#ce2930;font-size:13px;font-weight:700">Kalah</span>
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:6px;background:#f7f3ef;color:#1f1915;font-size:13px;font-weight:600"><span style="width:10px;height:9px;background:#ce2930;clip-path:polygon(50% 0,100% 100%,0 100%)"></span>Kalah</span>
+        <span style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:#4a443f">4.63:1</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:12px;align-items:center;padding:12px 16px;border-top:1px solid #f0ebe7">
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 7px;border-radius:6px;background:#f3f3f3;color:#6d6d6d;font-size:13px;font-weight:600"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M8 12h8"></path></svg>Tidak Memenuhi Syarat</span>
+        <span style="justify-self:start;padding:3px 10px;border-radius:5px;border:1.5px dashed #6d6d6d;color:#6d6d6d;font-size:13px;font-weight:600">Tidak Memenuhi Syarat</span>
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:6px;background:#f7f3ef;color:#1f1915;font-size:13px;font-weight:600"><span style="width:9px;height:9px;border-radius:999px;border:2px solid #6d6d6d"></span>Tidak Memenuhi Syarat</span>
+        <span style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:#4a443f">4.67:1</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:12px;align-items:center;padding:12px 16px;border-top:1px solid #f0ebe7">
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:6px;padding:4px 9px 4px 7px;border-radius:6px;background:#f7f2f1;color:#7f6964;font-size:13px;font-weight:600"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M5.6 5.6l12.8 12.8"></path></svg>Spam</span>
+        <span style="justify-self:start;padding:3px 10px;border-radius:5px;border:1.5px dashed #7f6964;color:#7f6964;font-size:13px;font-weight:600">Spam</span>
+        <span style="justify-self:start;display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:6px;background:#f7f3ef;color:#1f1915;font-size:13px;font-weight:600"><span style="width:9px;height:9px;background:#7f6964;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></span>Spam</span>
+        <span style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:#4a443f">4.63:1</span>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:16px">
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:16px;background:#fff">
+        <div style="font-size:13.5px;font-weight:700;margin-bottom:6px">Opsi A — ikon + tint</div>
+        <p style="margin:0;font-size:13.5px;line-height:1.55;color:#4a443f">Paling cepat dipindai di tabel padat dan paling aman untuk buta warna. Biaya: delapan ikon harus dihafal, dan badge jadi ~24px lebih lebar.</p>
+      </div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:16px;background:#fff">
+        <div style="font-size:13.5px;font-weight:700;margin-bottom:6px">Opsi B — tepi + bentuk</div>
+        <p style="margin:0;font-size:13.5px;line-height:1.55;color:#4a443f">Bentuk membawa arti: pil = jalur utama, kotak tebal = hasil akhir, garis putus = dikecualikan dari conversion rate. Paling ringan secara visual di baris berulang.</p>
+      </div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:16px;background:#fff">
+        <div style="font-size:13.5px;font-weight:700;margin-bottom:6px">Opsi C — penanda geometris</div>
+        <p style="margin:0;font-size:13.5px;line-height:1.55;color:#4a443f">Teks selalu hitam 17:1, warna hanya jadi penanda. Paling tenang, tapi status tidak lagi "berteriak" — kurang cocok untuk memindai cepat.</p>
+      </div>
+    </div>
+    <p style="margin:14px 0 0;font-size:14px;line-height:1.6;color:#4a443f;max-width:70ch">Di tabel 25 baris, delapan ikon jadi bising — jadi dashboard pakai Opsi B (tepi + bentuk). Di HP satu tangan di bawah matahari, ikon justru terbaca lebih dulu daripada teks — jadi mobile pakai Opsi A (ikon + tint).</p>
+  </section>
+
+  <!-- 4. Mobile -->
+  <section style="padding-top:56px">
+    <h2 style="margin:0 0 6px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a72b00">04 — Varian mobile (≥7:1)</h2>
+    <p style="margin:0 0 20px;font-size:15px;color:#6a635e;max-width:70ch">Hue identik dengan dashboard, lightness diturunkan ~0.09 dan tint dinaikkan ke 0.975. Satu keluarga, dua tingkat kontras.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:10px">
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:12px;background:#edf8ff"><div style="color:#004eb3;font-size:14px;font-weight:700">Baru</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#004eb3;margin-top:4px">0.445 0.18 255 · 7.08:1</div></div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:12px;background:#f9f4ff"><div style="color:#673ba2;font-size:14px;font-weight:700">Dihubungi</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#673ba2;margin-top:4px">0.46 0.16 300 · 7.10:1</div></div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:12px;background:#ebfafa"><div style="color:#005e60;font-size:14px;font-weight:700">Memenuhi Syarat</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#005e60;margin-top:4px">0.415 0.12 195 · 7.11:1</div></div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:12px;background:#fff5e9"><div style="color:#834300;font-size:14px;font-weight:700">Penawaran</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#834300;margin-top:4px">0.45 0.15 75 · 7.04:1</div></div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:12px;background:#effbef"><div style="color:#006307;font-size:14px;font-weight:700">Menang</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#006307;margin-top:4px">0.43 0.15 145 · 7.04:1</div></div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:12px;background:#fff2ef"><div style="color:#ab000e;font-size:14px;font-weight:700">Kalah</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#ab000e;margin-top:4px">0.455 0.20 25 · 7.02:1</div></div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:12px;background:#f7f7f7"><div style="color:#545454;font-size:14px;font-weight:700">Tidak Memenuhi Syarat</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#545454;margin-top:4px">0.445 0 0 · 7.07:1</div></div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:12px;background:#f9f6f5"><div style="color:#654f4b;font-size:14px;font-weight:700">Spam</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#654f4b;margin-top:4px">0.45 0.03 30 · 7.01:1</div></div>
+    </div>
+    <div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px">
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:14px;background:#fff;font-size:13.5px;line-height:1.55;color:#4a443f"><strong style="color:#1f1915">primary mobile</strong> — oklch(0.52 0.19 41) #bc2e00, teks putih 5.98:1</div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:14px;background:#fff;font-size:13.5px;line-height:1.55;color:#4a443f"><strong style="color:#1f1915">onSurfaceVariant</strong> — oklch(0.44 0.012 60) #58514c, 7.79:1</div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:14px;background:#fff;font-size:13.5px;line-height:1.55;color:#4a443f"><strong style="color:#1f1915">Target sentuh</strong> — 48dp minimum, tombol Telepon/WhatsApp 56dp</div>
+    </div>
+  </section>
+
+  <!-- 5. Tipografi -->
+  <section style="padding-top:56px">
+    <h2 style="margin:0 0 6px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a72b00">05 — Tipografi</h2>
+    <p style="margin:0 0 22px;font-size:15px;color:#6a635e;max-width:70ch">Diputuskan: <strong style="color:#1f1915">Plus Jakarta Sans</strong> menggantikan Geist Sans, dengan <strong style="color:#1f1915">JetBrains Mono</strong> untuk blok kode dan angka teknis.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:24px">
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:18px;background:#fff">
+        <h3 style="margin:0 0 8px;font-size:15px;font-weight:700">Kenapa diganti</h3>
+        <p style="margin:0 0 10px;font-size:14px;line-height:1.6;color:#4a443f">Digambar Tokotype di Jakarta dan dirancang untuk teks Bahasa Indonesia — kerning pasangan yang sering muncul di sini (<span style="font-weight:600">ng, ny, kh</span>) lebih rapat daripada Geist. Bentuk hurufnya sedikit lebih hangat, sejalan dengan amber.</p>
+        <p style="margin:0;font-size:14px;line-height:1.6;color:#4a443f">Satu file variable 400–800, angka <em>tabular</em> tersedia — penting untuk kolom jumlah lead dan waktu respons yang harus sejajar.</p>
+      </div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:18px;background:#fff">
+        <h3 style="margin:0 0 8px;font-size:15px;font-weight:700">Bila ditolak</h3>
+        <p style="margin:0;font-size:14px;line-height:1.6;color:#4a443f">Geist Sans tetap bekerja dengan seluruh token di halaman ini — skala, tinggi baris, dan bobot tidak berubah. Pergantian font tidak memengaruhi satu pun rasio kontras.</p>
+      </div>
+    </div>
+    <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;overflow:hidden">
+      <div style="padding:18px 20px;border-bottom:1px solid #f0ebe7;display:flex;flex-wrap:wrap;gap:16px;align-items:baseline;justify-content:space-between">
+        <div style="font-size:40px;font-weight:800;letter-spacing:-0.025em;line-height:1.1">Mana yang belum ditangani?</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e">display · 40/44 · 800 · -0.025em</div>
+      </div>
+      <div style="padding:16px 20px;border-bottom:1px solid #f0ebe7;display:flex;flex-wrap:wrap;gap:16px;align-items:baseline;justify-content:space-between">
+        <div style="font-size:24px;font-weight:700;letter-spacing:-0.015em">Daftar lead — 64 lead</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e">h1 · 24/30 · 700</div>
+      </div>
+      <div style="padding:16px 20px;border-bottom:1px solid #f0ebe7;display:flex;flex-wrap:wrap;gap:16px;align-items:baseline;justify-content:space-between">
+        <div style="font-size:18px;font-weight:700">Performa per anggota</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e">h2 · 18/24 · 700</div>
+      </div>
+      <div style="padding:16px 20px;border-bottom:1px solid #f0ebe7;display:flex;flex-wrap:wrap;gap:16px;align-items:baseline;justify-content:space-between">
+        <div style="font-size:14px;line-height:1.55;max-width:50ch">Isi tabel dan paragraf. Ukuran dasar antarmuka dashboard; di mobile naik ke 15px karena dibaca sambil berdiri.</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e">body · 14/22 · 400</div>
+      </div>
+      <div style="padding:16px 20px;border-bottom:1px solid #f0ebe7;display:flex;flex-wrap:wrap;gap:16px;align-items:baseline;justify-content:space-between">
+        <div style="font-size:12.5px;font-weight:600;color:#6a635e">Terakhir disentuh 2 jam lalu</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e">caption · 12.5/18 · 600</div>
+      </div>
+      <div style="padding:16px 20px;display:flex;flex-wrap:wrap;gap:16px;align-items:baseline;justify-content:space-between">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:500">#1024 · 0812-3456-7890 · 38 mnt</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e">mono · 14/20 · 500</div>
+      </div>
+    </div>
+    <p style="margin:12px 0 0;font-size:13.5px;color:#6a635e">Nomor lead, nomor telepon, kunci API, dan snippet embed selalu monospace. Angka di dalam tabel memakai <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px">font-variant-numeric: tabular-nums</span>.</p>
+  </section>
+
+  <!-- 6. Spacing, radius, bayangan -->
+  <section style="padding-top:56px">
+    <h2 style="margin:0 0 6px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a72b00">06 — Ruang, radius, bayangan</h2>
+    <p style="margin:0 0 22px;font-size:15px;color:#6a635e">Basis 4px. Tinggi baris tabel 44px di desktop, 56px di HP — sekaligus memenuhi target sentuh.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:18px;background:#fff">
+        <h3 style="margin:0 0 14px;font-size:15px;font-weight:700">Skala ruang</h3>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e;width:56px">4 · xs</span><span style="height:10px;width:4px;background:#ca3c00;border-radius:2px"></span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e;width:56px">8 · sm</span><span style="height:10px;width:8px;background:#ca3c00;border-radius:2px"></span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e;width:56px">12 · md</span><span style="height:10px;width:12px;background:#ca3c00;border-radius:2px"></span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e;width:56px">16 · lg</span><span style="height:10px;width:16px;background:#ca3c00;border-radius:2px"></span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e;width:56px">24 · xl</span><span style="height:10px;width:24px;background:#ca3c00;border-radius:2px"></span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e;width:56px">32 · 2xl</span><span style="height:10px;width:32px;background:#ca3c00;border-radius:2px"></span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e;width:56px">48 · 3xl</span><span style="height:10px;width:48px;background:#ca3c00;border-radius:2px"></span></div>
+        </div>
+        <p style="margin:14px 0 0;font-size:13px;color:#6a635e">Padding kartu 16–18px. Jarak antar bagian 32px di HP, 56px di desktop.</p>
+      </div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:18px;background:#fff">
+        <h3 style="margin:0 0 14px;font-size:15px;font-weight:700">Radius</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:12px">
+          <div style="text-align:center"><div style="width:62px;height:46px;background:#f5ede7;border:1px solid #e2ddd9;border-radius:4px"></div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e;margin-top:6px">4 · badge</div></div>
+          <div style="text-align:center"><div style="width:62px;height:46px;background:#f5ede7;border:1px solid #e2ddd9;border-radius:6px"></div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e;margin-top:6px">6 · input</div></div>
+          <div style="text-align:center"><div style="width:62px;height:46px;background:#f5ede7;border:1px solid #e2ddd9;border-radius:8px"></div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e;margin-top:6px">8 · dasar</div></div>
+          <div style="text-align:center"><div style="width:62px;height:46px;background:#f5ede7;border:1px solid #e2ddd9;border-radius:12px"></div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e;margin-top:6px">12 · kartu</div></div>
+          <div style="text-align:center"><div style="width:62px;height:46px;background:#f5ede7;border:1px solid #e2ddd9;border-radius:999px"></div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e;margin-top:6px">999 · chip</div></div>
+        </div>
+        <p style="margin:14px 0 0;font-size:13px;color:#6a635e"><span style="font-family:'JetBrains Mono',monospace;font-size:12.5px">--radius: 0.5rem</span>. Pil penuh hanya untuk chip filter dan avatar, tidak sebagai gaya global.</p>
+      </div>
+      <div style="border:1px solid #e2ddd9;border-radius:10px;padding:18px;background:#fff">
+        <h3 style="margin:0 0 14px;font-size:15px;font-weight:700">Bayangan</h3>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="background:#fff;border:1px solid #e2ddd9;border-radius:8px;padding:12px"><div style="font-size:13px;font-weight:600">flat — garis saja</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e">kartu, tabel, panel</div></div>
+          <div style="background:#fff;border:1px solid #e9e4e0;border-radius:8px;padding:12px;box-shadow:0 1px 2px rgba(31,25,21,.06)"><div style="font-size:13px;font-weight:600">sm</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e">0 1px 2px / 6%</div></div>
+          <div style="background:#fff;border:1px solid #efeae6;border-radius:8px;padding:12px;box-shadow:0 4px 12px rgba(31,25,21,.08)"><div style="font-size:13px;font-weight:600">md — dropdown, popover</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e">0 4px 12px / 8%</div></div>
+          <div style="background:#fff;border:1px solid #efeae6;border-radius:12px;padding:12px;box-shadow:0 16px 40px rgba(31,25,21,.14)"><div style="font-size:13px;font-weight:600">lg — dialog, sheet</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#6a635e">0 16px 40px / 14%</div></div>
+        </div>
+        <p style="margin:14px 0 0;font-size:13px;color:#6a635e">Bayangan berwarna netral hangat (31,25,21), bukan hitam murni.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. Komponen hidup -->
+  <section style="padding-top:56px">
+    <h2 style="margin:0 0 6px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a72b00">07 — Token dipakai</h2>
+    <p style="margin:0 0 22px;font-size:15px;color:#6a635e">Potongan Daftar lead dengan data §14, memakai Opsi B. Tombol dan chip di sini hidup.</p>
+    <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;overflow:hidden">
+      <div style="padding:14px 16px;border-bottom:1px solid #f0ebe7;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between">
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button type="button" onClick="{{ pickChip }}" data-chip="semua" style="cursor:pointer;font:inherit;font-size:13px;font-weight:600;padding:6px 12px;border-radius:999px;border:1px solid #c9c3be;background:#fff;color:#1f1915" style-hover="background:#f7f3ef">Semua 64</button>
+          <button type="button" onClick="{{ pickChip }}" data-chip="tanpa" style="cursor:pointer;font:inherit;font-size:13px;font-weight:600;padding:6px 12px;border-radius:999px;border:1px solid #c9c3be;background:#fff;color:#a72b00" style-hover="background:#fff1e0">Tanpa pemilik aktif 3</button>
+          <button type="button" onClick="{{ pickChip }}" data-chip="baru" style="cursor:pointer;font:inherit;font-size:13px;font-weight:600;padding:6px 12px;border-radius:999px;border:1px solid #c9c3be;background:#fff;color:#1f1915" style-hover="background:#f7f3ef">Baru 12</button>
+        </div>
+        <button type="button" style="cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:9px 14px;border-radius:8px;border:none;background:#ca3c00;color:#fff" style-hover="background:#b32900">Lead baru</button>
+      </div>
+      <div style="display:none;padding:10px 16px;background:#f7f3ef;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6a635e">Kartu di bawah 640px, tabel di atas — lihat catatan §9.2</div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px 20px;align-items:baseline;padding:12px 16px;border-top:1px solid #f0ebe7;font-size:14px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#6a635e;min-width:52px">#1024</span>
+        <span style="font-weight:600">Dewi Lestari</span>
+        <span style="padding:3px 10px;border-radius:999px;border:1.5px solid #a05d00;color:#a05d00;font-size:12.5px;font-weight:600">Penawaran</span>
+        <span style="color:#4a443f">Andi Pratama</span><span style="color:#6a635e">Formulir</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px 20px;align-items:baseline;padding:12px 16px;border-top:1px solid #f0ebe7;font-size:14px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#6a635e;min-width:52px">#1028</span>
+        <span style="font-weight:600">Dodo</span>
+        <span style="padding:2px 8px;border-radius:4px;background:#f5ede7;color:#4a443f;font-size:11.5px;font-weight:600">Belum ada kontak</span>
+        <span style="padding:3px 10px;border-radius:999px;border:1.5px solid #006cd3;color:#006cd3;font-size:12.5px;font-weight:600">Baru</span>
+        <span style="color:#4a443f">Budi Santoso</span><span style="color:#6a635e">Manual</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px 20px;align-items:baseline;padding:12px 16px;border-top:1px solid #f0ebe7;font-size:14px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#6a635e;min-width:52px">#1029</span>
+        <span style="font-weight:600">Rudi Hartono</span>
+        <span style="padding:3px 10px;border-radius:999px;border:1.5px solid #8156c0;color:#8156c0;font-size:12.5px;font-weight:600">Dihubungi</span>
+        <span style="color:#a72b00;font-weight:600">Tanpa pemilik aktif</span><span style="color:#6a635e">Formulir</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px 20px;align-items:baseline;padding:12px 16px;border-top:1px solid #f0ebe7;font-size:14px">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#6a635e;min-width:52px">#1030</span>
+        <span style="font-weight:600">promo-bot</span>
+        <span style="padding:3px 10px;border-radius:5px;border:1.5px dashed #7f6964;color:#7f6964;font-size:12.5px;font-weight:600">Spam</span>
+        <span style="color:#6a635e">—</span><span style="color:#6a635e">Formulir</span>
+      </div>
+    </div>
+    <p style="margin:12px 0 0;font-size:13.5px;color:#6a635e">{{ chipNote }}</p>
+  </section>
+
+  <!-- 8. Peta token -->
+  <section style="padding-top:56px">
+    <h2 style="margin:0 0 6px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a72b00">08 — Peta token</h2>
+    <p style="margin:0 0 22px;font-size:15px;color:#6a635e">shadcn/ui (Tailwind v4) di kiri, padanan Flutter Material 3 di kanan. Yang tidak ada padanannya ditandai kustom.</p>
+    <div style="border:1px solid #e2ddd9;border-radius:12px;overflow:hidden;background:#fff">
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr) minmax(0,1fr);gap:8px 12px;padding:12px 16px;background:#f7f3ef;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6a635e">
+        <div>Token shadcn</div><div>Nilai</div><div>Flutter M3</div>
+      </div>
+      <sc-for list="{{ tokenMap }}" as="row" hint-placeholder-count="10">
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr) minmax(0,1fr);gap:8px 12px;padding:10px 16px;border-top:1px solid #f0ebe7;font-size:13.5px;align-items:center">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#1f1915;overflow-wrap:anywhere">{{ row.token }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#6a635e;overflow-wrap:anywhere">{{ row.value }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#4a443f;overflow-wrap:anywhere">{{ row.flutter }}</div>
+        </div>
+      </sc-for>
+    </div>
+    <p style="margin:12px 0 0;font-size:13.5px;line-height:1.6;color:#4a443f;max-width:70ch">Warna status bukan token shadcn bawaan — di Tailwind v4 didaftarkan sebagai <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px">--status-{nama}-fg</span> / <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px">--status-{nama}-bg</span>, di Flutter sebagai <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px">ThemeExtension&lt;JualinStatusColors&gt;</span> agar ikut berpindah bersama tema.</p>
+  </section>
+
+  <!-- 9. Berikutnya -->
+  <section style="padding-top:56px">
+    <h2 style="margin:0 0 6px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a72b00">09 — Yang perlu diputuskan</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:16px">
+      <div style="border:1px solid #e2ddd9;border-left:3px solid #1d802b;border-radius:10px;padding:16px;background:#fff">
+        <div style="font-size:14px;font-weight:700;margin-bottom:6px">✓ Badge status — Opsi B dashboard, A mobile</div>
+        <p style="margin:0;font-size:13.5px;line-height:1.55;color:#4a443f">Diputuskan.</p>
+      </div>
+      <div style="border:1px solid #e2ddd9;border-left:3px solid #1d802b;border-radius:10px;padding:16px;background:#fff">
+        <div style="font-size:14px;font-weight:700;margin-bottom:6px">✓ Tipografi — Plus Jakarta Sans</div>
+        <p style="margin:0;font-size:13.5px;line-height:1.55;color:#4a443f">Diputuskan.</p>
+      </div>
+      <div style="border:1px solid #e2ddd9;border-left:3px solid #ca3c00;border-radius:10px;padding:16px;background:#fff">
+        <div style="font-size:14px;font-weight:700;margin-bottom:6px">Peta komponen (§16.2)</div>
+        <p style="margin:0;font-size:13.5px;line-height:1.55;color:#4a443f">Belum termasuk di dokumen ini. Bisa saya susun sebelum masuk ke layar.</p>
+      </div>
+    </div>
+    <p style="margin:20px 0 0;font-size:14px;line-height:1.6;color:#4a443f;max-width:70ch">Berikutnya: Daftar lead → Detail lead → Beranda → Laporan → mobile Employee.</p>
+  </section>
+
+  <sc-if value="{{ copied }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#1f1915;color:#fff;padding:10px 16px;border-radius:8px;font-size:13.5px;font-weight:600;box-shadow:0 8px 24px rgba(31,25,21,.24);z-index:50">{{ copiedMsg }}</div>
+  </sc-if>
+</div>]]>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{}">
+class Component extends DCLogic {
+  state = { copied: false, copiedMsg: '', sun: false, chip: null };
+
+  copyVal = (e) => {
+    const v = e.currentTarget.dataset.val;
+    if (navigator.clipboard) navigator.clipboard.writeText(v).catch(() => {});
+    this.setState({ copied: true, copiedMsg: 'Disalin — ' + v });
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.setState({ copied: false }), 1600);
+  };
+
+  renderVals() {
+    const sun = this.state.sun;
+    const chip = this.state.chip;
+    const notes = {
+      semua: 'Chip "Semua" aktif — 64 lead periode ini.',
+      tanpa: 'Chip "tanpa pemilik aktif" selalu terlihat dengan jumlahnya: 3 lead masih atas nama Rina Kartika yang sudah dinonaktifkan.',
+      baru: 'Chip status membawa jumlahnya sendiri, tercermin di URL.'
+    };
+    return {
+      copy: this.copyVal,
+      copied: this.state.copied,
+      copiedMsg: this.state.copiedMsg,
+      sunFilter: sun ? 'contrast(0.62) brightness(1.22)' : 'none',
+      sunLabel: sun ? 'Aktif — perhatikan Opsi C: penanda kecil hilang lebih dulu daripada teks.' : 'Kontras layar turun ~40% di bawah matahari langsung.',
+      toggleSun: () => this.setState(s => ({ sun: !s.sun })),
+      pickChip: (e) => this.setState({ chip: e.currentTarget.dataset.chip }),
+      chipNote: chip ? notes[chip] : 'Klik chip filter di atas untuk melihat perilakunya.',
+      tokenMap: [
+        { token: '--background', value: 'oklch(0.995 0.003 70)', flutter: 'surface' },
+        { token: '--foreground', value: 'oklch(0.22 0.012 60)', flutter: 'onSurface' },
+        { token: '--card', value: 'oklch(1 0 0)', flutter: 'surfaceContainerLowest' },
+        { token: '--muted', value: 'oklch(0.965 0.006 60)', flutter: 'surfaceContainerHigh' },
+        { token: '--muted-foreground', value: 'oklch(0.505 0.012 60)', flutter: 'onSurfaceVariant' },
+        { token: '--secondary', value: 'oklch(0.95 0.012 60)', flutter: 'secondaryContainer' },
+        { token: '--primary', value: 'oklch(0.56 0.19 41)', flutter: 'primary' },
+        { token: '--primary-foreground', value: 'oklch(1 0 0)', flutter: 'onPrimary' },
+        { token: '--accent-strong', value: 'oklch(0.48 0.17 41)', flutter: 'kustom — onPrimaryFixedVariant' },
+        { token: '--destructive', value: 'oklch(0.505 0.21 27)', flutter: 'error' },
+        { token: '--border', value: 'oklch(0.90 0.008 60)', flutter: 'outlineVariant' },
+        { token: '--input', value: 'oklch(0.82 0.01 60)', flutter: 'outline' },
+        { token: '--ring', value: 'oklch(0.56 0.19 41)', flutter: 'focusColor' },
+        { token: '--radius', value: '0.5rem', flutter: 'ShapeTheme 8dp' },
+        { token: '--shadow-md', value: '0 4px 12px oklch(0.22 0.012 60 / 8%)', flutter: 'elevation 2' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

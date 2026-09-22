@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<![CDATA[<helmet>
+<meta name="design_doc_mode" content="page">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#fffdfb; font-family:'Plus Jakarta Sans',system-ui,sans-serif; color:#1f1915; -webkit-font-smoothing:antialiased; }
+  a { color:#a72b00; text-decoration:underline; text-underline-offset:2px; }
+  a:hover { color:#7e2000; }
+</style>
+</helmet>
+
+<div style="box-sizing:border-box;max-width:1100px;margin:0 auto;padding:{{ pagePad }}">
+  <a href="Daftar Customer.dc.html" style="display:inline-flex;align-items:center;gap:6px;font-size:13.5px;font-weight:600;color:#6a635e;text-decoration:none;margin-bottom:16px">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+    Kembali ke Customer
+  </a>
+
+  <div style="display:{{ gridDisplay }};grid-template-columns:{{ gridCols }};gap:{{ gridGap }};align-items:start">
+    <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+
+      <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;padding:{{ cardPad }}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div>
+            <h1 style="margin:0;font-size:{{ h1Size }};font-weight:800;letter-spacing:-0.015em">{{ customer.name }}</h1>
+            <div style="font-size:14px;color:#6a635e;margin-top:2px">{{ customer.company }}</div>
+          </div>
+          <span style="display:inline-flex;align-items:center;padding:4px 12px;border-radius:999px;background:#e9f9e9;color:#1d802b;font-size:13px;font-weight:700">Customer</span>
+        </div>
+        <div style="display:grid;grid-template-columns:{{ metaCols }};gap:14px;margin-top:18px;font-size:13.5px">
+          <div><div style="color:#6a635e;font-size:12px;font-weight:600;margin-bottom:3px">Nilai kontrak</div><div style="font-family:'JetBrains Mono',monospace;font-weight:600">{{ customer.value }}</div></div>
+          <div><div style="color:#6a635e;font-size:12px;font-weight:600;margin-bottom:3px">Dikonversi</div><div>{{ customer.convertedDate }}</div></div>
+          <div><div style="color:#6a635e;font-size:12px;font-weight:600;margin-bottom:3px">PIC internal</div><div>{{ customer.owner }}</div></div>
+        </div>
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid #f0ebe7;font-size:13.5px">
+          <a href="{{ leadHref }}">Lihat riwayat lead sebelum konversi (#{{ customer.fromLead }}) →</a>
+        </div>
+      </div>
+
+      <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;padding:{{ cardPad }}">
+        <h2 style="margin:0 0 14px;font-size:15px;font-weight:700">Riwayat pembelian</h2>
+        <sc-for list="{{ orders }}" as="o" hint-placeholder-count="3">
+          <div style="display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid #f0ebe7;font-size:14px">
+            <div>
+              <div style="font-weight:600">{{ o.item }}</div>
+              <div style="font-size:12.5px;color:#6a635e;margin-top:2px">{{ o.date }}</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-weight:600;white-space:nowrap">{{ o.amount }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;padding:{{ cardPad }}">
+        <h2 style="margin:0 0 14px;font-size:15px;font-weight:700">Tambah catatan</h2>
+        <textarea value="{{ noteText }}" onChange="{{ onNoteText }}" placeholder="Tulis catatan..." rows="3" style="width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 12px;border-radius:8px;border:1px solid #c9c3be;resize:vertical"></textarea>
+        <div style="display:flex;justify-content:flex-end;margin-top:10px">
+          <button type="button" onClick="{{ addNote }}" style="cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:8px 15px;border-radius:8px;border:none;background:#ca3c00;color:#fff">Tambah</button>
+        </div>
+      </div>
+
+      <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;padding:{{ cardPad }}">
+        <h2 style="margin:0 0 14px;font-size:15px;font-weight:700">Timeline</h2>
+        <sc-for list="{{ timeline }}" as="t" hint-placeholder-count="4">
+          <div style="display:flex;gap:12px;padding:10px 0;border-top:1px solid #f0ebe7">
+            <div style="min-width:0;flex:1">
+              <div style="font-size:13.5px">{{ t.text }}</div>
+              <div style="font-size:12px;color:#94897f;margin-top:2px">{{ t.meta }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+      <div style="border:1px solid #e2ddd9;border-radius:12px;background:#fff;padding:{{ cardPad }}">
+        <h2 style="margin:0 0 12px;font-size:14px;font-weight:700">Kontak</h2>
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:13.5px">
+          <div><div style="color:#6a635e;font-size:12px;font-weight:600">Email</div><div>{{ customer.email }}</div></div>
+          <div><div style="color:#6a635e;font-size:12px;font-weight:600">Telepon</div><div>{{ customer.phone }}</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f1915;color:#fff;padding:10px 18px;border-radius:8px;font-size:13.5px;font-weight:600;box-shadow:0 8px 24px rgba(31,25,21,.24);z-index:60">{{ toast }}</div>
+</sc-if>
+]]>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{}">
+const CUSTOMERS = {
+  c1: { name: 'Ibu Retno', company: 'CV Sinar Abadi', owner: 'Sari Wulandari', value: 'Rp 18.500.000', convertedDate: '20 Sep 2026', fromLead: '1026', email: 'sinar@contoh.id', phone: '—',
+    orders: [{ item: 'Paket katering 100 porsi', date: '19 Sep 2026', amount: 'Rp 18.500.000' }],
+    timeline: [{ text: 'Dikonversi dari lead #1026', meta: '20 Sep, 11:00' }, { text: 'Order pertama dibuat', meta: '19 Sep, 15:20' }] },
+  c2: { name: 'Pak Wisnu', company: 'Toko Berkah Jaya', owner: 'Budi Santoso', value: 'Rp 6.200.000', convertedDate: '9 Sep 2026', fromLead: '1015', email: 'wisnu@contoh.id', phone: '0812-2222-3333',
+    orders: [{ item: 'Stok bulanan September', date: '9 Sep 2026', amount: 'Rp 6.200.000' }],
+    timeline: [{ text: 'Dikonversi dari lead #1015', meta: '9 Sep, 10:00' }] },
+  c3: { name: 'Ibu Larasati', company: 'UD Maju Terus', owner: 'Andi Pratama', value: 'Rp 42.000.000', convertedDate: '2 Sep 2026', fromLead: '1002', email: 'larasati@contoh.id', phone: '0813-5555-6666',
+    orders: [{ item: 'Kontrak tahunan', date: '2 Sep 2026', amount: 'Rp 42.000.000' }],
+    timeline: [{ text: 'Dikonversi dari lead #1002', meta: '2 Sep, 09:00' }] },
+  c4: { name: 'Pak Agung', company: 'Warung Nusantara', owner: 'Sari Wulandari', value: 'Rp 3.100.000', convertedDate: '28 Agu 2026', fromLead: '0994', email: 'agung@contoh.id', phone: '0857-1111-0000',
+    orders: [{ item: 'Order percobaan', date: '28 Agu 2026', amount: 'Rp 3.100.000' }],
+    timeline: [{ text: 'Dikonversi dari lead #0994', meta: '28 Agu, 14:00' }] },
+  c5: { name: 'Ibu Sinta', company: 'Katering Bahagia', owner: 'Budi Santoso', value: 'Rp 9.800.000', convertedDate: '15 Agu 2026', fromLead: '0981', email: 'sinta@contoh.id', phone: '0821-9999-8888',
+    orders: [{ item: 'Paket pernikahan', date: '15 Agu 2026', amount: 'Rp 9.800.000' }],
+    timeline: [{ text: 'Dikonversi dari lead #0981', meta: '15 Agu, 08:30' }] }
+};
+
+class Component extends DCLogic {
+  state = { vw: 1440, id: 'c1', noteText: '', toast: '' };
+  componentDidMount() {
+    this._onResize = () => this.setState({ vw: window.innerWidth });
+    window.addEventListener('resize', this._onResize);
+    this.setState({ vw: window.innerWidth });
+    try {
+      const q = new URLSearchParams(window.location.search).get('id');
+      if (q && CUSTOMERS[q]) this.setState({ id: q });
+    } catch (e) {}
+  }
+  componentWillUnmount() { window.removeEventListener('resize', this._onResize); }
+  onNoteText = (e) => this.setState({ noteText: e.target.value });
+  addNote = () => {
+    if (!this.state.noteText.trim()) return;
+    this.setState({ noteText: '', toast: 'Catatan ditambahkan.' });
+    clearTimeout(this._t); this._t = setTimeout(() => this.setState({ toast: '' }), 2200);
+  };
+
+  renderVals() {
+    const vw = this.state.vw;
+    const isMobile = vw < 768;
+    const customer = CUSTOMERS[this.state.id];
+    return {
+      pagePad: isMobile ? '14px 14px 40px' : '32px 24px 60px', cardPad: isMobile ? '16px' : '20px',
+      h1Size: isMobile ? '20px' : '24px', metaCols: isMobile ? 'repeat(2,minmax(0,1fr))' : 'repeat(auto-fit,minmax(140px,1fr))',
+      gridDisplay: isMobile ? 'flex' : 'grid', gridCols: isMobile ? '' : '1fr 280px', gridGap: isMobile ? '16px' : '20px',
+      customer, leadHref: `Detail Lead.dc.html?lead=${customer.fromLead}`,
+      orders: customer.orders, timeline: customer.timeline,
+      noteText: this.state.noteText, onNoteText: this.onNoteText, addNote: this.addNote, toast: this.state.toast
+    };
+  }
+}
+</script>
+</body>
+</html>
