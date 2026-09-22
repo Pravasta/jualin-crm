@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<![CDATA[<helmet>
+<meta name="design_doc_mode" content="page">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#fffdfb; font-family:'Plus Jakarta Sans',system-ui,sans-serif; color:#1f1915; -webkit-font-smoothing:antialiased; }
+  a { color:#a72b00; text-decoration:underline; text-underline-offset:2px; }
+  a:hover { color:#7e2000; }
+  input::placeholder { color:#94897f; }
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;background:#fffdfb">
+  <sc-if value="{{ showSidebar }}" hint-placeholder-val="{{ true }}">
+    <div style="width:{{ sidebarWidth }};flex-shrink:0;border-right:1px solid #e2ddd9;background:#fff;display:flex;flex-direction:column;padding:16px 0;position:sticky;top:0;height:100vh">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 16px 18px;border-bottom:1px solid #f0ebe7;margin-bottom:8px">
+        <div style="width:26px;height:26px;border-radius:7px;background:#ca3c00;flex-shrink:0"></div>
+        <sc-if value="{{ sidebarExpanded }}" hint-placeholder-val="{{ true }}"><span style="font-size:14px;font-weight:800;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden">Jualin CRM</span></sc-if>
+      </div>
+      <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="9">
+        <a href="{{ item.href }}" style="display:flex;align-items:center;gap:12px;padding:10px 16px;margin:1px 8px;border-radius:8px;cursor:pointer;color:{{ item.color }};background:{{ item.bg }};font-size:14px;font-weight:600;text-decoration:none" title="{{ item.label }}">
+          <span style="width:18px;height:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center" dangerouslySetInnerHTML="{{ item.icon }}"></span>
+          <sc-if value="{{ sidebarExpanded }}" hint-placeholder-val="{{ true }}"><span style="white-space:nowrap;overflow:hidden;flex:1">{{ item.label }}</span></sc-if>
+        </a>
+      </sc-for>
+      <div style="margin-top:auto;padding:12px 16px 0;border-top:1px solid #f0ebe7">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:30px;height:30px;border-radius:999px;background:#f5ede7;color:#a72b00;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">BS</div>
+          <sc-if value="{{ sidebarExpanded }}" hint-placeholder-val="{{ true }}">
+            <div style="min-width:0">
+              <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Budi Santoso</div>
+              <div style="font-size:11.5px;color:#6a635e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Toko Maju Jaya · Owner</div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;padding-bottom:{{ bottomPad }}">
+    <sc-if value="{{ showMobileHeader }}" hint-placeholder-val="{{ false }}">
+      <div style="position:sticky;top:0;z-index:30;background:#fff;border-bottom:1px solid #e2ddd9;padding:12px 16px;display:flex;align-items:center;gap:10px">
+        <div style="width:24px;height:24px;border-radius:6px;background:#ca3c00"></div>
+        <span style="font-size:15px;font-weight:800;flex:1">Customer</span>
+      </div>
+    </sc-if>
+
+    <div style="box-sizing:border-box;max-width:1280px;width:100%;margin:0 auto;padding:{{ contentPad }};flex:1;display:flex;flex-direction:column;gap:{{ sectionGap }}">
+
+      <sc-if value="{{ !isMobile }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div>
+            <h1 style="margin:0;font-size:24px;font-weight:700;letter-spacing:-0.015em">Customer</h1>
+            <p style="margin:4px 0 0;font-size:13.5px;color:#6a635e">Lead yang sudah dikonversi jadi pelanggan.</p>
+          </div>
+        </div>
+      </sc-if>
+
+      <div style="position:relative;max-width:360px">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94897f" stroke-width="2.2" style="position:absolute;left:11px;top:50%;transform:translateY(-50%)"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg>
+        <input value="{{ keyword }}" onChange="{{ onKeyword }}" placeholder="Cari nama atau perusahaan" style="width:100%;box-sizing:border-box;padding:9px 12px 9px 32px;border-radius:8px;border:1px solid #c9c3be;font:inherit;font-size:14px;background:#fff" />
+      </div>
+
+      <sc-if value="{{ !customers.length }}" hint-placeholder-val="{{ false }}">
+        <div style="text-align:center;padding:64px 20px;border:1px dashed #e2ddd9;border-radius:12px;background:#fff">
+          <h3 style="margin:0 0 6px;font-size:16px;font-weight:700">Tidak ada customer yang cocok</h3>
+          <p style="margin:0 0 18px;font-size:14px;color:#6a635e">Customer muncul otomatis setelah lead dikonversi dari halaman Detail lead.</p>
+          <a href="Daftar Lead.dc.html" style="display:inline-block;font-size:14px;font-weight:600;padding:9px 16px;border-radius:8px;background:#ca3c00;color:#fff;text-decoration:none">Buka Daftar lead</a>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ customers.length }}" hint-placeholder-val="{{ true }}">
+        <sc-if value="{{ !isMobile }}" hint-placeholder-val="{{ true }}">
+          <div style="border:1px solid #e2ddd9;border-radius:12px;overflow:hidden;background:#fff">
+            <div style="display:grid;grid-template-columns:{{ tableCols }};gap:12px;padding:10px 16px;background:#f7f3ef;font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6a635e">
+              <div>Nama</div><div>Perusahaan</div><div>PIC</div><div>Nilai kontrak</div><div>Dikonversi</div>
+            </div>
+            <sc-for list="{{ customers }}" as="c" hint-placeholder-count="5">
+              <a href="{{ c.href }}" style="display:grid;grid-template-columns:{{ tableCols }};gap:12px;padding:12px 16px;border-top:1px solid #f0ebe7;align-items:center;font-size:14px;text-decoration:none;color:inherit" style-hover="background:#faf8f6">
+                <div style="font-weight:600">{{ c.name }}</div>
+                <div style="color:#4a443f">{{ c.company }}</div>
+                <div style="color:#6a635e">{{ c.owner }}</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:13px">{{ c.value }}</div>
+                <div style="color:#6a635e;white-space:nowrap">{{ c.convertedDate }}</div>
+              </a>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ isMobile }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <sc-for list="{{ customers }}" as="c" hint-placeholder-count="5">
+              <a href="{{ c.href }}" style="display:block;border:1px solid #e2ddd9;border-radius:10px;padding:14px;background:#fff;text-decoration:none;color:inherit">
+                <div style="font-weight:700;font-size:15px">{{ c.name }}</div>
+                <div style="font-size:13px;color:#6a635e;margin-top:2px">{{ c.company }}</div>
+                <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:13px;color:#6a635e">
+                  <span style="font-family:'JetBrains Mono',monospace">{{ c.value }}</span><span>{{ c.owner }}</span><span>{{ c.convertedDate }}</span>
+                </div>
+              </a>
+            </sc-for>
+          </div>
+        </sc-if>
+      </sc-if>
+    </div>
+  </div>
+
+  <sc-if value="{{ isMobile }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #e2ddd9;display:grid;grid-template-columns:repeat(5,1fr);z-index:36">
+      <sc-for list="{{ bottomNavItems }}" as="b" hint-placeholder-count="5">
+        <a href="{{ b.href }}" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px 10px;color:{{ b.color }};font-size:11px;font-weight:600;text-decoration:none">
+          <span style="width:22px;height:22px;display:flex;align-items:center;justify-content:center" dangerouslySetInnerHTML="{{ b.icon }}"></span>
+          {{ b.label }}
+        </a>
+      </sc-for>
+    </div>
+  </sc-if>
+</div>
+]]>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{}">
+const NAV_ICONS = {
+  home: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5L12 4l9 7.5"/><path d="M5 10v10h14V10"/></svg>',
+  lead: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+  customer: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/></svg>',
+  task: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>',
+  report: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>',
+  more: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>'
+};
+const CUSTOMERS = [
+  { id: 'c1', name: 'Ibu Retno', company: 'CV Sinar Abadi', owner: 'Sari Wulandari', value: 'Rp 18.500.000', convertedDate: '20 Sep 2026', fromLead: '1026' },
+  { id: 'c2', name: 'Pak Wisnu', company: 'Toko Berkah Jaya', owner: 'Budi Santoso', value: 'Rp 6.200.000', convertedDate: '9 Sep 2026', fromLead: '1015' },
+  { id: 'c3', name: 'Ibu Larasati', company: 'UD Maju Terus', owner: 'Andi Pratama', value: 'Rp 42.000.000', convertedDate: '2 Sep 2026', fromLead: '1002' },
+  { id: 'c4', name: 'Pak Agung', company: 'Warung Nusantara', owner: 'Sari Wulandari', value: 'Rp 3.100.000', convertedDate: '28 Agu 2026', fromLead: '0994' },
+  { id: 'c5', name: 'Ibu Sinta', company: 'Katering Bahagia', owner: 'Budi Santoso', value: 'Rp 9.800.000', convertedDate: '15 Agu 2026', fromLead: '0981' }
+];
+
+class Component extends DCLogic {
+  state = { vw: 1440, keyword: '' };
+  componentDidMount() {
+    this._onResize = () => this.setState({ vw: window.innerWidth });
+    window.addEventListener('resize', this._onResize);
+    this.setState({ vw: window.innerWidth });
+  }
+  componentWillUnmount() { window.removeEventListener('resize', this._onResize); }
+  onKeyword = (e) => this.setState({ keyword: e.target.value });
+
+  renderVals() {
+    const vw = this.state.vw;
+    const isMobile = vw < 768;
+    const isTablet = vw >= 768 && vw < 1024;
+    const kw = this.state.keyword.toLowerCase();
+
+    const customers = CUSTOMERS.filter(c => !kw || c.name.toLowerCase().includes(kw) || c.company.toLowerCase().includes(kw))
+      .map(c => ({ ...c, href: `Detail Customer.dc.html?id=${c.id}` }));
+
+    const navMeta = [
+      ['home', 'Beranda', 'Beranda.dc.html'], ['lead', 'Lead', 'Daftar Lead.dc.html'], ['customer', 'Customer', 'Daftar Customer.dc.html'], ['task', 'Tugas', 'Tugas.dc.html'],
+      ['report', 'Laporan', 'Laporan.dc.html'], ['team', 'Tim', 'Tim.dc.html'], ['connect', 'Connect', 'Connect.dc.html'], ['sub', 'Langganan', 'Langganan.dc.html'], ['settings', 'Pengaturan', 'Pengaturan.dc.html']
+    ];
+    const navItems = navMeta.map(([icon, label, href]) => ({
+      icon: { __html: NAV_ICONS[icon] }, label, href, color: label === 'Customer' ? '#a72b00' : '#1f1915', bg: label === 'Customer' ? '#fff1e0' : 'transparent'
+    }));
+    const bottomNavItems = [
+      { icon: { __html: NAV_ICONS.home }, label: 'Beranda', color: '#6a635e', href: 'Beranda.dc.html' },
+      { icon: { __html: NAV_ICONS.lead }, label: 'Lead', color: '#6a635e', href: 'Daftar Lead.dc.html' },
+      { icon: { __html: NAV_ICONS.customer }, label: 'Customer', color: '#a72b00', href: 'Daftar Customer.dc.html' },
+      { icon: { __html: NAV_ICONS.report }, label: 'Laporan', color: '#6a635e', href: 'Laporan.dc.html' },
+      { icon: { __html: NAV_ICONS.more }, label: 'Lainnya', color: '#6a635e', href: '#' }
+    ];
+
+    return {
+      isMobile, isTablet,
+      showSidebar: !isMobile, sidebarExpanded: !isMobile && !isTablet, sidebarWidth: (!isMobile && !isTablet) ? '232px' : '68px',
+      showMobileHeader: isMobile, bottomPad: isMobile ? '76px' : '0',
+      contentPad: isMobile ? '14px' : isTablet ? '20px' : '28px', sectionGap: isMobile ? '14px' : '18px',
+      tableCols: '1.3fr 1.3fr 1fr 1fr 1fr',
+      navItems, bottomNavItems, keyword: this.state.keyword, onKeyword: this.onKeyword, customers
+    };
+  }
+}
+</script>
+</body>
+</html>

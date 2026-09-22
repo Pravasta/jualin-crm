@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<![CDATA[<helmet>
+<meta name="design_doc_mode" content="page">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#fffdfb; font-family:'Plus Jakarta Sans',system-ui,sans-serif; color:#1f1915; -webkit-font-smoothing:antialiased; }
+  a { color:#a72b00; text-decoration:underline; text-underline-offset:2px; }
+  a:hover { color:#7e2000; }
+  input::placeholder { color:#94897f; }
+  ::-webkit-scrollbar { height:0; width:0; }
+</style>
+</helmet>
+
+<div style="position:sticky;top:0;z-index:40;background:#fff;border-bottom:1px solid #e2ddd9;padding:8px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:12.5px">
+  <span style="font-weight:700;color:#a72b00;text-transform:uppercase;letter-spacing:.08em;font-size:11px">Pratinjau prototipe</span>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <button type="button" onClick="{{ setDemo }}" data-demo="normal" style="cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;padding:5px 10px;border-radius:6px;border:1px solid {{ demoBorderNormal }};background:{{ demoBgNormal }};color:{{ demoFgNormal }}">Normal</button>
+    <button type="button" onClick="{{ setDemo }}" data-demo="loading" style="cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;padding:5px 10px;border-radius:6px;border:1px solid {{ demoBorderLoading }};background:{{ demoBgLoading }};color:{{ demoFgLoading }}">Memuat</button>
+    <button type="button" onClick="{{ setDemo }}" data-demo="empty-none" style="cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;padding:5px 10px;border-radius:6px;border:1px solid {{ demoBorderEmptyNone }};background:{{ demoBgEmptyNone }};color:{{ demoFgEmptyNone }}">Kosong — belum ada lead</button>
+    <button type="button" onClick="{{ setDemo }}" data-demo="empty-filter" style="cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;padding:5px 10px;border-radius:6px;border:1px solid {{ demoBorderEmptyFilter }};background:{{ demoBgEmptyFilter }};color:{{ demoFgEmptyFilter }}">Kosong — filter tak cocok</button>
+  </div>
+  <span style="margin-left:auto;color:#6a635e;font-family:'JetBrains Mono',monospace">{{ widthLabel }}</span>
+</div>
+
+<div style="min-height:100vh;display:flex;background:#fffdfb">
+
+  <!-- Sidebar desktop/tablet -->
+  <sc-if value="{{ showSidebar }}" hint-placeholder-val="{{ true }}">
+    <div style="width:{{ sidebarWidth }};flex-shrink:0;border-right:1px solid #e2ddd9;background:#fff;display:flex;flex-direction:column;padding:16px 0;position:sticky;top:41px;height:calc(100vh - 41px)">
+      <div style="display:flex;align-items:center;gap:10px;padding:0 16px 18px;border-bottom:1px solid #f0ebe7;margin-bottom:8px">
+        <div style="width:26px;height:26px;border-radius:7px;background:#ca3c00;flex-shrink:0"></div>
+        <sc-if value="{{ sidebarExpanded }}" hint-placeholder-val="{{ true }}">
+          <span style="font-size:14px;font-weight:800;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden">Jualin CRM</span>
+        </sc-if>
+      </div>
+      <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="9">
+        <a href="{{ item.href }}" style="display:flex;align-items:center;gap:12px;padding:10px 16px;margin:1px 8px;border-radius:8px;cursor:pointer;color:{{ item.color }};background:{{ item.bg }};font-size:14px;font-weight:600;text-decoration:none" title="{{ item.label }}">
+          <span style="width:18px;height:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center" dangerouslySetInnerHTML="{{ item.icon }}"></span>
+          <sc-if value="{{ sidebarExpanded }}" hint-placeholder-val="{{ true }}">
+            <span style="white-space:nowrap;overflow:hidden;flex:1">{{ item.label }}</span>
+          </sc-if>
+          <sc-if value="{{ item.badge }}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{ sidebarExpanded }}" hint-placeholder-val="{{ true }}">
+              <span style="background:#a72b00;color:#fff;font-size:11px;font-weight:700;border-radius:999px;padding:1px 6px;min-width:18px;text-align:center">{{ item.badge }}</span>
+            </sc-if>
+          </sc-if>
+        </a>
+      </sc-for>
+      <div style="margin-top:auto;padding:12px 16px 0;border-top:1px solid #f0ebe7">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:30px;height:30px;border-radius:999px;background:#f5ede7;color:#a72b00;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">BS</div>
+          <sc-if value="{{ sidebarExpanded }}" hint-placeholder-val="{{ true }}">
+            <div style="min-width:0">
+              <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Budi Santoso</div>
+              <div style="font-size:11.5px;color:#6a635e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Toko Maju Jaya · Owner</div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;padding-bottom:{{ bottomPad }}">
+
+    <!-- Mobile top header -->
+    <sc-if value="{{ showMobileHeader }}" hint-placeholder-val="{{ false }}">
+      <div style="position:sticky;top:41px;z-index:30;background:#fff;border-bottom:1px solid #e2ddd9;padding:12px 16px;display:flex;align-items:center;gap:10px">
+        <div style="width:24px;height:24px;border-radius:6px;background:#ca3c00"></div>
+        <span style="font-size:15px;font-weight:800;flex:1">Lead</span>
+        <button type="button" style="position:relative;width:36px;height:36px;border-radius:8px;border:1px solid #e2ddd9;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4a443f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.7 21a2 2 0 01-3.4 0"></path></svg>
+          <span style="position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:999px;background:#a72b00"></span>
+        </button>
+      </div>
+    </sc-if>
+
+    <div style="box-sizing:border-box;max-width:1280px;width:100%;margin:0 auto;padding:{{ contentPad }};flex:1;display:flex;flex-direction:column;gap:{{ sectionGap }}">
+
+      <!-- Page header -->
+      <sc-if value="{{ !isMobile }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div>
+            <h1 style="margin:0;font-size:24px;font-weight:700;letter-spacing:-0.015em">Lead</h1>
+            <p style="margin:4px 0 0;font-size:13.5px;color:#6a635e">Mana yang belum ditangani?</p>
+          </div>
+          <button type="button" onClick="{{ openNewLead }}" style="cursor:pointer;font:inherit;font-size:14px;font-weight:600;padding:10px 16px;border-radius:8px;border:none;background:#ca3c00;color:#fff;display:flex;align-items:center;gap:6px" style-hover="background:#b32900">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+            Lead baru
+          </button>
+        </div>
+      </sc-if>
+
+      <!-- Filters -->
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;gap:10px;flex-wrap:{{ searchWrap }}">
+          <div style="flex:1;min-width:180px;position:relative">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94897f" stroke-width="2.2" style="position:absolute;left:11px;top:50%;transform:translateY(-50%)"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg>
+            <input value="{{ keyword }}" onChange="{{ onKeyword }}" placeholder="Cari nama, email, atau telepon" style="width:100%;box-sizing:border-box;padding:9px 12px 9px 32px;border-radius:8px;border:1px solid #c9c3be;font:inherit;font-size:14px;background:#fff" />
+          </div>
+          <sc-if value="{{ isMobile }}" hint-placeholder-val="{{ false }}">
+            <button type="button" onClick="{{ openSheet }}" style="cursor:pointer;font:inherit;font-size:14px;font-weight:600;padding:9px 14px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915;display:flex;align-items:center;gap:6px;white-space:nowrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M7 12h10M10 19h4"></path></svg>
+              Filter <sc-if value="{{ activeFilterCount }}" hint-placeholder-val="{{ false }}"><span style="background:#a72b00;color:#fff;border-radius:999px;font-size:11px;padding:0 5px">{{ activeFilterCount }}</span></sc-if>
+            </button>
+          </sc-if>
+        </div>
+
+        <!-- status chips: always visible, horizontally scrollable on mobile -->
+        <div style="display:flex;gap:8px;flex-wrap:{{ chipWrap }};overflow-x:{{ chipOverflow }};padding-bottom:2px">
+          <button type="button" onClick="{{ toggleStatus }}" data-status="__unassigned" style="flex-shrink:0;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;padding:6px 12px;border-radius:999px;border:1.5px solid #a72b00;background:{{ unassignedActiveBg }};color:#a72b00;white-space:nowrap">Tanpa pemilik aktif · 3</button>
+          <sc-for list="{{ statusChips }}" as="s" hint-placeholder-count="8">
+            <button type="button" onClick="{{ toggleStatus }}" data-status="{{ s.key }}" style="flex-shrink:0;cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;border:1.5px solid {{ s.border }};background:{{ s.bg }};color:{{ s.fg }};white-space:nowrap">{{ s.label }} · {{ s.count }}</button>
+          </sc-for>
+        </div>
+
+        <!-- desktop/tablet inline filters -->
+        <sc-if value="{{ !isMobile }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <select onChange="{{ onSourceSelect }}" value="{{ sourceFilter }}" style="font:inherit;font-size:13.5px;padding:8px 10px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915">
+              <option value="">Semua sumber</option>
+              <option value="Manual">Manual</option>
+              <option value="API">API</option>
+              <option value="Formulir">Formulir</option>
+              <option value="Webhook">Webhook</option>
+            </select>
+            <select onChange="{{ onOwnerSelect }}" value="{{ ownerFilter }}" style="font:inherit;font-size:13.5px;padding:8px 10px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915">
+              <option value="">Semua pemilik</option>
+              <option value="Budi Santoso">Budi Santoso</option>
+              <option value="Sari Wulandari">Sari Wulandari</option>
+              <option value="Andi Pratama">Andi Pratama</option>
+            </select>
+            <select onChange="{{ onPeriodSelect }}" value="{{ period }}" style="font:inherit;font-size:13.5px;padding:8px 10px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915">
+              <option value="30">30 hari terakhir</option>
+              <option value="7">7 hari terakhir</option>
+              <option value="month">Bulan ini</option>
+              <option value="lastmonth">Bulan lalu</option>
+            </select>
+            <sc-if value="{{ activeFilterCount }}" hint-placeholder-val="{{ false }}">
+              <button type="button" onClick="{{ clearFilters }}" style="cursor:pointer;font:inherit;font-size:13px;font-weight:600;color:#a72b00;background:none;border:none;text-decoration:underline">Hapus semua filter</button>
+            </sc-if>
+          </div>
+        </sc-if>
+      </div>
+
+      <!-- Content states -->
+      <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <sc-for list="{{ skeletonRows }}" as="sk" hint-placeholder-count="6">
+            <div style="height:{{ rowHeight }};border-radius:10px;background:linear-gradient(90deg,#f2ede8,#f9f5f1,#f2ede8);background-size:200% 100%;animation:sk 1.3s ease-in-out infinite"></div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showEmptyNone }}" hint-placeholder-val="{{ false }}">
+        <div style="text-align:center;padding:64px 20px;border:1px dashed #e2ddd9;border-radius:12px;background:#fff">
+          <div style="width:44px;height:44px;border-radius:12px;background:#f7f3ef;margin:0 auto 14px;display:flex;align-items:center;justify-content:center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a72b00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
+          </div>
+          <h3 style="margin:0 0 6px;font-size:16px;font-weight:700">Belum ada lead</h3>
+          <p style="margin:0 0 18px;font-size:14px;color:#6a635e;max-width:36ch;margin-inline:auto">Lead akan muncul di sini begitu masuk lewat formulir, API, webhook, atau dicatat manual.</p>
+          <button type="button" onClick="{{ openNewLead }}" style="cursor:pointer;font:inherit;font-size:14px;font-weight:600;padding:9px 16px;border-radius:8px;border:none;background:#ca3c00;color:#fff">Tambah lead pertama</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showEmptyFilter }}" hint-placeholder-val="{{ false }}">
+        <div style="text-align:center;padding:64px 20px;border:1px dashed #e2ddd9;border-radius:12px;background:#fff">
+          <div style="width:44px;height:44px;border-radius:12px;background:#f7f3ef;margin:0 auto 14px;display:flex;align-items:center;justify-content:center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6a635e" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg>
+          </div>
+          <h3 style="margin:0 0 6px;font-size:16px;font-weight:700">Tidak ada lead yang cocok</h3>
+          <p style="margin:0 0 18px;font-size:14px;color:#6a635e;max-width:36ch;margin-inline:auto">Coba lebarkan filter status, sumber, atau periode.</p>
+          <button type="button" onClick="{{ clearFilters }}" style="cursor:pointer;font:inherit;font-size:14px;font-weight:600;padding:9px 16px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915">Hapus semua filter</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showNormal }}" hint-placeholder-val="{{ true }}">
+
+        <!-- Desktop/tablet table -->
+        <sc-if value="{{ !isMobile }}" hint-placeholder-val="{{ true }}">
+          <div style="border:1px solid #e2ddd9;border-radius:12px;overflow:hidden;background:#fff">
+            <div style="display:grid;grid-template-columns:{{ tableCols }};gap:12px;padding:10px 16px;background:#f7f3ef;font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6a635e">
+              <div>Nomor</div><div>Nama</div><div>Status</div><div>Pemilik</div><div>Sumber</div><div>Masuk</div>
+              <sc-if value="{{ isDesktop }}" hint-placeholder-val="{{ true }}"><div>Kontak</div></sc-if>
+            </div>
+            <sc-for list="{{ leads }}" as="lead" hint-placeholder-count="7">
+              <a href="{{ lead.href }}" style="display:grid;grid-template-columns:{{ tableCols }};gap:12px;padding:12px 16px;border-top:1px solid #f0ebe7;align-items:center;font-size:14px;cursor:pointer;text-decoration:none;color:inherit" style-hover="background:#faf8f6">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#6a635e">#{{ lead.num }}</div>
+                <div style="min-width:0">
+                  <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+                    <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis">{{ lead.name }}</span>
+                    <sc-if value="{{ lead.noContact }}" hint-placeholder-val="{{ false }}">
+                      <span style="padding:2px 7px;border-radius:4px;background:#f5ede7;color:#4a443f;font-size:11px;font-weight:600;white-space:nowrap">Belum ada kontak</span>
+                    </sc-if>
+                  </div>
+                </div>
+                <div><span style="{{ lead.badgeStyle }}">{{ lead.statusLabel }}</span></div>
+                <div style="{{ lead.ownerStyle }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ lead.owner }}</div>
+                <div style="color:#6a635e">{{ lead.source }}</div>
+                <div style="color:#6a635e;white-space:nowrap">{{ lead.date }}</div>
+                <sc-if value="{{ isDesktop }}" hint-placeholder-val="{{ true }}">
+                  <div style="color:#6a635e;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ lead.contact }}</div>
+                </sc-if>
+              </a>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <!-- Mobile cards -->
+        <sc-if value="{{ isMobile }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <sc-for list="{{ leads }}" as="lead" hint-placeholder-count="7">
+              <a href="{{ lead.href }}" style="display:block;border:1px solid #e2ddd9;border-radius:10px;padding:14px;background:#fff;cursor:pointer;text-decoration:none;color:inherit">
+                <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+                  <div style="min-width:0">
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                      <span style="font-weight:700;font-size:15px">{{ lead.name }}</span>
+                    </div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#6a635e;margin-top:2px">#{{ lead.num }}</div>
+                  </div>
+                  <span style="{{ lead.badgeStyle }};flex-shrink:0">{{ lead.statusLabel }}</span>
+                </div>
+                <sc-if value="{{ lead.noContact }}" hint-placeholder-val="{{ false }}">
+                  <span style="display:inline-block;margin-top:8px;padding:2px 7px;border-radius:4px;background:#f5ede7;color:#4a443f;font-size:11px;font-weight:600">Belum ada kontak</span>
+                </sc-if>
+                <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:13px;color:#6a635e">
+                  <span style="{{ lead.ownerStyle }}">{{ lead.owner }}</span>
+                  <span>{{ lead.source }}</span>
+                  <span>{{ lead.date }}</span>
+                </div>
+              </a>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <!-- Pagination -->
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding-top:4px">
+          <span style="font-size:13px;color:#6a635e">Menampilkan 1–7 dari 64 lead</span>
+          <div style="display:flex;gap:8px">
+            <button type="button" disabled style="cursor:not-allowed;font:inherit;font-size:13.5px;font-weight:600;padding:7px 12px;border-radius:8px;border:1px solid #e2ddd9;background:#fff;color:#c9c3be">Sebelumnya</button>
+            <button type="button" style="cursor:pointer;font:inherit;font-size:13.5px;font-weight:600;padding:7px 12px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915">Berikutnya</button>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+
+  <!-- Mobile FAB -->
+  <sc-if value="{{ isMobile }}" hint-placeholder-val="{{ false }}">
+    <sc-if value="{{ showNormal }}" hint-placeholder-val="{{ true }}">
+      <button type="button" onClick="{{ openNewLead }}" style="position:fixed;right:16px;bottom:78px;width:56px;height:56px;border-radius:999px;background:#ca3c00;color:#fff;border:none;box-shadow:0 8px 20px rgba(202,60,0,.35);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:35">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </sc-if>
+  </sc-if>
+
+  <!-- Bottom nav mobile -->
+  <sc-if value="{{ isMobile }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #e2ddd9;display:grid;grid-template-columns:repeat(5,1fr);z-index:36">
+      <sc-for list="{{ bottomNavItems }}" as="b" hint-placeholder-count="5">
+        <a href="{{ b.href }}" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px 10px;color:{{ b.color }};font-size:11px;font-weight:600;text-decoration:none">
+          <span style="width:22px;height:22px;display:flex;align-items:center;justify-content:center" dangerouslySetInnerHTML="{{ b.icon }}"></span>
+          {{ b.label }}
+        </a>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <!-- Mobile filter sheet -->
+  <sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeSheet }}" style="position:fixed;inset:0;background:rgba(31,25,21,.4);z-index:44"></div>
+    <div style="position:fixed;left:0;right:0;bottom:0;background:#fff;border-radius:16px 16px 0 0;z-index:45;padding:18px 18px calc(18px + env(safe-area-inset-bottom));max-height:80vh;overflow-y:auto;box-shadow:0 -16px 40px rgba(31,25,21,.18)">
+      <div style="width:36px;height:4px;background:#e2ddd9;border-radius:999px;margin:0 auto 16px"></div>
+      <h3 style="margin:0 0 14px;font-size:16px;font-weight:700">Filter</h3>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label style="display:block;font-size:12.5px;font-weight:700;color:#6a635e;margin-bottom:6px">Sumber</label>
+          <select onChange="{{ onSourceSelect }}" value="{{ sourceFilter }}" style="width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 12px;border-radius:8px;border:1px solid #c9c3be;background:#fff">
+            <option value="">Semua sumber</option><option value="Manual">Manual</option><option value="API">API</option><option value="Formulir">Formulir</option><option value="Webhook">Webhook</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;font-size:12.5px;font-weight:700;color:#6a635e;margin-bottom:6px">Pemilik</label>
+          <select onChange="{{ onOwnerSelect }}" value="{{ ownerFilter }}" style="width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 12px;border-radius:8px;border:1px solid #c9c3be;background:#fff">
+            <option value="">Semua pemilik</option><option value="Budi Santoso">Budi Santoso</option><option value="Sari Wulandari">Sari Wulandari</option><option value="Andi Pratama">Andi Pratama</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;font-size:12.5px;font-weight:700;color:#6a635e;margin-bottom:6px">Periode masuk</label>
+          <select onChange="{{ onPeriodSelect }}" value="{{ period }}" style="width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 12px;border-radius:8px;border:1px solid #c9c3be;background:#fff">
+            <option value="30">30 hari terakhir</option><option value="7">7 hari terakhir</option><option value="month">Bulan ini</option><option value="lastmonth">Bulan lalu</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:20px">
+        <button type="button" onClick="{{ clearFilters }}" style="flex:1;cursor:pointer;font:inherit;font-size:14px;font-weight:600;padding:12px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915">Hapus filter</button>
+        <button type="button" onClick="{{ closeSheet }}" style="flex:1;cursor:pointer;font:inherit;font-size:14px;font-weight:600;padding:12px;border-radius:8px;border:none;background:#ca3c00;color:#fff">Terapkan</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- New lead dialog / sheet -->
+  <sc-if value="{{ dialogOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeDialog }}" style="position:fixed;inset:0;background:rgba(31,25,21,.45);z-index:50"></div>
+    <div style="{{ dialogFrameStyle }}">
+      <sc-if value="{{ !softConfirm }}" hint-placeholder-val="{{ true }}">
+        <h3 style="margin:0 0 4px;font-size:17px;font-weight:700">Lead baru</h3>
+        <p style="margin:0 0 18px;font-size:13.5px;color:#6a635e">Catat lead yang masuk secara manual.</p>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:6px">Nama <span style="color:#c0000f">*</span></label>
+            <input value="{{ formName }}" onChange="{{ onFormName }}" placeholder="Nama lead" style="width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 12px;border-radius:8px;border:1px solid {{ nameErrBorder }}" />
+            <sc-if value="{{ nameError }}" hint-placeholder-val="{{ false }}"><div style="color:#c0000f;font-size:12.5px;margin-top:5px">Nama wajib diisi.</div></sc-if>
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:6px">Email</label>
+            <input value="{{ formEmail }}" onChange="{{ onFormEmail }}" placeholder="nama@contoh.id" style="width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 12px;border-radius:8px;border:1px solid #c9c3be" />
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;margin-bottom:6px">Telepon</label>
+            <input value="{{ formPhone }}" onChange="{{ onFormPhone }}" placeholder="0812-xxxx-xxxx" style="width:100%;box-sizing:border-box;font:inherit;font-size:14px;padding:10px 12px;border-radius:8px;border:1px solid #c9c3be" />
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:22px;justify-content:flex-end">
+          <button type="button" onClick="{{ closeDialog }}" style="cursor:pointer;font:inherit;font-size:14px;font-weight:600;padding:10px 16px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915">Batal</button>
+          <button type="button" onClick="{{ submitLead }}" style="cursor:pointer;font:inherit;font-size:14px;font-weight:600;padding:10px 16px;border-radius:8px;border:none;background:#ca3c00;color:#fff">Simpan</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{ softConfirm }}" hint-placeholder-val="{{ false }}">
+        <h3 style="margin:0 0 10px;font-size:17px;font-weight:700">Belum ada kontak</h3>
+        <p style="margin:0 0 20px;font-size:14px;line-height:1.55;color:#4a443f">Lead ini belum punya kontak dan tidak bisa ditindaklanjuti. Tetap simpan?</p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+          <button type="button" onClick="{{ backToForm }}" style="cursor:pointer;font:inherit;font-size:14px;font-weight:600;padding:10px 16px;border-radius:8px;border:1px solid #c9c3be;background:#fff;color:#1f1915">Kembali isi kontak</button>
+          <button type="button" onClick="{{ confirmSave }}" style="cursor:pointer;font:inherit;font-size:14px;font-weight:600;padding:10px 16px;border-radius:8px;border:none;background:#ca3c00;color:#fff">Tetap simpan</button>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:#1f1915;color:#fff;padding:10px 18px;border-radius:8px;font-size:13.5px;font-weight:600;box-shadow:0 8px 24px rgba(31,25,21,.24);z-index:60">{{ toast }}</div>
+  </sc-if>
+
+</div>
+
+<div style="position:fixed;bottom:-9999px"><style>@keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}</style></div>
+]]>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{}">
+const STATUS_DEF = {
+  new:          { label: 'Baru',                 fg: '#006cd3', shape: 'pill' },
+  contacted:    { label: 'Dihubungi',             fg: '#8156c0', shape: 'pill' },
+  qualified:    { label: 'Memenuhi Syarat',       fg: '#007b7d', shape: 'pill' },
+  proposal:     { label: 'Penawaran',             fg: '#a05d00', shape: 'pill' },
+  won:          { label: 'Menang',                fg: '#1d802b', shape: 'square' },
+  lost:         { label: 'Kalah',                 fg: '#ce2930', shape: 'square' },
+  unqualified:  { label: 'Tidak Memenuhi Syarat', fg: '#6d6d6d', shape: 'dashed' },
+  spam:         { label: 'Spam',                  fg: '#7f6964', shape: 'dashed' }
+};
+const STATUS_COUNTS = { new: 12, contacted: 15, qualified: 9, proposal: 6, won: 9, lost: 8, unqualified: 5, spam: 9 };
+
+const ALL_LEADS = [
+  { num: '1024', name: 'Dewi Lestari', status: 'proposal', owner: 'Andi Pratama', source: 'Formulir', date: '18 Sep', contact: '0812-3456-7890', noContact: false },
+  { num: '1025', name: 'Hendra Wijaya', status: 'new', owner: null, source: 'API', date: '20 Sep', contact: '0813-1111-2222', noContact: false },
+  { num: '1026', name: 'CV Sinar Abadi', status: 'won', owner: 'Sari Wulandari', source: 'Manual', date: '12 Sep', contact: 'sinar@contoh.id', noContact: false },
+  { num: '1027', name: 'Maya Anggraini', status: 'lost', owner: 'Andi Pratama', source: 'Webhook', date: '15 Sep', contact: '0857-9999-0000', noContact: false },
+  { num: '1028', name: 'Dodo', status: 'new', owner: 'Budi Santoso', source: 'Manual', date: '21 Sep', contact: '—', noContact: true },
+  { num: '1029', name: 'Rudi Hartono', status: 'contacted', owner: 'Rina Kartika', ownerInactive: true, source: 'Formulir', date: '17 Sep', contact: '0821-4444-5555', noContact: false },
+  { num: '1030', name: 'promo-bot', status: 'spam', owner: null, source: 'Formulir', date: '19 Sep', contact: 'spam@spam.xyz', noContact: false }
+];
+
+function badgeStyle(key) {
+  const d = STATUS_DEF[key];
+  const base = 'display:inline-flex;align-items:center;padding:3px 10px;font-size:12.5px;font-weight:600;white-space:nowrap;';
+  if (d.shape === 'pill') return base + `border-radius:999px;border:1.5px solid ${d.fg};color:${d.fg};background:#fff;`;
+  if (d.shape === 'square') return base + `border-radius:5px;border:2px solid ${d.fg};color:${d.fg};font-weight:700;background:#fff;`;
+  return base + `border-radius:5px;border:1.5px dashed ${d.fg};color:${d.fg};background:#fff;`;
+}
+
+const NAV_ICONS = {
+  home: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5L12 4l9 7.5"/><path d="M5 10v10h14V10"/></svg>',
+  lead: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+  customer: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/></svg>',
+  task: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>',
+  report: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>',
+  team: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M15.5 15c2.5.3 4.5 2 4.5 5"/></svg>',
+  connect: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v4M15 3v4M6 8h12l-1 6a5 5 0 01-10 0z"/><path d="M12 17v4"/></svg>',
+  sub: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg>',
+  settings: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5v.2a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H4a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3h0a1.7 1.7 0 001-1.5V4a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v0a1.7 1.7 0 001.5 1H20a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
+  more: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>'
+};
+
+class Component extends DCLogic {
+  state = {
+    demo: 'normal', vw: 1440,
+    statusFilter: new Set(), unassignedActive: false, sourceFilter: '', ownerFilter: '', period: '30', keyword: '',
+    sheetOpen: false, dialogOpen: false, softConfirm: false, formName: '', formEmail: '', formPhone: '', nameError: false,
+    toast: ''
+  };
+
+  componentDidMount() {
+    this._onResize = () => this.setState({ vw: window.innerWidth });
+    window.addEventListener('resize', this._onResize);
+    this.setState({ vw: window.innerWidth });
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const status = q.get('status'), owner = q.get('owner');
+      const patch = {};
+      if (status && STATUS_DEF[status]) patch.statusFilter = new Set([status]);
+      if (owner === 'unassigned') patch.unassignedActive = true;
+      else if (owner) patch.ownerFilter = owner;
+      if (Object.keys(patch).length) this.setState(patch);
+    } catch (e) {}
+  }
+  componentWillUnmount() { window.removeEventListener('resize', this._onResize); }
+
+  setDemo = (e) => this.setState({ demo: e.currentTarget.dataset.demo });
+  toggleStatus = (e) => {
+    const key = e.currentTarget.dataset.status;
+    if (key === '__unassigned') { this.setState(s => ({ unassignedActive: !s.unassignedActive })); return; }
+    this.setState(s => {
+      const next = new Set(s.statusFilter);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return { statusFilter: next };
+    });
+  };
+  onKeyword = (e) => this.setState({ keyword: e.target.value });
+  onSourceSelect = (e) => this.setState({ sourceFilter: e.target.value });
+  onOwnerSelect = (e) => this.setState({ ownerFilter: e.target.value });
+  onPeriodSelect = (e) => this.setState({ period: e.target.value });
+  clearFilters = () => this.setState({ statusFilter: new Set(), unassignedActive: false, sourceFilter: '', ownerFilter: '', period: '30', keyword: '', sheetOpen: false });
+  openSheet = () => this.setState({ sheetOpen: true });
+  closeSheet = () => this.setState({ sheetOpen: false });
+
+  openNewLead = () => this.setState({ dialogOpen: true, softConfirm: false, formName: '', formEmail: '', formPhone: '', nameError: false });
+  closeDialog = () => this.setState({ dialogOpen: false, softConfirm: false });
+  onFormName = (e) => this.setState({ formName: e.target.value, nameError: false });
+  onFormEmail = (e) => this.setState({ formEmail: e.target.value });
+  onFormPhone = (e) => this.setState({ formPhone: e.target.value });
+  submitLead = () => {
+    if (!this.state.formName.trim()) { this.setState({ nameError: true }); return; }
+    if (!this.state.formEmail.trim() && !this.state.formPhone.trim()) { this.setState({ softConfirm: true }); return; }
+    this.finishSave();
+  };
+  backToForm = () => this.setState({ softConfirm: false });
+  confirmSave = () => this.finishSave();
+  finishSave = () => {
+    this.setState({ dialogOpen: false, softConfirm: false, toast: `Lead "${this.state.formName}" disimpan (contoh).` });
+    clearTimeout(this._tt);
+    this._tt = setTimeout(() => this.setState({ toast: '' }), 2400);
+  };
+
+  renderVals() {
+    const vw = this.state.vw;
+    const isMobile = vw < 768;
+    const isTablet = vw >= 768 && vw < 1024;
+    const isDesktop = vw >= 1024;
+    const demo = this.state.demo;
+    const isLoading = demo === 'loading';
+    const showEmptyNone = demo === 'empty-none';
+    const showEmptyFilter = demo === 'empty-filter';
+    const showNormal = demo === 'normal';
+
+    const navMeta = [
+      ['home', 'Beranda', null, 'Beranda.dc.html'], ['lead', 'Lead', 3, 'Daftar Lead.dc.html'], ['customer', 'Customer', null, 'Daftar Customer.dc.html'], ['task', 'Tugas', null, 'Tugas.dc.html'],
+      ['report', 'Laporan', null, 'Laporan.dc.html'], ['team', 'Tim', null, 'Tim.dc.html'], ['connect', 'Connect', null, 'Connect.dc.html'], ['sub', 'Langganan', null, 'Langganan.dc.html'], ['settings', 'Pengaturan', null, 'Pengaturan.dc.html']
+    ];
+    const navItems = navMeta.map(([icon, label, badge, href]) => ({
+      icon: { __html: NAV_ICONS[icon] }, label, badge, href,
+      color: label === 'Lead' ? '#a72b00' : '#1f1915',
+      bg: label === 'Lead' ? '#fff1e0' : 'transparent'
+    }));
+
+    const statusChips = Object.keys(STATUS_DEF).map(key => {
+      const d = STATUS_DEF[key];
+      const active = this.state.statusFilter.has(key);
+      return {
+        key, label: d.label, count: STATUS_COUNTS[key],
+        border: d.fg, fg: active ? '#fff' : d.fg, bg: active ? d.fg : '#fff'
+      };
+    });
+
+    let leads = ALL_LEADS.filter(l => {
+      if (this.state.unassignedActive && (l.owner !== null && !l.ownerInactive)) return false;
+      if (this.state.statusFilter.size && !this.state.statusFilter.has(l.status)) return false;
+      if (this.state.sourceFilter && l.source !== this.state.sourceFilter) return false;
+      if (this.state.ownerFilter && l.owner !== this.state.ownerFilter) return false;
+      if (this.state.keyword && !l.name.toLowerCase().includes(this.state.keyword.toLowerCase())) return false;
+      return true;
+    }).map(l => ({
+      num: l.num, name: l.name, statusLabel: STATUS_DEF[l.status].label, badgeStyle: badgeStyle(l.status),
+      owner: l.ownerInactive ? l.owner : (l.owner || 'Tanpa pemilik aktif'),
+      ownerStyle: (!l.owner || l.ownerInactive) ? 'color:#a72b00;font-weight:600' : 'color:#1f1915',
+      source: l.source, date: l.date, contact: l.contact, noContact: l.noContact,
+      href: `Detail Lead.dc.html?lead=${l.num}`
+    }));
+
+    const activeFilterCount = this.state.statusFilter.size + (this.state.unassignedActive ? 1 : 0) + (this.state.sourceFilter ? 1 : 0) + (this.state.ownerFilter ? 1 : 0);
+
+    const bottomNavItems = [
+      { icon: { __html: NAV_ICONS.home }, label: 'Beranda', color: '#6a635e', href: 'Beranda.dc.html' },
+      { icon: { __html: NAV_ICONS.lead }, label: 'Lead', color: '#a72b00', href: 'Daftar Lead.dc.html' },
+      { icon: { __html: NAV_ICONS.task }, label: 'Tugas', color: '#6a635e', href: '#' },
+      { icon: { __html: NAV_ICONS.report }, label: 'Laporan', color: '#6a635e', href: 'Laporan.dc.html' },
+      { icon: { __html: NAV_ICONS.more }, label: 'Lainnya', color: '#6a635e', href: '#' }
+    ];
+
+    const demoBtn = (key) => ({
+      border: demo === key ? '#ca3c00' : '#e2ddd9', bg: demo === key ? '#fff1e0' : '#fff', fg: demo === key ? '#a72b00' : '#4a443f'
+    });
+    const dn = demoBtn('normal'), dl = demoBtn('loading'), den = demoBtn('empty-none'), def = demoBtn('empty-filter');
+
+    return {
+      widthLabel: `${vw}px — ${isMobile ? 'HP' : isTablet ? 'Tablet' : 'Desktop'}`,
+      setDemo: this.setDemo,
+      demoBorderNormal: dn.border, demoBgNormal: dn.bg, demoFgNormal: dn.fg,
+      demoBorderLoading: dl.border, demoBgLoading: dl.bg, demoFgLoading: dl.fg,
+      demoBorderEmptyNone: den.border, demoBgEmptyNone: den.bg, demoFgEmptyNone: den.fg,
+      demoBorderEmptyFilter: def.border, demoBgEmptyFilter: def.bg, demoFgEmptyFilter: def.fg,
+
+      isMobile, isTablet, isDesktop,
+      showSidebar: !isMobile, sidebarExpanded: isDesktop, sidebarWidth: isDesktop ? '232px' : '68px',
+      showMobileHeader: isMobile,
+      bottomPad: isMobile ? '76px' : '0',
+      contentPad: isMobile ? '14px' : isTablet ? '20px' : '28px',
+      sectionGap: isMobile ? '14px' : '18px',
+      tableCols: isDesktop ? '90px minmax(0,1.3fr) 150px minmax(0,0.9fr) 100px 80px minmax(0,1fr)' : '80px minmax(0,1.3fr) 140px minmax(0,0.9fr) 90px 70px',
+      searchWrap: isMobile ? 'nowrap' : 'wrap',
+      chipOverflow: isMobile ? 'auto' : 'visible', chipWrap: isMobile ? 'nowrap' : 'wrap',
+      unassignedActiveBg: this.state.unassignedActive ? '#a72b00' : '#fff',
+      navItems, bottomNavItems,
+
+      keyword: this.state.keyword, onKeyword: this.onKeyword,
+      onSourceSelect: this.onSourceSelect, sourceFilter: this.state.sourceFilter,
+      onOwnerSelect: this.onOwnerSelect, ownerFilter: this.state.ownerFilter,
+      onPeriodSelect: this.onPeriodSelect, period: this.state.period,
+      toggleStatus: this.toggleStatus, statusChips, activeFilterCount,
+      clearFilters: this.clearFilters, openSheet: this.openSheet, closeSheet: this.closeSheet, sheetOpen: this.state.sheetOpen,
+
+      isLoading, showEmptyNone, showEmptyFilter, showNormal,
+      skeletonRows: [1,2,3,4,5,6], rowHeight: isMobile ? '76px' : '52px',
+      leads,
+
+      openNewLead: this.openNewLead, closeDialog: this.closeDialog, dialogOpen: this.state.dialogOpen,
+      dialogFrameStyle: isMobile
+        ? 'position:fixed;left:0;right:0;bottom:0;background:#fff;border-radius:16px 16px 0 0;z-index:51;padding:20px 18px calc(20px + env(safe-area-inset-bottom));max-height:85vh;overflow-y:auto'
+        : 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:420px;max-width:92vw;background:#fff;border-radius:14px;z-index:51;padding:24px;box-shadow:0 24px 60px rgba(31,25,21,.25)',
+      formName: this.state.formName, onFormName: this.onFormName, nameError: this.state.nameError,
+      nameErrBorder: this.state.nameError ? '#c0000f' : '#c9c3be',
+      formEmail: this.state.formEmail, onFormEmail: this.onFormEmail,
+      formPhone: this.state.formPhone, onFormPhone: this.onFormPhone,
+      submitLead: this.submitLead, softConfirm: this.state.softConfirm, backToForm: this.backToForm, confirmSave: this.confirmSave,
+      toast: this.state.toast
+    };
+  }
+}
+</script>
+</body>
+</html>
