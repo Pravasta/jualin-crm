@@ -84,3 +84,13 @@ Yang di luar batas ini ada di [`prd.md`](./prd.md) bagian *Di luar cakupan* dan 
 | **Angka kontras dihitung, bukan disalin** | Sudah meleset dua kali: #40 (aksen 4.45:1) dan #70 (tiga angka desainer) |
 | **Perilaku tidak boleh hilang diam-diam** | Test yang ada tidak dilonggarkan. Bila sebuah test harus berubah, alasannya ditulis di PR |
 | **Tanpa guliran horizontal halaman** | Diuji di 360/390/820/1440 px, bukan diperkirakan |
+
+---
+
+## Temuan untuk penutupan phase — `docs/issues/`
+
+Dibaca **seluruhnya** di #174. Berkas tanpa penunjuk tidak pernah dibaca lagi (#98).
+
+| Berkas | Isi | Pemicu |
+|---|---|---|
+| [`159`](../../issues/159-design-tokens.md) | Abu-abu dingin mentah di layar, sebagian gagal AA; tint status 94% karena klaim token sheet tidak benar | #161, #162, #165 menggantinya dengan token; #174 memeriksa `grep` kosong |
