@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormErrorBanner } from "@/components/form-error-banner";
 import { NoContactBadge } from "@/components/no-contact-badge";
+import { StatusBadge } from "@/components/status-badge";
 import { dateInputToEndOfDayUTC, dateInputToStartOfDayUTC, formatDateID } from "@/lib/date";
 import { hasContact } from "@/lib/lead-contact";
 import { hasAnyLeadFilter, parseCSVParam, toggleCSVValue } from "@/lib/lead-filters";
@@ -276,7 +277,7 @@ export function LeadsList() {
               className="flex items-center gap-1.5 rounded-full border-[1.5px] px-2.5 py-1 text-xs font-medium transition-colors"
               style={{
                 borderColor: active ? meta.color : "oklch(0.922 0 0)",
-                background: active ? `color-mix(in oklch, ${meta.color}, white 82%)` : "#fff",
+                background: active ? meta.background : "#fff",
                 color: active ? meta.color : "oklch(0.35 0 0)",
               }}
             >
@@ -374,7 +375,6 @@ export function LeadsList() {
                   const owner = lead.assigned_to_membership_id
                     ? membersById.get(lead.assigned_to_membership_id)?.full_name
                     : null;
-                  const statusMeta = STATUS_META[lead.status];
                   return (
                     <tr
                       key={lead.id}
@@ -390,12 +390,7 @@ export function LeadsList() {
                         </div>
                       </td>
                       <td className="px-3.5 py-2.5">
-                        <span
-                          className="inline-block rounded-full px-2.5 py-0.5 text-xs font-medium"
-                          style={{ background: statusMeta.background, color: statusMeta.color }}
-                        >
-                          {statusMeta.label}
-                        </span>
+                        <StatusBadge status={lead.status} />
                       </td>
                       <td
                         className="px-3.5 py-2.5 text-[13px]"

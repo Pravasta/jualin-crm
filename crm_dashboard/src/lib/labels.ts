@@ -2,11 +2,11 @@
 // same status can't end up as "Menang" on one screen and "Won" on
 // another (Aturan #12: seluruh teks antarmuka Bahasa Indonesia).
 //
-// Labels and colors come from the Claude Design output (issue #40). The
-// colors are NOT CSS tokens: each one belongs to exactly one enum value
-// rather than to the theme, and Tailwind can't generate classes from a
-// runtime value anyway — these are applied as inline styles by whatever
-// renders the badge.
+// Labels come from the Claude Design output (issue #40); colors and
+// shapes from the Phase 8.6 token sheet (issue #159). The colors are NOT
+// CSS tokens: each one belongs to exactly one enum value rather than to
+// the theme, and Tailwind can't generate classes from a runtime value
+// anyway — these are applied as inline styles by whatever renders them.
 
 // --- Lead status -------------------------------------------------------
 
@@ -23,61 +23,52 @@ export const LEAD_STATUSES = [
 
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 
+/**
+ * How a status badge is drawn on the dashboard (token sheet "Opsi B").
+ * The shape carries meaning so status never rests on color alone:
+ *   pill   — the main path (Baru → Penawaran)
+ *   square — an outcome (Menang, Kalah)
+ *   dashed — excluded from conversion rate (Tidak Memenuhi Syarat, Spam)
+ */
+export type StatusShape = "pill" | "square" | "dashed";
+
 export interface StatusMeta {
   label: string;
-  /** Badge text color. Also the dot/border color where a badge isn't used. */
+  /** Text and border color. Drawn on white in the badge itself. */
   color: string;
-  /** Badge background — the same hue at 15% over white. */
+  /** Tint for surfaces that carry this status's text on a colored
+   * background (closed-lead ribbon, active filter chip). */
   background: string;
+  shape: StatusShape;
 }
 
-// Every `color` below is verified to reach at least 4.5:1 (WCAG AA,
-// normal text) against its own `background`. The design's original
-// values missed that bar on five of the eight — `proposal` worst at
-// 3.14:1 — so lightness is nudged down while hue and chroma are kept
-// exactly as designed. Backgrounds are still mixed from the design's
-// original lightness, so the badges look as drawn.
+// Contrast, recomputed rather than copied (issue #159 — table in
+// docs/phases/08.6-ui-redesign/notes.md): every `color` is 5.03–5.27:1
+// on white, which is what the badge draws on, and the same for white
+// text on `color` (an active chip).
+//
+// The token sheet claims these reach ≥4.6:1 "on their own tint". They
+// don't at the old 85%-white tint (4.11–4.29:1), so `background` is
+// mixed at 94% white instead: 4.65:1 at the worst (`won`). That is what
+// AA needs for normal text wherever a status color sits on its tint.
+const tint = (color: string) => `color-mix(in oklch, ${color}, white 94%)`;
+
+const status = (label: string, color: string, shape: StatusShape): StatusMeta => ({
+  label,
+  color,
+  background: tint(color),
+  shape,
+});
+
 export const STATUS_META: Record<LeadStatus, StatusMeta> = {
-  new: {
-    label: "Baru",
-    color: "oklch(0.52 0.18 255)",
-    background: "color-mix(in oklch, oklch(0.55 0.18 255), white 85%)",
-  },
-  contacted: {
-    label: "Dihubungi",
-    color: "oklch(0.535 0.16 300)",
-    background: "color-mix(in oklch, oklch(0.55 0.16 300), white 85%)",
-  },
-  qualified: {
-    label: "Memenuhi Syarat",
-    color: "oklch(0.49 0.12 195)",
-    background: "color-mix(in oklch, oklch(0.5 0.12 195), white 85%)",
-  },
-  proposal: {
-    label: "Penawaran",
-    color: "oklch(0.53 0.15 75)",
-    background: "color-mix(in oklch, oklch(0.62 0.15 75), white 85%)",
-  },
-  won: {
-    label: "Menang",
-    color: "oklch(0.5 0.15 145)",
-    background: "color-mix(in oklch, oklch(0.5 0.15 145), white 85%)",
-  },
-  lost: {
-    label: "Kalah",
-    color: "oklch(0.54 0.2 25)",
-    background: "color-mix(in oklch, oklch(0.55 0.2 25), white 85%)",
-  },
-  unqualified: {
-    label: "Tidak Memenuhi Syarat",
-    color: "oklch(0.5 0 0)",
-    background: "color-mix(in oklch, oklch(0.5 0 0), white 85%)",
-  },
-  spam: {
-    label: "Spam",
-    color: "oklch(0.42 0.03 30)",
-    background: "color-mix(in oklch, oklch(0.42 0.03 30), white 85%)",
-  },
+  new: status("Baru", "#006cd3", "pill"),
+  contacted: status("Dihubungi", "#8156c0", "pill"),
+  qualified: status("Memenuhi Syarat", "#007b7d", "pill"),
+  proposal: status("Penawaran", "#a05d00", "pill"),
+  won: status("Menang", "#1d802b", "square"),
+  lost: status("Kalah", "#ce2930", "square"),
+  unqualified: status("Tidak Memenuhi Syarat", "#6d6d6d", "dashed"),
+  spam: status("Spam", "#7f6964", "dashed"),
 };
 
 // --- Lost reason -------------------------------------------------------

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FormErrorBanner } from "@/components/form-error-banner";
 import { NoContactBadge } from "@/components/no-contact-badge";
+import { StatusBadge } from "@/components/status-badge";
 import { ApiError } from "@/lib/api-types";
 import {
   convertLead,
@@ -27,7 +28,7 @@ import { listMemberships, type Member } from "@/lib/memberships";
 import { activityToTimelineEntry, lostReasonDisplayLabel } from "@/lib/activity-text";
 import { hasContact } from "@/lib/lead-contact";
 import { canConvertLead, hasBeenConverted } from "@/lib/lead-status";
-import { SOURCE_LABELS, STATUS_META, type LeadStatus, type LostReason } from "@/lib/labels";
+import { SOURCE_LABELS, type LeadStatus, type LostReason } from "@/lib/labels";
 import { formatDateID } from "@/lib/date";
 import { globalMessage, isLeadConvertedLocked, versionConflictCurrent } from "@/lib/auth-errors";
 import { useSession } from "@/lib/session-context";
@@ -275,7 +276,6 @@ export function LeadDetail({ leadId }: { leadId: string }) {
     return <div className="py-16 text-center text-sm text-muted-foreground">Memuat…</div>;
   }
 
-  const statusMeta = STATUS_META[lead.status];
   const lostReasonLabel = lostReasonDisplayLabel(lead.lost_reason);
   const canDelete = session.role === "owner" || session.role === "admin";
   // The Lead entity itself carries no "already converted" flag —
@@ -320,12 +320,7 @@ export function LeadDetail({ leadId }: { leadId: string }) {
                     </button>
                   </div>
                 </div>
-                <span
-                  className="inline-block rounded-full px-3 py-1 text-[13px] font-semibold"
-                  style={{ background: statusMeta.background, color: statusMeta.color }}
-                >
-                  {statusMeta.label}
-                </span>
+                <StatusBadge status={lead.status} size="md" />
               </div>
               <div className="mt-2.5 flex flex-wrap gap-4 text-[13px] text-foreground/70">
                 {lead.email && <span>{lead.email}</span>}
