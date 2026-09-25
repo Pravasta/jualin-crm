@@ -11,9 +11,13 @@
 //
 // Client component since #114 — rendering the locked-by-plan state
 // needs session.plan, which only exists inside SessionGate.
+//
+// Phase 8.6 (#166): three cards, never six. The handoff drew WhatsApp
+// Business, Instagram DM, Marketplace and Google Sheets as channels with
+// connect/disconnect toggles — dummy data, and a chat inbox is out of scope
+// (scope.md). A locked card names no plan and offers no upgrade (brief §8.9).
 import Link from "next/link";
-import { KeyRound, FileText, Webhook } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { ChevronRight, KeyRound, FileText, Lock, Webhook } from "lucide-react";
 import { useSession } from "@/lib/session-context";
 import { channelCardState, type PlanChannel } from "@/lib/plan";
 
@@ -76,63 +80,83 @@ export function ConnectScreen() {
   const session = useSession();
 
   return (
-    <div>
-      <p className="mb-4.5 text-[13px] text-muted-foreground">
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 md:gap-4">
+      <p className="text-[14px] text-muted-foreground">
         Pilih cara pelanggan dan sistem eksternal mengirim lead ke organization Anda.
       </p>
 
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {CHANNELS.map((channel) => {
           const Icon = channel.icon;
           const state =
             channel.productStatus === "unavailable"
               ? "unavailable"
               : channelCardState("active", session.plan, channel.channel);
+          const open = channel.productStatus === "active" && state === "active";
 
           const body = (
             <>
-              <div className="mb-3 flex size-9 items-center justify-center rounded-md bg-accent-tint text-accent-strong">
-                <Icon className="size-4.5" />
-              </div>
-              <div className="mb-1 flex items-center gap-2">
-                <span className="text-[13.5px] font-semibold">{channel.title}</span>
-                {state === "unavailable" ? (
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+              <div className="flex items-start justify-between gap-3">
+                <div
+                  className={
+                    open
+                      ? "flex size-10 items-center justify-center rounded-lg bg-accent-tint text-accent-strong"
+                      : "flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+                  }
+                >
+                  <Icon className="size-5" />
+                </div>
+                {state === "unavailable" && (
+                  <span className="rounded-full bg-secondary px-2.5 py-0.5 text-[12px] font-bold text-secondary-foreground">
                     Belum tersedia
                   </span>
-                ) : null}
-                {state === "locked" ? (
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+                )}
+                {state === "locked" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-0.5 text-[12px] font-bold text-secondary-foreground">
+                    <Lock className="size-3" aria-hidden />
                     Terkunci oleh paket
                   </span>
-                ) : null}
+                )}
               </div>
-              <p className="text-[12.5px] text-muted-foreground">{channel.description}</p>
+              <div className="mt-3 text-[16px] font-bold">{channel.title}</div>
+              <p className="mt-1 text-[13.5px] text-muted-foreground">{channel.description}</p>
               {/* Visible and explains why — never hidden, never priced,
                   never a dead upgrade button (D6). Seeing this is the
                   point: a channel never seen is never upgraded for
                   (ADR-012, Alasan). */}
-              {state === "locked" ? (
-                <p className="mt-2 text-[12.5px] text-muted-foreground">
+              {state === "locked" && (
+                <p className="mt-3 border-t border-border pt-3 text-[13px] text-muted-foreground">
                   Kanal ini tidak termasuk paket Anda saat ini.
                 </p>
-              ) : null}
+              )}
+              {open && (
+                <div className="mt-3 flex items-center gap-1 border-t border-border pt-3 text-[13.5px] font-semibold text-accent-strong">
+                  Kelola
+                  <ChevronRight className="size-4" aria-hidden />
+                </div>
+              )}
             </>
           );
 
-          if (channel.productStatus !== "active" || state !== "active") {
+          if (!open) {
             return (
-              <Card key={channel.title} className="opacity-60">
-                <CardContent>{body}</CardContent>
-              </Card>
+              <div
+                key={channel.title}
+                aria-disabled="true"
+                className="flex flex-col rounded-xl border border-border bg-muted/40 p-4 opacity-70"
+              >
+                {body}
+              </div>
             );
           }
 
           return (
-            <Link key={channel.title} href={channel.href} className="block">
-              <Card className="transition-colors hover:bg-muted/40">
-                <CardContent>{body}</CardContent>
-              </Card>
+            <Link
+              key={channel.title}
+              href={channel.href}
+              className="flex flex-col rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary"
+            >
+              {body}
             </Link>
           );
         })}

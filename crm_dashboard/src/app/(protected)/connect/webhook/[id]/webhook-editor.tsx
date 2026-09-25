@@ -30,6 +30,7 @@ import { formatDateID } from "@/lib/date";
 import { useSession } from "@/lib/session-context";
 import { DeleteWebhookDialog } from "./delete-webhook-dialog";
 import { DeliveryHistory } from "./delivery-history";
+import { BackLink, NotForRole } from "../../connect-ui";
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
@@ -117,9 +118,7 @@ export function WebhookEditor({ endpointId }: { endpointId: string }) {
 
   if (!canManage) {
     return (
-      <p className="text-[13px] text-muted-foreground">
-        Pengelolaan webhook tidak tersedia untuk role Anda.
-      </p>
+      <NotForRole>Pengelolaan webhook tidak tersedia untuk role Anda.</NotForRole>
     );
   }
 
@@ -130,13 +129,9 @@ export function WebhookEditor({ endpointId }: { endpointId: string }) {
   if (loadError || !endpoint) {
     return (
       <div>
-        <button
-          type="button"
-          onClick={() => router.push("/connect/webhook")}
-          className="mb-3.5 flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground"
-        >
-          ← Kembali ke Webhook
-        </button>
+        <div className="mb-3.5">
+        <BackLink href="/connect/webhook" label="Webhook" />
+      </div>
         <FormErrorBanner message={loadError ?? "Endpoint tidak ditemukan."} />
       </div>
     );
@@ -146,32 +141,28 @@ export function WebhookEditor({ endpointId }: { endpointId: string }) {
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => router.push("/connect/webhook")}
-        className="mb-3.5 flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground"
-      >
-        ← Kembali ke Webhook
-      </button>
+      <div className="mb-3.5">
+        <BackLink href="/connect/webhook" label="Webhook" />
+      </div>
 
-      <div className="mb-4 flex items-start justify-between gap-4">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h2 className="text-[13.5px] font-semibold break-all">{endpoint.url}</h2>
-          <p className="text-[12.5px] text-muted-foreground">
+          <h2 className="text-[16px] font-bold [overflow-wrap:anywhere]">{endpoint.url}</h2>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">
             Dibuat {formatDateID(endpoint.created_at)} · secret{" "}
             <span className="font-mono">{endpoint.secret_prefix}…</span>
           </p>
         </div>
         <Button
           variant="outline"
-          className="shrink-0"
+          className="shrink-0 self-start bg-card md:h-9"
           onClick={() => router.push("/connect/webhook/docs")}
         >
           Dokumentasi verifikasi
         </Button>
       </div>
 
-      <section className="mb-6 rounded-lg border border-border bg-background p-4">
+      <section className="mb-6 rounded-xl border border-border bg-card p-4">
         <h3 className="mb-3 text-[13px] font-semibold">Pengaturan</h3>
 
         <FormErrorBanner message={saveError} />

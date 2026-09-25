@@ -17,6 +17,8 @@ import {
 } from "@/lib/webhooks";
 import { globalMessage } from "@/lib/auth-errors";
 import { formatDateTimeID } from "@/lib/date";
+import { STATUS_META } from "@/lib/labels";
+import { ListSkeleton } from "../../connect-ui";
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
@@ -32,12 +34,27 @@ const STATUS_LABELS: Record<DeliveryStatus, string> = {
   failed: "Gagal",
 };
 
+// Word first, tint second: the status must read without color. Succeeded
+// borrows the Menang pair and failed the destructive token (both ≥4.5:1 on
+// their tints, #159); in-flight states stay neutral.
 const STATUS_CLASSES: Record<DeliveryStatus, string> = {
-  pending: "text-muted-foreground",
-  delivering: "text-muted-foreground",
-  succeeded: "text-foreground/70",
-  failed: "text-destructive",
+  pending: "bg-secondary text-secondary-foreground",
+  delivering: "bg-secondary text-secondary-foreground",
+  succeeded: "",
+  failed: "bg-destructive/8 text-destructive",
 };
+
+function DeliveryStatusBadge({ status }: { status: DeliveryStatus }) {
+  const style = status === "succeeded" ? { background: STATUS_META.won.background, color: STATUS_META.won.color } : undefined;
+  return (
+    <span
+      className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[12.5px] font-bold ${STATUS_CLASSES[status]}`}
+      style={style}
+    >
+      {STATUS_LABELS[status]}
+    </span>
+  );
+}
 
 export function DeliveryHistory({ endpointId }: { endpointId: string }) {
   const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
@@ -95,107 +112,80 @@ export function DeliveryHistory({ endpointId }: { endpointId: string }) {
   const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   if (!loaded) {
-    return <p className="text-[13px] text-muted-foreground">Memuat riwayat…</p>;
+    return <ListSkeleton label="Memuat riwayat pengiriman" />;
   }
 
+  // One list at every width (#166), not a table: each row carries the
+  // server's error text, which is the whole value of this screen (see
+  // below), and a table column truncates it or forces sideways scrolling.
   return (
-    <div>
+    <div className="flex flex-col gap-3">
       <FormErrorBanner message={error} />
 
       {deliveries.length === 0 ? (
-        <p className="text-[13px] text-muted-foreground">
+        <p className="text-[13.5px] text-muted-foreground">
           Belum ada pengiriman. Riwayat akan terisi begitu event pertama terjadi.
         </p>
       ) : (
         <>
-          <div className="overflow-hidden rounded-lg border border-border bg-background">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="bg-muted/40">
-                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Waktu
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Event
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Status
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Percobaan
-                  </th>
-                  <th className="px-4 py-2.5" />
-                </tr>
-              </thead>
-              <tbody>
-                {deliveries.map((delivery) => (
-                  <tr key={delivery.id} className="border-t border-border/70">
-                    <td className="px-4 py-2.5 text-[13px] text-foreground/70">
-                      {formatDateTimeID(delivery.created_at)}
-                    </td>
-                    <td className="px-4 py-2.5 text-[13px]">
-                      {WEBHOOK_EVENT_LABELS[delivery.event_type as WebhookEvent] ??
-                        delivery.event_type}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <div className={`text-[13px] ${STATUS_CLASSES[delivery.status]}`}>
-                        {STATUS_LABELS[delivery.status]}
-                        {delivery.response_status !== null && (
-                          <span className="ml-1 font-mono text-[11.5px]">
-                            HTTP {delivery.response_status}
-                          </span>
-                        )}
-                      </div>
-                      {/* The reason is the whole value of this screen: a
-                          customer who can see "connection refused" fixes
-                          their firewall; one who sees only "Gagal" opens
-                          a support ticket. */}
-                      {delivery.error && (
-                        <div className="text-[11.5px] text-muted-foreground">{delivery.error}</div>
-                      )}
-                      {retryError?.id === delivery.id && (
-                        <div className="mt-1 text-[11.5px] text-destructive">
-                          {retryError.message}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-[13px] text-foreground/70">
-                      {delivery.attempt === 0 ? "—" : `ke-${delivery.attempt}`}
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      {/* Offered only where it is valid. The backend
-                          rejects the rest with 409, but a button that is
-                          always visible and usually fails teaches people
-                          to ignore it. */}
-                      {delivery.status === "failed" && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          disabled={retrying === delivery.id}
-                          onClick={() => handleRetry(delivery.id)}
-                        >
-                          {retrying === delivery.id ? "Mengirim…" : "Kirim ulang"}
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="overflow-hidden rounded-xl border border-border bg-card">
+            {deliveries.map((delivery) => (
+              <li
+                key={delivery.id}
+                className="flex flex-col gap-2 border-b border-border/60 px-4 py-3 last:border-b-0 sm:flex-row sm:items-start sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[14px] font-semibold">
+                      {WEBHOOK_EVENT_LABELS[delivery.event_type as WebhookEvent] ?? delivery.event_type}
+                    </span>
+                    <DeliveryStatusBadge status={delivery.status} />
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 text-[13px] text-muted-foreground">
+                    <span>{formatDateTimeID(delivery.created_at)}</span>
+                    {delivery.attempt > 0 && <span>Percobaan ke-{delivery.attempt}</span>}
+                    {delivery.response_status !== null && (
+                      <span className="font-mono">HTTP {delivery.response_status}</span>
+                    )}
+                  </div>
+                  {/* The reason is the whole value of this screen: a
+                      customer who can see "connection refused" fixes
+                      their firewall; one who sees only "Gagal" opens
+                      a support ticket. */}
+                  {delivery.error && (
+                    <div className="mt-1 font-mono text-[12.5px] text-foreground [overflow-wrap:anywhere]">
+                      {delivery.error}
+                    </div>
+                  )}
+                  {retryError?.id === delivery.id && (
+                    <div className="mt-1 text-[13px] text-destructive">{retryError.message}</div>
+                  )}
+                </div>
+                {/* Offered only where it is valid. The backend rejects the
+                    rest with 409, but a button that is always visible and
+                    usually fails teaches people to ignore it. */}
+                {delivery.status === "failed" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={retrying === delivery.id}
+                    onClick={() => handleRetry(delivery.id)}
+                    className="shrink-0 bg-card sm:h-8"
+                  >
+                    {retrying === delivery.id ? "Mengirim…" : "Kirim ulang"}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
 
           {totalPages > 1 && (
-            <div className="mt-3 flex items-center justify-between">
-              <span className="text-[12.5px] text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
+              <span className="text-[13px] text-muted-foreground">
                 Halaman {page} dari {totalPages} · {total} pengiriman
               </span>
               <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >
+                <Button type="button" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="bg-card md:h-8">
                   Sebelumnya
                 </Button>
                 <Button
@@ -203,6 +193,7 @@ export function DeliveryHistory({ endpointId }: { endpointId: string }) {
                   variant="outline"
                   disabled={page >= totalPages}
                   onClick={() => setPage((p) => p + 1)}
+                  className="bg-card md:h-8"
                 >
                   Berikutnya
                 </Button>

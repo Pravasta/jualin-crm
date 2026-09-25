@@ -32,6 +32,7 @@ import { canManageForms } from "@/lib/form-permissions";
 import { autoResizeSnippet, fixedHeightSnippet, jsxSnippet } from "@/lib/form-snippet";
 import { globalMessage } from "@/lib/auth-errors";
 import { useSession } from "@/lib/session-context";
+import { BackLink, NotForRole } from "../../connect-ui";
 import { DeactivateFormDialog } from "./deactivate-form-dialog";
 
 function isAbortError(err: unknown): boolean {
@@ -88,9 +89,7 @@ export function FormEditor({ formId }: { formId: string }) {
 
   if (!canManage) {
     return (
-      <p className="text-[13px] text-muted-foreground">
-        Pengelolaan formulir tidak tersedia untuk role Anda.
-      </p>
+      <NotForRole>Pengelolaan formulir tidak tersedia untuk role Anda.</NotForRole>
     );
   }
 
@@ -199,14 +198,10 @@ export function FormEditor({ formId }: { formId: string }) {
   const fixedSnippet = fixedHeightSnippet(snippetParams);
 
   return (
-    <div className="max-w-2xl">
-      <button
-        type="button"
-        onClick={() => router.push("/connect/form")}
-        className="mb-3.5 flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground"
-      >
-        ← Kembali ke daftar formulir
-      </button>
+    <div className="mx-auto w-full max-w-3xl">
+      <div className="mb-3.5">
+        <BackLink href="/connect/form" label="Formulir" />
+      </div>
 
       <FormErrorBanner message={saveError} />
 

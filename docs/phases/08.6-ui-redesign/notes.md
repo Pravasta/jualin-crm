@@ -350,3 +350,46 @@ Rinciannya di `docs/issues/159-design-tokens.md`.
 **Catatan untuk session berikutnya (skrip uji CDP):** cookie `csrf_token` **tidak boleh** dipasang sebagai
 HttpOnly. Dashboard membacanya dari `document.cookie` untuk header `X-CSRF-Token`. Pada percobaan pertama semua
 aksi tulis di layar gagal "Token CSRF tidak valid". Itu kesalahan skrip, bukan aplikasi.
+
+---
+
+## #166 — Connect
+
+**Yang berubah:** halaman induk, tiga layar kanal (`api/`, `form/`, `webhook/`), detail formulir & webhook,
+riwayat pengiriman, dua halaman dokumentasi. File baru `connect/connect-ui.tsx`: `BackLink`, `SectionHeader`,
+`NotForRole`, `ListSkeleton`, `EmptyCard`, `tableHeadRow`. **Tidak ada logika yang berubah**: izin per role
+(`canManageAPIKeys`/`canManageForms`/`canManageWebhooks`), gerbang paket (`channelCardState`), alur kredensial
+satu kali, dan kirim ulang pengiriman sama persis.
+
+- **Tiga kartu kanal, bukan enam.** WhatsApp Business, Instagram DM, Marketplace, dan Google Sheets di handoff adalah
+  dummy, dan chat inbox ⛔ scope. Kartu terkunci menampilkan gembok + **"Terkunci oleh paket"**, **tanpa nama paket
+  dan tanpa tombol upgrade** (brief §8.9, D6). Kartu yang bisa dibuka punya kaki **"Kelola →"**.
+- **API key / Formulir / Webhook:** tabel mulai 768 px (kolom sekunder bergabung di 1024), **kartu di HP**. Status
+  Aktif/Dicabut/Nonaktif tampil sebagai badge teks. Di HP, kartu API key punya tombol **Cabut** selebar kartu.
+- **Riwayat pengiriman webhook = satu daftar di semua lebar, bukan tabel.** Setiap baris membawa pesan error dari
+  server ("connection refused", "cannot resolve …"), dan pesan itulah nilai utama layar ini (komentar #103). Kolom
+  tabel akan memotongnya atau memaksa geser samping. Status tampil sebagai badge: Berhasil (pasangan Menang), Gagal
+  (destructive), Menunggu/Sedang dikirim (netral). "Kirim ulang" tetap hanya untuk yang gagal.
+- **Tabel referensi di dokumentasi** (field yang diterima, kode error) boleh digeser di dalam kotaknya sendiri
+  (`overflow-x-auto`, `min-w-[480px]`), jadi **halaman** tidak pernah ikut bergeser. Brief §9.2 melarang guliran
+  halaman, bukan tabel referensi yang dibaca developer.
+- **`connect-ui.tsx` sengaja lokal di `connect/`.** Empat layar Connect menggambar tombol kembali, judul, kotak
+  "tidak tersedia untuk role", teks memuat, dan kosong masing-masing dengan cara yang sedikit berbeda. Bagian lain
+  aplikasi punya bentuk sendiri, jadi belum ada pemanggil kedua di luar Connect (Aturan #28).
+- Header detail webhook bertumpuk di HP. Pada percobaan pertama, URL panjang terhimpit di samping tombol
+  "Dokumentasi verifikasi".
+
+**Temuan #159:** Connect memang sudah memakai token sejak Phase 6–7. Tidak ada `oklch` mentah yang perlu diganti.
+
+**Verifikasi:** typecheck, lint, 264 test, build. Visual terhadap `crm_be` sungguhan:
+- formulir dan endpoint webhook dibuat lewat API. Webhook sengaja ke domain `.invalid`, lalu sebuah lead dibuat untuk
+  memicu event, sehingga riwayat berisi **pengiriman sungguhan** (Menunggu, percobaan ke-1, pesan "cannot resolve …")
+- **delapan layar** (induk, 3 kanal, 2 detail, 2 dokumentasi) di 360 dan 1024: `scrollWidth` = lebar layar di
+  keenam belas kombinasi
+- **kredensial satu kali:** API key dibuat **lewat UI** di 390 px. Dialog tampil sebagai sheet, dengan kunci utuh,
+  Salin kunci, contoh `curl`, peringatan "tidak akan ditampilkan lagi", dan **Selesai mati sampai kotak "Saya sudah
+  menyimpan…" dicentang**
+
+**Belum diverifikasi:** status **Gagal** dengan tombol **Kirim ulang**. Pengiriman baru mencapai "gagal" setelah
+seluruh jadwal retry habis (berjam-jam). Tampilannya mengikuti kode yang sama dengan status lain, tetapi belum
+terlihat dengan data sungguhan.

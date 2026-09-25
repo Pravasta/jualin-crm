@@ -16,6 +16,10 @@ import { formatDateID } from "@/lib/date";
 import { useSession } from "@/lib/session-context";
 import { CreateWebhookDialog } from "./create-webhook-dialog";
 import { WebhookEventBadges } from "./webhook-event-badges";
+import { BackLink, EmptyCard, ListSkeleton, NotForRole, SectionHeader, tableHeadRow } from "../connect-ui";
+import Link from "next/link";
+import { BookOpen, Plus } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
@@ -54,111 +58,109 @@ export function WebhooksScreen() {
   }, [canManage, refreshKey]);
 
   if (!canManage) {
-    return (
-      <p className="text-[13px] text-muted-foreground">
-        Pengelolaan webhook tidak tersedia untuk role Anda.
-      </p>
-    );
+    return <NotForRole>Pengelolaan webhook tidak tersedia untuk role Anda.</NotForRole>;
   }
 
   const loading = !loaded;
 
   return (
-    <div>
-      <button
-        type="button"
-        onClick={() => router.push("/connect")}
-        className="mb-3.5 flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground"
-      >
-        ← Kembali ke Connect
-      </button>
-
-      <div className="mb-3.5 flex items-center justify-between">
-        <div>
-          <h2 className="text-[13.5px] font-semibold">Webhook</h2>
-          <p className="text-[12.5px] text-muted-foreground">
-            Kirim event ke sistem Anda sendiri begitu sesuatu terjadi di Jualin — tanpa perlu
-            menanyakannya berulang kali.{" "}
-            <button
-              type="button"
-              onClick={() => router.push("/connect/webhook/docs")}
-              className="text-accent-strong underline"
-            >
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 md:gap-4">
+      <BackLink href="/connect" label="Connect" />
+      <SectionHeader
+        title="Webhook"
+        description="Kirim event ke sistem Anda sendiri begitu sesuatu terjadi di Jualin — tanpa perlu menanyakannya berulang kali."
+        actions={
+          <>
+            <Button variant="outline" onClick={() => router.push("/connect/webhook/docs")} className="gap-1.5 bg-card md:h-9">
+              <BookOpen className="size-4" aria-hidden />
               Dokumentasi verifikasi
-            </button>
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>+ Tambah endpoint</Button>
-      </div>
+            </Button>
+            <Button onClick={() => setCreateOpen(true)} className="gap-1.5 md:h-9 md:px-4">
+              <Plus className="size-4" aria-hidden />
+              Tambah endpoint
+            </Button>
+          </>
+        }
+      />
 
       <FormErrorBanner message={error} />
 
       {loading ? (
-        <p className="text-[13px] text-muted-foreground">Memuat…</p>
+        <ListSkeleton label="Memuat endpoint" />
       ) : endpoints.length === 0 ? (
-        <p className="text-[13px] text-muted-foreground">
-          Belum ada endpoint. Tambahkan satu untuk mulai mengirim event ke sistem Anda.
-        </p>
+        <EmptyCard title="Belum ada endpoint">
+          Tambahkan satu untuk mulai mengirim event ke sistem Anda.
+        </EmptyCard>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-background">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="bg-muted/40">
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  URL
-                </th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Event
-                </th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Status
-                </th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Dibuat
-                </th>
-                <th className="px-4 py-2.5" />
-              </tr>
-            </thead>
-            <tbody>
-              {endpoints.map((endpoint) => (
-                <tr
-                  key={endpoint.id}
-                  className="cursor-pointer border-t border-border/70 hover:bg-muted/30"
-                  onClick={() => router.push(`/connect/webhook/${endpoint.id}`)}
-                >
-                  <td className="px-4 py-2.5">
-                    <div className="text-[13px] font-medium break-all">{endpoint.url}</div>
-                    {/* secret_prefix, never the secret — 8 of 49 characters,
-                        enough to tell two endpoints apart and useless alone. */}
-                    <div className="font-mono text-[11.5px] text-muted-foreground">
-                      {endpoint.secret_prefix}…
-                    </div>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <WebhookEventBadges events={endpoint.events} />
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span
-                      className={
-                        endpoint.is_active
-                          ? "text-[12.5px] text-foreground/70"
-                          : "text-[12.5px] text-muted-foreground"
-                      }
-                    >
-                      {endpoint.is_active ? "Aktif" : "Nonaktif"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-[13px] text-foreground/70">
-                    {formatDateID(endpoint.created_at)}
-                  </td>
-                  <td className="px-4 py-2.5 text-right">
-                    <span className="text-[13px] text-accent-strong underline">Kelola</span>
-                  </td>
+        <>
+          <div className="hidden overflow-hidden rounded-xl border border-border bg-card md:block">
+            <table className="w-full table-fixed border-collapse text-[14px]">
+              <thead>
+                <tr className={tableHeadRow}>
+                  <th className="px-4 py-2.5">URL</th>
+                  <th className="hidden w-56 px-3 py-2.5 lg:table-cell">Event</th>
+                  <th className="w-24 px-3 py-2.5">Status</th>
+                  <th className="hidden w-32 px-3 py-2.5 lg:table-cell">Dibuat</th>
+                  <th className="w-24 px-4 py-2.5" aria-label="Aksi" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {endpoints.map((endpoint) => (
+                  <tr
+                    key={endpoint.id}
+                    className="cursor-pointer border-t border-border/60 hover:bg-muted/50"
+                    onClick={() => router.push(`/connect/webhook/${endpoint.id}`)}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="font-semibold [overflow-wrap:anywhere]">{endpoint.url}</div>
+                      {/* secret_prefix, never the secret — 8 of 49 characters,
+                          enough to tell two endpoints apart and useless alone. */}
+                      <div className="font-mono text-[12.5px] text-muted-foreground">{endpoint.secret_prefix}…</div>
+                    </td>
+                    <td className="hidden px-3 py-3 lg:table-cell">
+                      <WebhookEventBadges events={endpoint.events} />
+                    </td>
+                    <td className="px-3 py-3">
+                      <ActiveBadge active={endpoint.is_active} />
+                    </td>
+                    <td className="hidden px-3 py-3 whitespace-nowrap text-muted-foreground lg:table-cell">
+                      {formatDateID(endpoint.created_at)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Link
+                        href={`/connect/webhook/${endpoint.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-semibold text-accent-strong hover:underline"
+                      >
+                        Kelola
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <ul className="flex flex-col gap-2.5 md:hidden">
+            {endpoints.map((endpoint) => (
+              <li key={endpoint.id}>
+                <Link
+                  href={`/connect/webhook/${endpoint.id}`}
+                  className="block rounded-[10px] border border-border bg-card p-3.5 active:bg-muted/60"
+                >
+                  <div className="flex items-start justify-between gap-2.5">
+                    <div className="min-w-0 text-[14.5px] font-bold [overflow-wrap:anywhere]">{endpoint.url}</div>
+                    <ActiveBadge active={endpoint.is_active} />
+                  </div>
+                  <div className="font-mono text-[12.5px] text-muted-foreground">{endpoint.secret_prefix}…</div>
+                  <div className="mt-2">
+                    <WebhookEventBadges events={endpoint.events} />
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
       <CreateWebhookDialog
@@ -167,5 +169,18 @@ export function WebhooksScreen() {
         onCreated={() => setRefreshKey((k) => k + 1)}
       />
     </div>
+  );
+}
+
+function ActiveBadge({ active }: { active: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[12.5px] font-bold",
+        active ? "bg-accent-tint text-accent-strong" : "bg-secondary text-secondary-foreground"
+      )}
+    >
+      {active ? "Aktif" : "Nonaktif"}
+    </span>
   );
 }

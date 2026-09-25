@@ -17,8 +17,6 @@
 // webhook screen: a Manager who types this URL gets "tidak tersedia" and
 // makes zero API calls (the gate sits above the useEffect).
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FormErrorBanner } from "@/components/form-error-banner";
 import { canManageWebhooks } from "@/lib/webhook-permissions";
@@ -36,6 +34,7 @@ import {
 } from "@/lib/webhook-docs";
 import { globalMessage } from "@/lib/auth-errors";
 import { useSession } from "@/lib/session-context";
+import { BackLink, NotForRole } from "../../connect-ui";
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
@@ -62,7 +61,6 @@ function CodeBlock({ children }: { children: string }) {
 
 export function WebhookDocsScreen() {
   const session = useSession();
-  const router = useRouter();
   const canManage = canManageWebhooks(session.role);
 
   // Active endpoints only — a deactivated one's prefix would suggest an
@@ -95,9 +93,7 @@ export function WebhookDocsScreen() {
 
   if (!canManage) {
     return (
-      <p className="text-[13px] text-muted-foreground">
-        Dokumentasi webhook tidak tersedia untuk role Anda.
-      </p>
+      <NotForRole>Dokumentasi webhook tidak tersedia untuk role Anda.</NotForRole>
     );
   }
 
@@ -105,13 +101,9 @@ export function WebhookDocsScreen() {
   const example = WEBHOOK_DOC_EXAMPLES.find((e) => e.language === lang) ?? WEBHOOK_DOC_EXAMPLES[0];
 
   return (
-    <div className="flex max-w-2xl flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-[15px] font-semibold">Dokumentasi webhook</h1>
-        <Button variant="outline" onClick={() => router.push("/connect/webhook")}>
-          ← Kembali ke Webhook
-        </Button>
-      </div>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+      <BackLink href="/connect/webhook" label="Webhook" />
+      <h1 className="text-[20px] font-bold md:text-[22px]">Dokumentasi webhook</h1>
 
       <p className="text-[13px] text-muted-foreground">
         Halaman ini untuk developer di sisi <strong>penerima</strong> — sistem yang menerima kiriman
@@ -177,7 +169,8 @@ export function WebhookDocsScreen() {
       </Section>
 
       <Section title="Header">
-        <table className="w-full border-collapse text-[12.5px]">
+        <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full min-w-[480px] border-collapse text-[12.5px]">
           <tbody>
             <tr className="border-b border-border/60">
               <td className="py-1.5 pr-3 font-mono">{SIGNATURE_HEADER}</td>
@@ -196,6 +189,7 @@ export function WebhookDocsScreen() {
             </tr>
           </tbody>
         </table>
+        </div>
       </Section>
 
       <Section title="Memverifikasi signature">
@@ -245,7 +239,8 @@ export function WebhookDocsScreen() {
       </Section>
 
       <Section title="Kebijakan percobaan ulang">
-        <table className="w-full border-collapse text-[12.5px]">
+        <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full min-w-[480px] border-collapse text-[12.5px]">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
               <th className="py-1.5 pr-3 font-medium">Respons endpoint Anda</th>
@@ -285,6 +280,7 @@ export function WebhookDocsScreen() {
             </tr>
           </tbody>
         </table>
+        </div>
         <p className="text-muted-foreground">
           Angka jeda dan jumlah percobaan di atas adalah default konservatif, bukan hasil pengukuran —
           bisa berubah dari sisi kami tanpa mengubah halaman ini.
