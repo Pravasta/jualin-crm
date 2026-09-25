@@ -294,3 +294,59 @@ yang salah.
 **Verifikasi:** typecheck, lint, **253 test**, build. Visual terhadap `crm_be` sungguhan: lead Menang dikonversi
 lewat API menjadi customer pertama, lalu daftar di 360/820/1440 dan detail di 360/1440 diperiksa. `scrollWidth` = lebar
 layar di semuanya.
+
+---
+
+## #165 — Tugas & Tim
+
+**Yang berubah:** `tasks/task-list.tsx`, `team/team-screen.tsx`, `team/deactivate-member-dialog.tsx`, file baru
+`lib/due-label.ts` (+ test), dan `leads/[id]/lead-detail.tsx` (memakai label jatuh tempo yang sama).
+
+### Tugas
+- **Label jatuh tempo kalender** (brief §8.7): *Jatuh tempo hari ini / besok / dalam 3 hari / 12 Okt / Terlambat 2
+  hari*. `lib/due-label.ts` adalah **port aturan-demi-aturan** dari `crm_employee/lib/shared/due_label.dart`
+  (#153), dan **ke-11 kasus test-nya disalin**, termasuk batas tengah malam (dihitung per hari kalender lokal,
+  bukan blok 24 jam) dan invarian "tertulis Terlambat tepat ketika `isOverdue`". Satu tugas kini terbaca sama di
+  dashboard dan di HP. Detail Lead (#162) ikut memakainya.
+- **Terlambat menonjol dua cara:** teks `destructive` tebal **dan** garis tepi kiri merah pada barisnya, supaya
+  tetap terbaca meski warnanya hilang.
+- **"Tugas saya"** menjadi opsi pertama di pemilih penanggung jawab (`assigned_to` = membership sendiri). Ini
+  pengganti tab "Tugas saya" di handoff, tanpa parameter baru. Tab **"Terlambat"** dari handoff tidak dibangun:
+  `due_before` menerima tanggal (akhir hari), jadi "terlambat" yang tepat per menit tidak bisa dinyatakan lewat
+  filter yang ada. Menambah parameter backend di luar cakupan redesain.
+- Dua keadaan kosong: **Belum ada tugas** vs **Tidak ada tugas yang cocok**. Dulu hanya ada satu pesan untuk
+  keduanya.
+- Baris menampilkan **"Buka lead"**. Tugas hanya membawa `lead_id`, tidak membawa nomor/nama lead. Mengambil tiap
+  lead untuk satu label adalah N permintaan tambahan per halaman.
+- "task" → "tugas" di seluruh teks layar ini.
+
+### Tim
+- Tabel mulai 768 px (Anggota dengan avatar · Role · Bergabung [≥1024] · **Lihat lead** · aksi), kartu di HP. **Lihat
+  lead** membuka `/leads?assigned_to=<membership_id>` (brief §8.8 via handoff).
+- **Role:** badge teks untuk yang tidak bisa diubah (Owner beraksen, lainnya netral). Dropdown hanya untuk yang
+  boleh diubah, dengan aturan `team-permissions.ts` yang sama. Empat role saja; "Sales" di handoff adalah dummy.
+- Kontrol role dan tombol Nonaktifkan dibuat **sekali per baris** lalu diletakkan di tabel atau kartu, jadi
+  kedua tata letak tidak mungkin menawarkan aksi berbeda ke role yang sama.
+
+### Dialog nonaktifkan tiga cabang
+- **Perilakunya tidak berubah:** tetap dibuka **hanya** setelah percobaan nonaktifkan biasa dijawab
+  `409 membership_has_open_leads`, jumlahnya dari body error, dan **Nonaktifkan** mati sampai satu cabang dipilih.
+- **Diperbaiki:** `<select>` "Pindahkan ke" dulu berada **di dalam `<button>`**. Itu HTML tidak valid (konten
+  interaktif di dalam tombol), dan keyboard serta pembaca layar tidak sepakat soal perilakunya. Kini kedua pilihan
+  adalah `role="radio"` dalam `radiogroup`, dan pemilih anggota muncul **di bawah** pilihannya.
+- "Lepas assignment" → **"Lepas penugasan"** (brief §12.1).
+
+**Temuan #159 ditutup:** tidak ada lagi `oklch(… 0 0)` mentah di layar mana pun (`(protected)` dan `(auth)`).
+Rinciannya di `docs/issues/159-design-tokens.md`.
+
+**Verifikasi:** typecheck, lint, **264 test** (+11 `due-label`), build. Visual terhadap `crm_be` sungguhan:
+- anggota kedua **diundang dan menerima undangan lewat API** (token dari Mailpit), lalu diberi dua lead terbuka dan
+  satu tugas
+- klik **Nonaktifkan** menghasilkan **409 sungguhan** dari backend, dan dialog tampil dengan "2 lead terbuka", di
+  1024 (tengah) dan 360 (sheet dari bawah)
+- `/tasks` (satu tugas terlambat 5 hari, satu hari ini, satu besok) dan `/team` di 360/820/1440: `scrollWidth` =
+  lebar layar
+
+**Catatan untuk session berikutnya (skrip uji CDP):** cookie `csrf_token` **tidak boleh** dipasang sebagai
+HttpOnly. Dashboard membacanya dari `document.cookie` untuk header `X-CSRF-Token`. Pada percobaan pertama semua
+aksi tulis di layar gagal "Token CSRF tidak valid". Itu kesalahan skrip, bukan aplikasi.

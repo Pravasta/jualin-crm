@@ -25,6 +25,7 @@ import {
 import { FormErrorBanner } from "@/components/form-error-banner";
 import { deactivateMembership, type Member } from "@/lib/memberships";
 import { globalMessage } from "@/lib/auth-errors";
+import { cn } from "@/lib/utils";
 
 type Choice = "unassign" | "reassign";
 
@@ -94,7 +95,7 @@ function DeactivateMemberDialogContent({
 
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="border-t-4 border-t-[oklch(0.55_0.2_25)]">
+      <DialogContent className="border-t-4 border-t-destructive">
         <DialogHeader>
           <DialogTitle>Nonaktifkan {member.full_name}?</DialogTitle>
           <DialogDescription>
@@ -105,51 +106,39 @@ function DeactivateMemberDialogContent({
 
         <FormErrorBanner message={error} />
 
-        <div className="flex flex-col gap-2">
-          <button
-            type="button"
-            onClick={() => setChoice("unassign")}
-            className="rounded-md border-[1.5px] px-3 py-2.5 text-left"
-            style={{
-              borderColor: choice === "unassign" ? "oklch(0.56 0.19 41)" : "oklch(0.922 0 0)",
-              background: choice === "unassign" ? "oklch(0.56 0.19 41 / 6%)" : "#fff",
-            }}
-          >
-            <div className="text-[13px] font-semibold">Lepas assignment</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">
-              Lead menjadi tanpa pemilik dan masuk daftar &ldquo;belum ter-assign&rdquo;.
-            </div>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setChoice("reassign")}
-            className="rounded-md border-[1.5px] px-3 py-2.5 text-left"
-            style={{
-              borderColor: choice === "reassign" ? "oklch(0.56 0.19 41)" : "oklch(0.922 0 0)",
-              background: choice === "reassign" ? "oklch(0.56 0.19 41 / 6%)" : "#fff",
-            }}
-          >
-            <div className="text-[13px] font-semibold">Pindahkan ke anggota lain</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">
-              Semua lead terbuka ditugaskan ulang.
-            </div>
-            {choice === "reassign" && (
-              <select
-                value={reassignTo}
-                onChange={(e) => setReassignTo(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                className="mt-2 h-8 w-full rounded-md border border-input bg-background px-2 text-[12.5px] outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-              >
-                <option value="">Pilih anggota…</option>
-                {otherMembers.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.full_name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </button>
+        {/* A radio group, not buttons: exactly one branch must be picked
+            before "Nonaktifkan" enables. The member picker sits BELOW its
+            option rather than inside it — a <select> nested in a <button>
+            is invalid HTML and keyboards/screen readers disagree on it
+            (#165). Choosing "Batal" is the footer, not a third card. */}
+        <div role="radiogroup" aria-label="Apa yang terjadi pada lead terbuka" className="flex flex-col gap-2">
+          <ChoiceCard
+            selected={choice === "unassign"}
+            onSelect={() => setChoice("unassign")}
+            title="Lepas penugasan"
+            description="Lead menjadi tanpa pemilik dan masuk daftar “belum ter-assign”."
+          />
+          <ChoiceCard
+            selected={choice === "reassign"}
+            onSelect={() => setChoice("reassign")}
+            title="Pindahkan ke anggota lain"
+            description="Semua lead terbuka ditugaskan ulang ke satu anggota."
+          />
+          {choice === "reassign" && (
+            <select
+              value={reassignTo}
+              onChange={(e) => setReassignTo(e.target.value)}
+              aria-label="Pindahkan ke"
+              className="h-11 w-full rounded-lg border border-input bg-card px-3 text-base outline-none focus-visible:ring-3 focus-visible:ring-ring/50 md:h-9 md:text-[14px]"
+            >
+              <option value="">Pilih anggota…</option>
+              {otherMembers.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.full_name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         <DialogFooter>
@@ -160,12 +149,40 @@ function DeactivateMemberDialogContent({
             type="button"
             disabled={confirmDisabled}
             onClick={handleConfirm}
-            className="bg-[oklch(0.55_0.2_25)] text-white hover:bg-[oklch(0.5_0.2_25)]"
+            className="bg-destructive text-white hover:bg-destructive/90"
           >
             {loading ? "Menonaktifkan…" : "Nonaktifkan"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ChoiceCard({
+  selected,
+  onSelect,
+  title,
+  description,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  title: string;
+  description: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={cn(
+        "min-h-11 rounded-lg border-[1.5px] px-3 py-2.5 text-left transition-colors",
+        selected ? "border-primary bg-accent-tint" : "border-border bg-card hover:bg-muted"
+      )}
+    >
+      <div className="text-[14px] font-semibold">{title}</div>
+      <div className="mt-0.5 text-[12.5px] text-muted-foreground">{description}</div>
+    </button>
   );
 }

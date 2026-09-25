@@ -6,7 +6,7 @@
 
 ## Kelas bug yang mungkin berulang
 
-- [ ] **Warna abu-abu dingin ditulis langsung di layar, melewati token, dan sebagian gagal AA.**
+- [x] **Warna abu-abu dingin ditulis langsung di layar, melewati token, dan sebagian gagal AA.**
       Token #159 menghangatkan seluruh netral (hue 60), tetapi layar yang menulis `oklch(… 0 0)`
       sebagai inline style tidak ikut berubah, dan **tiga nilainya di bawah 4.5:1** di atas putih:
 
@@ -21,8 +21,13 @@
       `var(--accent-strong)`), bukan menyalin ulang angkanya. Teks yang dicoret (tugas selesai) tetap
       teks: 4.5:1 berlaku.
       **Kemajuan:** `leads-list.tsx` bersih sejak **#161** (tersisa hanya bayangan FAB, dekoratif);
-      `leads/[id]/*` bersih sejak **#162**. Tersisa: `task-list.tsx`, `deactivate-member-dialog.tsx` (#165).
-      **Pemicu peninjauan:** #174 — `grep -rn "oklch(0\.[0-9]* 0 0)" crm_dashboard/src/app` harus
+      `leads/[id]/*` bersih sejak **#162**; `task-list.tsx` dan `deactivate-member-dialog.tsx` sejak **#165**.
+      **→ Ditutup di #165 (25 Sep 2026):** `grep -rn "oklch(0\.[0-9]* 0 0)"` di `src/app/(protected)` dan
+      `src/app/(auth)` kosong. Sisa `oklch(` mentah di layar hanya bayangan FAB (dekoratif) dan satu kata di
+      komentar. Nilai abu-abu di `globals.css` adalah **definisi** token (`--chart-*` dan blok `.dark`), bukan
+      pemakaian yang melewati token, jadi bukan bagian dari temuan ini. `--chart-*` akan ditinjau di #171 saat
+      grafik Laporan dibuat.
+      **Pemicu peninjauan (tetap berlaku untuk #166–#168):** #174 — `grep -rn "oklch(0\.[0-9]* 0 0)" crm_dashboard/src/app/\(protected\) crm_dashboard/src/app/\(auth\)` harus
       kosong, atau setiap sisanya punya alasan tertulis.
 
 ## Deviasi dari handoff
