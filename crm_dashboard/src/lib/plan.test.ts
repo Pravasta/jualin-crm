@@ -12,6 +12,7 @@ import {
   isPlanUpgradeRequired,
   isUnlimitedLimit,
   planDisplayName,
+  usageLevel,
   usageRatio,
 } from "./plan";
 
@@ -159,5 +160,32 @@ describe("usageRatio", () => {
 
   it("never goes negative even for a nonsensical negative input", () => {
     expect(usageRatio(-5, 100)).toBe(0);
+  });
+});
+
+describe("usageLevel", () => {
+  it("is ok below 80%, near from 80%, full at or past the limit", () => {
+    expect(usageLevel(79, 100)).toBe("ok");
+    expect(usageLevel(80, 100)).toBe("near");
+    expect(usageLevel(99, 100)).toBe("near");
+    expect(usageLevel(100, 100)).toBe("full");
+    expect(usageLevel(103, 100)).toBe("full");
+  });
+
+  it("two seats of two is full, one of two is not near (50%)", () => {
+    expect(usageLevel(2, 2)).toBe("full");
+    expect(usageLevel(1, 2)).toBe("ok");
+  });
+
+  it("unlimited never approaches anything", () => {
+    expect(usageLevel(1_000_000, 0)).toBe("ok");
+  });
+});
+
+describe("Indonesian digit grouping (#167)", () => {
+  it("writes thousands with a dot, whatever the browser's locale", () => {
+    expect(formatLimit(2000)).toBe("2.000");
+    expect(formatUsage(1234, 2000)).toBe("1.234 / 2.000");
+    expect(formatUsage(12500, 0)).toBe("12.500 (tanpa batas)");
   });
 });

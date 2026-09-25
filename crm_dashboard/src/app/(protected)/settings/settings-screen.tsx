@@ -20,15 +20,23 @@
 // dalam Pengaturan"): Settings is for account/org configuration rarely
 // touched after setup, Connect is where the product's capture layer
 // lives. See src/app/(protected)/connect/connect-screen.tsx.
+//
+// Phase 8.6 (#167): still read-only. The handoff's Notifikasi toggles
+// (including an emailed weekly summary — a new cost class), its API &
+// Webhook tab and its Keamanan tab, and an editable timezone/business
+// email, are dummy data: no preference store, no such endpoints, and API
+// lives in Connect. The organization's timezone is real (organizations.
+// timezone) but GET /v1/me doesn't carry it, so it isn't shown here —
+// adding it is an API change, not a redesign.
 import { Card, CardContent } from "@/components/ui/card";
 import { ROLE_LABELS, type Role } from "@/lib/labels";
 import { useSession } from "@/lib/session-context";
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-[13.5px]">{value}</span>
+    <div className="min-w-0">
+      <dt className="text-[11.5px] font-semibold tracking-[0.04em] text-muted-foreground uppercase">{label}</dt>
+      <dd className="mt-0.5 text-[14px] [overflow-wrap:anywhere]">{value}</dd>
     </div>
   );
 }
@@ -37,22 +45,30 @@ export function SettingsScreen() {
   const session = useSession();
 
   return (
-    <div className="flex max-w-md flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <Card>
         <CardContent className="flex flex-col gap-3">
-          <div className="text-[13.5px] font-semibold">Organization</div>
-          <Field label="Nama organization" value={session.organization_name} />
+          <h2 className="text-[16px] font-bold">Organization</h2>
+          <dl className="grid gap-3 sm:grid-cols-2">
+            <Field label="Nama organization" value={session.organization_name} />
+          </dl>
         </CardContent>
       </Card>
 
       <Card>
         <CardContent className="flex flex-col gap-3">
-          <div className="text-[13.5px] font-semibold">Profil Anda</div>
-          <Field label="Nama lengkap" value={session.full_name} />
-          <Field label="Email" value={session.email} />
-          <Field label="Role" value={ROLE_LABELS[session.role as Role]} />
+          <h2 className="text-[16px] font-bold">Profil Anda</h2>
+          <dl className="grid gap-3 sm:grid-cols-2">
+            <Field label="Nama lengkap" value={session.full_name} />
+            <Field label="Email" value={session.email} />
+            <Field label="Role" value={ROLE_LABELS[session.role as Role]} />
+          </dl>
         </CardContent>
       </Card>
+
+      <p className="text-[13px] text-muted-foreground">
+        Data di halaman ini hanya bisa dibaca.
+      </p>
     </div>
   );
 }
