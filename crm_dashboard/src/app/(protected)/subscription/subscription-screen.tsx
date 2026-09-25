@@ -13,12 +13,19 @@
 // own call (GET /v1/plans, #125's own endpoint): what OTHER plans offer
 // isn't in session.plan at all, and #125/Phase 8 kriteria #6 forbid a
 // second, TypeScript-side copy of that.
+//
+// Phase 8.6 (#167): the handoff's Starter/Tim/Bisnis plans, payment
+// history, invoice download, storage quota and self-serve downgrade are
+// dummy data — none exists (invoices and payments are out of scope, and
+// there is no downgrade path, Phase 8 D4). Every number here still comes
+// from /v1/me and /v1/plans.
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { FormErrorBanner } from "@/components/form-error-banner";
 import { globalMessage } from "@/lib/auth-errors";
-import { formatLimit, formatUsage, isUnlimitedLimit, planDisplayName, usageRatio } from "@/lib/plan";
+import { Check, Minus } from "lucide-react";
+import { formatLimit, formatUsage, isUnlimitedLimit, planDisplayName, usageLevel, usageRatio } from "@/lib/plan";
+import { cn } from "@/lib/utils";
 import { listPlans, type PlanCatalogEntry } from "@/lib/plans";
 import { startTestCheckout } from "@/lib/subscription";
 import { canChangePlan, canViewSubscription } from "@/lib/subscription-permissions";
@@ -28,24 +35,42 @@ function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
+const LEVEL_NOTE = { ok: null, near: "Hampir mencapai batas", full: "Batas tercapai" } as const;
+
 function UsageRow({ label, used, limit }: { label: string; used: number; limit: number }) {
+  const level = usageLevel(used, limit);
+  const note = LEVEL_NOTE[level];
   return (
-    <div className="mb-3 last:mb-0">
-      <div className="mb-1 flex items-baseline justify-between">
-        <span className="text-[12.5px] text-muted-foreground">{label}</span>
-        <span className="text-[12.5px] font-medium">{formatUsage(used, limit)}</span>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[14px] font-medium">{label}</span>
+        <span className={cn("text-[14px] font-bold tabular-nums", level !== "ok" && "text-destructive")}>
+          {formatUsage(used, limit)}
+        </span>
       </div>
       {!isUnlimitedLimit(limit) && (
-        <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div
+          role="progressbar"
+          aria-label={label}
+          aria-valuemin={0}
+          aria-valuemax={limit}
+          aria-valuenow={Math.min(used, limit)}
+          className="h-2 overflow-hidden rounded-full bg-muted"
+        >
           <div
-            className="h-full rounded-full bg-accent-strong"
+            className={cn("h-full rounded-full", level === "ok" ? "bg-primary" : "bg-destructive")}
             style={{ width: `${usageRatio(used, limit) * 100}%` }}
           />
         </div>
       )}
+      {/* In words, not only in the bar's color. */}
+      {note && <span className="text-[12.5px] font-semibold text-destructive">{note}</span>}
     </div>
   );
 }
+
+// Channel names as the rest of the product says them (Connect, #166).
+const CHANNEL_LABELS: Record<string, string> = { api_key: "API", form: "Formulir", webhook: "Webhook" };
 
 export function SubscriptionScreen() {
   const session = useSession();
@@ -77,7 +102,11 @@ export function SubscriptionScreen() {
   }, [canView]);
 
   if (!canView) {
-    return <p className="text-[13px] text-muted-foreground">Langganan tidak tersedia untuk role Anda.</p>;
+    return (
+      <div className="mx-auto w-full max-w-[1280px] rounded-xl border border-dashed border-border bg-card px-6 py-12 text-center text-[14px] text-muted-foreground">
+        Langganan tidak tersedia untuk role Anda.
+      </div>
+    );
   }
 
   async function handleTestCheckout() {
@@ -96,29 +125,32 @@ export function SubscriptionScreen() {
   const loading = !loaded;
 
   return (
-    <div>
-      <div className="mb-5.5 rounded-lg border border-border bg-background p-4">
-        <div className="mb-3.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-          Paket Anda
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-4">
+      <section className="rounded-xl border border-border bg-card p-4 md:p-5">
+        <div className="text-[12px] font-bold tracking-[0.05em] text-muted-foreground uppercase">Paket Anda</div>
+        <div className="mt-1 text-[24px] leading-tight font-extrabold">{planDisplayName(session.plan.code)}</div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 md:gap-6">
+          <UsageRow
+            label="Lead bulan ini"
+            used={session.plan.usage.leads_this_month}
+            limit={session.plan.limits.leads_per_month}
+          />
+          <UsageRow label="Anggota" used={session.plan.usage.seats_used} limit={session.plan.limits.seats} />
         </div>
-        <div className="mb-3.5 text-[15px] font-semibold">{planDisplayName(session.plan.code)}</div>
-
-        <UsageRow
-          label="Lead bulan ini"
-          used={session.plan.usage.leads_this_month}
-          limit={session.plan.limits.leads_per_month}
-        />
-        <UsageRow label="Anggota" used={session.plan.usage.seats_used} limit={session.plan.limits.seats} />
-      </div>
+      </section>
 
       <FormErrorBanner message={error} />
 
-      <h2 className="mb-2.5 text-[13.5px] font-semibold">Perbandingan paket</h2>
+      <h2 className="text-[16px] font-bold">Perbandingan paket</h2>
 
       {loading ? (
-        <p className="text-[13px] text-muted-foreground">Memuat…</p>
+        <div aria-busy="true" aria-label="Memuat paket" className="grid gap-3 md:grid-cols-3">
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="h-56 animate-pulse rounded-xl bg-muted" />
+          ))}
+        </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {plans.map((plan) => {
             const isCurrent = plan.code === session.plan.code;
             // The test-checkout button only ever targets Pro (crm_be's
@@ -128,31 +160,51 @@ export function SubscriptionScreen() {
               plan.code === "pro" && !isCurrent && canChange && session.plan.test_checkout_available;
 
             return (
-              <Card key={plan.code} className={isCurrent ? "ring-2 ring-accent-strong" : undefined}>
-                <CardContent>
-                  <div className="mb-1 flex items-center gap-2">
-                    <span className="text-[13.5px] font-semibold">{plan.name}</span>
-                    {isCurrent && (
-                      <span className="rounded-full bg-accent-tint px-2 py-0.5 text-[10.5px] font-medium text-accent-strong">
-                        Paket Anda
-                      </span>
-                    )}
-                  </div>
-                  <div className="mb-3 text-[13px] text-muted-foreground">{plan.price_label}</div>
+              <section
+                key={plan.code}
+                aria-current={isCurrent ? "true" : undefined}
+                className={cn(
+                  "flex flex-col rounded-xl border bg-card p-4 md:p-5",
+                  isCurrent ? "border-2 border-primary" : "border-border"
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-[16px] font-bold">{plan.name}</h3>
+                  {isCurrent && (
+                    <span className="rounded-full bg-accent-tint px-2.5 py-0.5 text-[12px] font-bold text-accent-strong">
+                      Paket Anda
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 text-[20px] font-extrabold">{plan.price_label}</div>
 
-                  <dl className="mb-3 space-y-1 text-[12.5px]">
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Lead / bulan</dt>
-                      <dd className="font-medium">{formatLimit(plan.limits.leads_per_month)}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Anggota</dt>
-                      <dd className="font-medium">{formatLimit(plan.limits.seats)}</dd>
-                    </div>
-                  </dl>
+                <ul className="mt-4 flex flex-col gap-2 text-[14px]">
+                  <li className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Lead / bulan</span>
+                    <span className="font-semibold tabular-nums">{formatLimit(plan.limits.leads_per_month)}</span>
+                  </li>
+                  <li className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Anggota</span>
+                    <span className="font-semibold tabular-nums">{formatLimit(plan.limits.seats)}</span>
+                  </li>
+                  {Object.entries(CHANNEL_LABELS).map(([channel, label]) => {
+                    const open = plan.channels[channel] === true;
+                    return (
+                      <li key={channel} className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Kanal {label}</span>
+                        {open ? (
+                          <Check className="size-4 text-accent-strong" aria-label="Termasuk" />
+                        ) : (
+                          <Minus className="size-4 text-muted-foreground" aria-label="Tidak termasuk" />
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
 
+                <div className="mt-auto pt-4">
                   {showTestCheckout && (
-                    <Button size="sm" className="w-full" disabled={checkoutLoading} onClick={handleTestCheckout}>
+                    <Button className="w-full md:h-9" disabled={checkoutLoading} onClick={handleTestCheckout}>
                       {checkoutLoading ? "Memproses…" : "Coba Pro (test)"}
                     </Button>
                   )}
@@ -170,15 +222,15 @@ export function SubscriptionScreen() {
                         href={plan.contact_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-block text-[12.5px] text-accent-strong underline"
+                        className="flex min-h-11 w-full items-center justify-center rounded-lg border border-input text-[14px] font-semibold text-accent-strong hover:bg-muted md:min-h-9"
                       >
                         Hubungi kami untuk diskusi harga
                       </a>
                     ) : (
-                      <p className="text-[12.5px] text-muted-foreground">Hubungi kami untuk diskusi harga.</p>
+                      <p className="text-[13.5px] text-muted-foreground">Hubungi kami untuk diskusi harga.</p>
                     ))}
-                </CardContent>
-              </Card>
+                </div>
+              </section>
             );
           })}
         </div>

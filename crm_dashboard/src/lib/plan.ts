@@ -90,12 +90,17 @@ export function isUnlimitedLimit(limit: number): boolean {
   return limit === 0;
 }
 
+// Indonesian digit grouping — "2.000", not "2000" (design brief §7.6 writes
+// it that way; #167). Pinned to id-ID rather than the browser's locale so
+// the screen doesn't switch to "2,000" on an English-language machine.
+const count = (n: number) => n.toLocaleString("id-ID");
+
 export function formatLimit(limit: number): string {
-  return isUnlimitedLimit(limit) ? "Tanpa batas" : String(limit);
+  return isUnlimitedLimit(limit) ? "Tanpa batas" : count(limit);
 }
 
 export function formatUsage(used: number, limit: number): string {
-  return isUnlimitedLimit(limit) ? `${used} (tanpa batas)` : `${used} / ${limit}`;
+  return isUnlimitedLimit(limit) ? `${count(used)} (tanpa batas)` : `${count(used)} / ${count(limit)}`;
 }
 
 // usageRatio is the ONLY thing a progress bar reads — clamped to [0, 1]
@@ -109,4 +114,16 @@ export function formatUsage(used: number, limit: number): string {
 export function usageRatio(used: number, limit: number): number {
   if (isUnlimitedLimit(limit) || limit < 0) return 0;
   return Math.min(1, Math.max(0, used / limit));
+}
+
+// How close a usage bar is to its limit (#167) — "near" from 80%, the
+// handoff's threshold; "full" at or past the limit. Unlimited is always
+// "ok": there is no ceiling to approach. The screen says it in words too,
+// so the state never rests on the bar's color.
+export type UsageLevel = "ok" | "near" | "full";
+
+export function usageLevel(used: number, limit: number): UsageLevel {
+  if (isUnlimitedLimit(limit)) return "ok";
+  if (used >= limit) return "full";
+  return used / limit >= 0.8 ? "near" : "ok";
 }

@@ -393,3 +393,40 @@ satu kali, dan kirim ulang pengiriman sama persis.
 **Belum diverifikasi:** status **Gagal** dengan tombol **Kirim ulang**. Pengiriman baru mencapai "gagal" setelah
 seluruh jadwal retry habis (berjam-jam). Tampilannya mengikuti kode yang sama dengan status lain, tetapi belum
 terlihat dengan data sungguhan.
+
+---
+
+## #167 — Langganan & Pengaturan
+
+**Yang berubah:** `subscription/subscription-screen.tsx`, `settings/settings-screen.tsx`, `lib/plan.ts`
+(`usageLevel`, pengelompokan digit Indonesia), masing-masing dengan test.
+
+### Langganan
+- **Paket Anda** jadi kartu dengan nama paket besar dan dua bar pemakaian (2 kolom mulai 768 px). Bar kini punya
+  `role="progressbar"` dengan nilai. Mulai **80%** bar berubah `destructive` dan tertulis **"Hampir mencapai
+  batas"**. Di **100%** tertulis **"Batas tercapai"**. Kondisi batas dinyatakan dengan kata, bukan warna saja
+  (`usageLevel`, ambang dari handoff). Bar tetap tidak pernah melebihi 100% (`usageRatio`, #125).
+- **Perbandingan paket:** tiga kartu (1 kolom di HP, 3 mulai 768 px). Paket aktif bertepi primary + "Paket Anda".
+  Harga besar dari `price_label`. Isinya **hanya dari `GET /v1/plans`**: batas lead, batas anggota, dan **ketiga kanal**
+  (✓ / –). Kanal ditampilkan karena ada di katalog. Kuota fiktif tidak ditambahkan.
+- **"2.000", bukan "2000".** `formatLimit`/`formatUsage` memakai `toLocaleString("id-ID")`, dikunci ke id-ID supaya
+  tidak menjadi "2,000" di browser berbahasa Inggris. Test ditambahkan.
+- Tombol **Coba Pro (test)** tetap hanya untuk Owner saat `test_checkout_available`. Enterprise tetap tanpa tombol
+  beli, dan tautan kontaknya kini tombol outline 44 px di HP.
+
+**Yang tidak dibangun (PRD §Handoff vs sistem):** paket Starter/Tim/Bisnis dan harganya, tombol
+Upgrade/**Downgrade** di tiap kartu (jalur downgrade tidak ada, Phase 8 D4), **riwayat pembayaran + unduh invoice**
+(⛔ invoice, payment service terpisah), bar "Penyimpanan file" (tidak ada penyimpanan file; kelas biaya baru), dan
+fitur "Peran & izin kustom".
+
+### Pengaturan
+- Tetap **baca saja**: dua kartu (Organization, Profil Anda) dengan fakta dalam `dl` yang membungkus, plus satu
+  kalimat "Data di halaman ini hanya bisa dibaca".
+- **Tidak dibangun:** tab Notifikasi (preferensi tidak ada; "ringkasan mingguan via email" adalah kelas biaya
+  baru), tab API & Webhook (sudah di Connect, ADR-012), tab Keamanan, dan zona waktu/email bisnis yang bisa diubah.
+- **Zona waktu organization tidak ditampilkan.** Datanya nyata (`organizations.timezone`), tetapi `/v1/me` tidak
+  membawanya. Menampilkannya berarti perubahan API, bukan redesain. Dicatat di sini, tidak diam-diam ditambahkan.
+
+**Verifikasi:** typecheck, lint, **268 test**, build. Visual terhadap `crm_be` sungguhan (paket Free, 8/100 lead,
+**2/2 anggota → "Batas tercapai"**) di 360 dan 1024: `scrollWidth` = lebar layar. **Belum terlihat:** tombol
+**Coba Pro (test)**, karena `test_checkout_available` mati di lingkungan lokal ini.
