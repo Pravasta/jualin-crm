@@ -42,6 +42,7 @@ import { canConvertLead, hasBeenConverted } from "@/lib/lead-status";
 import { SOURCE_LABELS, STATUS_META, type LeadStatus, type LostReason } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { formatDateID } from "@/lib/date";
+import { dueLabel, isOverdue } from "@/lib/due-label";
 import { globalMessage, isLeadConvertedLocked, versionConflictCurrent } from "@/lib/auth-errors";
 import { useSession } from "@/lib/session-context";
 import { ConflictDialog } from "./conflict-dialog";
@@ -548,7 +549,7 @@ export function LeadDetail({ leadId }: { leadId: string }) {
               <ul className="flex flex-col">
                 {tasks.map((task) => {
                   const done = task.status === "done";
-                  const overdue = !done && task.due_at && new Date(task.due_at) < new Date();
+                  const overdue = !done && !!task.due_at && isOverdue(task.due_at);
                   return (
                     <li key={task.id} className="flex items-start gap-2.5 border-t border-border/60 py-2.5 first:border-t-0">
                       {/* One-way: once done, the box is locked (brief §8.5). The
@@ -576,8 +577,9 @@ export function LeadDetail({ leadId }: { leadId: string }) {
                               overdue ? "font-bold text-destructive" : "text-muted-foreground"
                             )}
                           >
-                            {task.due_at ? formatDateID(task.due_at) : "Tanpa jatuh tempo"}
-                            {overdue ? " · Terlambat" : ""}
+                            {/* Same calendar words as the Tugas list and the
+                                phone (lib/due-label.ts, #165). */}
+                            {done ? "Selesai" : task.due_at ? dueLabel(task.due_at) : "Tanpa jatuh tempo"}
                           </span>
                         </span>
                       </label>
