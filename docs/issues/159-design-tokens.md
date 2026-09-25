@@ -1,5 +1,8 @@
 # Issue #159 — checklist penutupan phase
 
+> **Ditinjau di #174 (26 September 2026).** Poin abu-abu mentah **ditutup** (`grep` kosong di `(protected)` dan `(auth)`,
+> diperiksa ulang). Satu poin **tetap terbuka** dengan pemicu eksplisit: klaim kontras tint dari token sheet.
+
 > Checklist ringkas, **bukan** catatan status. Status pekerjaan tetap hidup di GitHub Issues (ADR-008) —
 > berkas ini mengumpulkan poin yang perlu **dicek ulang saat #174** menutup Phase 8.6. Detail lengkap ada
 > di `docs/phases/08.6-ui-redesign/notes.md` bagian `## #159`.

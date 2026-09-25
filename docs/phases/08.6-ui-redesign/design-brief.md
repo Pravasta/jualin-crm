@@ -1,5 +1,10 @@
 # PRD Desain — Jualin CRM: Redesain Dashboard (Responsif) + Laporan + Aplikasi Mobile
 
+> ✅ **Sudah dipakai (Phase 8.6 ditutup #174, 26 September 2026).** Hasil desainnya ada di
+> `docs/design_handoff_jualin_crm/`, dan implementasinya di `prd.md`/`td.md`/`notes.md` folder ini. Selisih antara
+> handoff dan sistem tercatat di `prd.md` §*Handoff vs sistem*. Dokumen ini tetap sebagai konteks untuk putaran
+> desain berikutnya; empat pertanyaan terbuka §17 dijawab di `prd.md` §*Keputusan yang sudah diambil* (K1–K6).
+
 > **Dokumen ini untuk desainer (Claude Design), bukan untuk implementor.**
 >
 > Tujuannya satu: dalam **satu putaran desain**, menghasilkan desain lengkap dan **bisa diklik** untuk tiga

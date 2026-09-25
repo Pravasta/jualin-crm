@@ -685,3 +685,55 @@ pemotongan (#152), tarik-untuk-menyegarkan, transisi status, dan pencatatan Tele
 dua kali (sebelum dan sesudah perbaikan badge), lalu test itu dihapus. **Detail Lead tidak dirender** karena bergantung
 pada bloc dan auth. **Belum dicek di HP sungguhan (360×800, 393×852)**, karena tidak ada emulator/perangkat di sesi ini.
 Ini perlu dilakukan bersama sesi verifikasi HP Android yang tertunda (`docs/issues/073`).
+
+---
+
+## #174 — Dokumentasi + penutup Phase 8.6
+
+**Yang ditulis:** `docs/testing/flow/10-redesain-dan-laporan.md` (prosedur uji manual: empat lebar, kerangka HP,
+Laporan, keadaan, dan §10.6 mobile di HP fisik) dan barisnya di `README.md`; catatan di `authorization.md`
+(`metrics.read` menutupi ketujuh endpoint); tanda "sudah dipakai" di `design-brief.md`; `docs/issues/174-date-bounds.md`;
+serta pembacaan ulang `docs/issues/` di `issues.md`. `api.md` sudah memuat kelima endpoint sejak #169/#170.
+
+### Sapuan responsif otomatis (AC #3)
+
+Selama phase, tiap layar diuji di sebagian lebar saja, dan 390 px belum pernah dicek untuk semua. Di penutupan,
+**24 rute × 4 lebar = 96 pengecekan** dijalankan lewat Chrome headless (CDP) terhadap `crm_be` sungguhan: 19 rute
+terautentikasi (termasuk setiap detail dan dokumentasi Connect, serta Laporan dengan rentang kustom) dan 5 layar auth
+publik, masing-masing di 360, 390, 820, dan 1440. Kriteria: `document.documentElement.scrollWidth ≤ innerWidth`, dan
+rute terautentikasi **tidak** terlempar ke `/login` (supaya halaman Masuk yang bersih tidak dihitung sebagai lolos).
+**Hasil: 0 kegagalan dari 96.**
+
+### Review 10 acceptance criteria PRD
+
+| # | Kriteria (ringkas) | Status | Bukti |
+|---|---|---|---|
+| 1 | Token handoff di `globals.css`, setiap pasangan **dihitung** | ✅ | #159: tabel kontras di atas; `labels.test.ts` menghitung ulang di setiap run |
+| 2 | Opsi B dashboard, Opsi A mobile (≥7:1) | ✅ | `status-badge.tsx` (#159); `StatusBadge` Flutter + `theme_contrast_test.dart` (#172) |
+| 3 | Tanpa guliran horizontal di 360/390/820/1440, **diuji** | ✅ | Sapuan 96 pengecekan di atas |
+| 4 | HP: header + bilah bawah 5 item, tabel → kartu, dialog → sheet, sentuh ≥44 px | ✅ | #160, #161 (`DialogContent`, `Input`/`Button`), #171 (Laporan di bilah bawah) |
+| 5 | Semua layar dashboard pakai sistem baru, perilaku tidak hilang (test lama lolos) | ✅ | #159–#168, #171. Setiap test lama lolos. Tiga test diubah dengan alasan tertulis di PR masing-masing (`no-contact-badge`, `activity-text` "Tugas", `nav` label menu) |
+| 6 | Tanpa angka uang kecuali harga paket; tanpa kanal/paket/role/kolom dummy | ✅ | PRD §*Handoff vs sistem*; tidak ada yang dibangun (#164, #166, #167, #165) |
+| 7 | Laporan 8 blok dari API; 5 endpoint baru, Owner/Admin/Manager, test isolasi | ✅ | #169, #170 (test isolasi per query, mutasi zona waktu dan batas bucket), #171 |
+| 8 | Conversion rate menjelaskan pengecualian di layar; "belum ada data" ≠ 0% | ✅ | #171 Ringkasan + Sumber; `formatConversionRate` |
+| 9 | Tren memakai `organizations.timezone` | ✅ | #169, test Asia/Jayapura yang diuji mutasi |
+| 10 | Mobile: 6 layar tema baru; Lead Saya & Detail ikut handoff; hanya transisi sah | ✅\* | #172, #173. **\*Belum diverifikasi di HP fisik** (tidak ada perangkat di sesi mana pun di phase ini). Prosedurnya `10` §10.6, dijalankan bersama sesi `07` |
+
+**10/10 terpenuhi, dengan AC #10 bertanda \*:** kodenya selesai dan teruji, tetapi pengecekan di perangkat nyata
+menunggu sesi HP Android yang sudah tertunda sejak Phase 5 (`docs/issues/073`). Sama bentuknya dengan AC Phase 8 yang
+dulu ✅\* sampai verifikasi manual dijalankan.
+
+### Keputusan terbuka yang ditinggalkan phase ini (tidak memblokir)
+
+| Keputusan | Asal | Keadaan sekarang |
+|---|---|---|
+| **Font mobile** Plus Jakarta Sans vs Roboto | #172 | Roboto dipertahankan (tanpa unduhan tambahan di HP kelas bawah). Bila dipilih Plus Jakarta Sans: bundel TTF ±400–500 KB, satu issue kecil |
+| **Laporan untuk semua paket** atau sebagian Pro | PRD K6 | Semua paket. Menggerbanginya = satu kanal di `planChannels` |
+| **Baris "Tanpa penanggung jawab"** di laporan tugas | `docs/issues/170` | Pilihan (a) dipakai; (b) = perubahan API kecil |
+| **Zona waktu organization di `/v1/me`** | #171 | Browser dipakai sebagai pengganti; perlu perubahan API bila organization lintas zona waktu muncul |
+| **Batas tanggal lokal di daftar lead** | `docs/issues/174` | Temuan baru; usulan satu issue kecil di `date.ts` |
+
+### Belum terlihat dengan data sungguhan (tercatat di PR masing-masing)
+
+Status webhook **Gagal + Kirim ulang** (#166, butuh jadwal retry habis), tombol **Coba Pro (test)** (#167, test checkout
+mati di lokal), **Detail Lead mobile** dirender dan **semua layar mobile di HP fisik** (#173).

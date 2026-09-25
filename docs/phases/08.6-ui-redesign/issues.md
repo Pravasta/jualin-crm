@@ -93,5 +93,9 @@ Dibaca **seluruhnya** di #174. Berkas tanpa penunjuk tidak pernah dibaca lagi (#
 
 | Berkas | Isi | Pemicu |
 |---|---|---|
-| [`159`](../../issues/159-design-tokens.md) | Abu-abu dingin mentah di layar, sebagian gagal AA; tint status 94% karena klaim token sheet tidak benar | #161, #162, #165 menggantinya dengan token; #174 memeriksa `grep` kosong |
+| [`159`](../../issues/159-design-tokens.md) | ~~Abu-abu mentah di layar~~ **ditutup** (`grep` kosong, dicek ulang #174). Tetap terbuka: klaim kontras tint token sheet | Putaran desain berikutnya yang menulis rasio kontras |
 | [`170`](../../issues/170-report-tasks.md) | **Ditutup #171** — pilihan (a); "Terlambat sekarang" tertulis di layar | #174 membaca ulang |
+| [`174`](../../issues/174-date-bounds.md) | **Baru di #174:** batas tanggal daftar lead (hari UTC) ≠ periode Laporan/Beranda (hari lokal). Selisih di tepi periode | Keluhan "angka Laporan ≠ daftar", atau issue dashboard berikutnya. Usulan: satu issue kecil di `date.ts` |
+
+**Ditinjau di #174 (26 September 2026):** ketiga berkas dibaca. `170` tutup penuh. `159` satu poin tetap terbuka dengan
+pemicu. `174` adalah temuan baru dengan usulan perbaikan. Tidak ada poin yang dilewati tanpa keputusan.
