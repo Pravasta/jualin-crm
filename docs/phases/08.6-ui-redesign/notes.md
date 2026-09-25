@@ -269,3 +269,28 @@ cakupan itu dicatat sebagai komentar di #171, dengan alasan yang sama seperti it
 **Catatan:** sesi uji kedaluwarsa di tengah jalan (halaman diarahkan ke Masuk), jadi login ulang lewat API.
 Pengecekan visual yang melaporkan `scrollWidth` bersih tetap harus membaca **teks halamannya**, bukan hanya
 angkanya: halaman Masuk juga tidak meluap.
+
+---
+
+## #164 — Customer
+
+**Yang berubah:** `customers/customer-list.tsx` dan `customers/[id]/customer-detail.tsx` (render saja; query,
+pencarian, pagination, izin, dan dialog ubah/hapus tidak berubah).
+
+- **Daftar:** pencarian berikon, tabel mulai 768 px (Customer · Perusahaan [≥1024] · Kontak · Customer sejak), kartu di
+  HP, skeleton saat memuat, dua keadaan kosong. Kosong karena pencarian kini punya tombol **Hapus pencarian**. Nama
+  di tabel adalah `Link`, sama seperti daftar lead (#161), jadi keyboard dan pembaca layar tetap bisa masuk.
+- **Detail:** pola header yang sama dengan Detail Lead (#162): judul, **Ubah** sebagai tombol (Owner/Admin saja),
+  fakta dalam `dl` yang **membungkus, tidak memotong**, catatan, lalu **"Berasal dari lead #N Nama"** sebagai tautan.
+  **Hapus customer** berada di luar kartu dengan outline destructive.
+
+**Yang tidak dibangun, dan kenapa (PRD §Handoff vs sistem):** handoff menampilkan **nilai kontrak (Rp)**, **riwayat
+pembelian/order**, **form catatan**, dan **timeline** customer. Keempatnya dummy: `customers` tidak punya kolom
+nilai, tidak ada entity order, dan aktivitas di sistem ini hanya tertaut ke lead (`activities.lead_id NOT NULL`).
+Angka uang di luar cakupan (brief §6). Kolom "Pemilik" di daftar handoff juga tidak ada di Customer
+(`converted_by_membership_id` adalah **siapa yang mengonversi**, bukan pemilik), jadi tidak ditampilkan dengan label
+yang salah.
+
+**Verifikasi:** typecheck, lint, **253 test**, build. Visual terhadap `crm_be` sungguhan: lead Menang dikonversi
+lewat API menjadi customer pertama, lalu daftar di 360/820/1440 dan detail di 360/1440 diperiksa. `scrollWidth` = lebar
+layar di semuanya.

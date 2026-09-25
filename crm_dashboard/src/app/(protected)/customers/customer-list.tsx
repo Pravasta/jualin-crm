@@ -7,8 +7,14 @@
 // navigates to a route (/customers/{id}) rather than the mockup's
 // centered modal, matching how /leads/{id} already works elsewhere in
 // this app — one detail-screen convention, not two.
+//
+// Phase 8.6 (#164): table from 768px, cards below. The handoff's "Nilai
+// kontrak" column is dummy data — no amount exists on a customer, and money
+// figures are out of scope (brief §6) — so it is not here.
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { FormErrorBanner } from "@/components/form-error-banner";
@@ -84,57 +90,62 @@ export function CustomerList() {
   const isEmptyFiltered = !loading && total === 0 && !!urlKeyword;
 
   return (
-    <div>
-      <div className="mb-3.5">
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 md:gap-4">
+      <div className="relative md:max-w-96">
+        <Search
+          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
         <Input
           value={keywordInput}
           onChange={(e) => setKeywordInput(e.target.value)}
-          placeholder="Cari nama, email, atau telepon…"
-          className="h-8.5 max-w-80"
+          placeholder="Cari nama, email, atau telepon"
+          aria-label="Cari customer"
+          className="h-11 bg-card pl-9 md:h-9"
         />
       </div>
 
       {error && <FormErrorBanner message={error} />}
 
+      {loading && customers.length === 0 && !error && (
+        <div aria-busy="true" aria-label="Memuat customer" className="flex flex-col gap-2">
+          {Array.from({ length: 5 }, (_, i) => (
+            <div key={i} className="h-17 animate-pulse rounded-[10px] bg-muted md:h-12" />
+          ))}
+        </div>
+      )}
+
       {isEmptyNoData && (
-        <div className="rounded-lg border border-dashed border-muted-foreground/30 bg-background px-6 py-12 text-center">
-          <div className="mb-1.5 text-[14.5px] font-semibold">Belum ada customer</div>
-          <div className="text-[13px] text-muted-foreground">
-            Customer muncul di sini setelah sebuah lead dikonversi.
-          </div>
+        <div className="rounded-xl border border-dashed border-border bg-card px-5 py-14 text-center">
+          <div className="mb-1.5 text-[16px] font-bold">Belum ada customer</div>
+          <p className="mx-auto max-w-[38ch] text-[14px] text-muted-foreground">
+            Customer muncul di sini setelah sebuah lead berstatus Menang dikonversi.
+          </p>
         </div>
       )}
 
       {isEmptyFiltered && (
-        <div className="rounded-lg border border-dashed border-muted-foreground/30 bg-background px-6 py-12 text-center">
-          <div className="mb-1.5 text-[14.5px] font-semibold">Tidak ada customer yang cocok</div>
-          <div className="text-[13px] text-muted-foreground">
-            Tidak ada customer yang sesuai dengan kata kunci saat ini.
-          </div>
-        </div>
-      )}
-
-      {loading && customers.length === 0 && !error && (
-        <div className="rounded-lg border border-border bg-background px-6 py-12 text-center text-sm text-muted-foreground">
-          Memuat…
+        <div className="rounded-xl border border-dashed border-border bg-card px-5 py-14 text-center">
+          <div className="mb-1.5 text-[16px] font-bold">Tidak ada customer yang cocok</div>
+          <p className="mx-auto mb-4.5 max-w-[36ch] text-[14px] text-muted-foreground">
+            Tidak ada customer yang sesuai dengan kata kunci ini.
+          </p>
+          <Button variant="outline" onClick={() => setKeywordInput("")} className="h-10 px-4">
+            Hapus pencarian
+          </Button>
         </div>
       )}
 
       {!loading && total > 0 && (
-        <div className="overflow-hidden rounded-lg border border-border bg-background">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
+        <>
+          <div className="hidden overflow-hidden rounded-xl border border-border bg-card md:block">
+            <table className="w-full table-fixed border-collapse text-[14px]">
               <thead>
-                <tr className="bg-muted/40">
-                  <th className="px-3.5 py-2 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Customer
-                  </th>
-                  <th className="px-3.5 py-2 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Kontak
-                  </th>
-                  <th className="px-3.5 py-2 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Pelanggan sejak
-                  </th>
+                <tr className="bg-muted text-left text-[11.5px] font-bold tracking-[0.05em] text-muted-foreground uppercase">
+                  <th className="px-4 py-2.5">Customer</th>
+                  <th className="hidden px-3 py-2.5 lg:table-cell">Perusahaan</th>
+                  <th className="px-3 py-2.5">Kontak</th>
+                  <th className="w-36 px-3 py-2.5">Customer sejak</th>
                 </tr>
               </thead>
               <tbody>
@@ -142,13 +153,25 @@ export function CustomerList() {
                   <tr
                     key={customer.id}
                     onClick={() => router.push(`/customers/${customer.id}`)}
-                    className="cursor-pointer border-t border-border/70 hover:bg-muted/40"
+                    className="cursor-pointer border-t border-border/60 hover:bg-muted/50"
                   >
-                    <td className="px-3.5 py-2.5 text-[13px] font-medium">{customer.name}</td>
-                    <td className="px-3.5 py-2.5 text-[13px] text-foreground/70">
-                      {[customer.email, customer.phone].filter(Boolean).join(" · ") || "—"}
+                    <td className="truncate px-4 py-3">
+                      {/* Keyboard/screen-reader path; the row is the mouse path. */}
+                      <Link
+                        href={`/customers/${customer.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-semibold hover:underline"
+                      >
+                        {customer.name}
+                      </Link>
                     </td>
-                    <td className="px-3.5 py-2.5 text-[13px] text-foreground/70">
+                    <td className="hidden truncate px-3 py-3 text-muted-foreground lg:table-cell">
+                      {customer.company?.trim() || "—"}
+                    </td>
+                    <td className="truncate px-3 py-3 text-[13px] text-muted-foreground">
+                      {contactLine(customer)}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">
                       {formatDateID(customer.converted_at)}
                     </td>
                   </tr>
@@ -156,7 +179,28 @@ export function CustomerList() {
               </tbody>
             </table>
           </div>
-          <div className="flex items-center justify-between border-t border-border px-3.5 py-2.5 text-[12.5px] text-muted-foreground">
+
+          <ul className="flex flex-col gap-2.5 md:hidden">
+            {customers.map((customer) => (
+              <li key={customer.id}>
+                <Link
+                  href={`/customers/${customer.id}`}
+                  className="block rounded-[10px] border border-border bg-card p-3.5 active:bg-muted/60"
+                >
+                  <div className="truncate text-[15px] font-bold">{customer.name}</div>
+                  {customer.company?.trim() && (
+                    <div className="truncate text-[13px] text-muted-foreground">{customer.company}</div>
+                  )}
+                  <div className="mt-2 flex flex-wrap gap-x-3.5 gap-y-1 text-[13px] text-muted-foreground">
+                    <span className="[overflow-wrap:anywhere]">{contactLine(customer)}</span>
+                    <span>Sejak {formatDateID(customer.converted_at)}</span>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+
+          <div className="flex flex-wrap items-center justify-between gap-2.5 text-[13px] text-muted-foreground">
             <span>
               Menampilkan {rangeStart}–{rangeEnd} dari {total} customer
             </span>
@@ -164,28 +208,34 @@ export function CustomerList() {
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
-                  size="sm"
                   disabled={page <= 1}
                   onClick={() => updateParams({ page: String(page - 1) })}
+                  className="h-10 bg-card md:h-8"
                 >
                   Sebelumnya
                 </Button>
-                <span>
+                <span className="hidden sm:inline">
                   Halaman {page} dari {totalPages}
                 </span>
                 <Button
                   variant="outline"
-                  size="sm"
                   disabled={page >= totalPages}
                   onClick={() => updateParams({ page: String(page + 1) })}
+                  className="h-10 bg-card md:h-8"
                 >
                   Berikutnya
                 </Button>
               </div>
             )}
           </div>
-        </div>
+        </>
       )}
     </div>
   );
+}
+
+// Phone and email together — a customer is reached either way, and unlike
+// the lead table there is room (#164). Blank-safe via trim.
+function contactLine(customer: Customer): string {
+  return [customer.phone, customer.email].map((v) => v?.trim()).filter(Boolean).join(" · ") || "—";
 }
