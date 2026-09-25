@@ -430,3 +430,30 @@ fitur "Peran & izin kustom".
 **Verifikasi:** typecheck, lint, **268 test**, build. Visual terhadap `crm_be` sungguhan (paket Free, 8/100 lead,
 **2/2 anggota → "Batas tercapai"**) di 360 dan 1024: `scrollWidth` = lebar layar. **Belum terlihat:** tombol
 **Coba Pro (test)**, karena `test_checkout_available` mati di lingkungan lokal ini.
+
+---
+
+## #168 — Layar auth
+
+**Yang berubah:** `(auth)/layout.tsx` dan `(auth)/login/page.tsx`. Keenam layar (Masuk, Daftar, Verifikasi email,
+Lupa password, Atur ulang password, Terima undangan) sudah dibangun dari `Card`/`Input`/`Button` shadcn, jadi token
+#159 dan ukuran sentuh 44 px #161 sudah mereka warisi. Yang tersisa adalah kerangkanya.
+
+- **Merek di atas kartu** (kotak "J" primary + "Jualin CRM"), di atas latar putih hangat token.
+- **Di HP kartu mulai dekat bagian atas**, tidak di tengah persis. Keyboard layar yang muncul tidak mendorong tombol
+  kirim keluar pandangan. Mulai 768 px kartu kembali di tengah.
+- **Judul kartu (20 px tebal) dan tautan (`accent-strong` tebal, 7.04:1) diatur sekali di layout** lewat varian
+  turunan (`[&_[data-slot=card-title]]`, `[&_a]`), bukan diulang di enam berkas. Keenamnya memakai `CardTitle` dan
+  `<Link>` biasa.
+- **Login:** pemilih organization (ADR-007) setinggi 44 px di HP, dan dua tautan bawah boleh membungkus.
+
+**Tidak berubah:** seluruh alur, termasuk pemilih organization tanpa mengetik ulang, penolakan Employee lewat
+`dashboard_not_available_for_role` yang tampil apa adanya (sudah dijaga `api-client.test.ts`), kesalahan per field,
+password minimal 12, dua cabang terima undangan, dan tiga keadaan verifikasi.
+
+**Verifikasi:** typecheck, lint, 268 test, build. Visual tanpa sesi di 360 dan 1024: `/login`, `/register`,
+`/forgot-password`, `/verify-email` (token palsu → keadaan gagal), `/invitations/accept` (token palsu → keadaan
+tidak valid). `scrollWidth` = lebar layar. **Alur yang butuh password tidak dijalankan di browser** oleh agent;
+logikanya tidak disentuh.
+
+**Temuan #159, pengecekan ulang:** `grep "oklch(0\.[0-9]* 0 0)"` di `(protected)` dan `(auth)` tetap kosong.

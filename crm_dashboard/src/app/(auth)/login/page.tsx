@@ -75,7 +75,7 @@ export default function LoginPage() {
                 required
                 value={organizationId}
                 onChange={(event) => setOrganizationId(event.target.value)}
-                className="flex h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
+                className="flex h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:h-9 md:text-sm"
               >
                 <option value="" disabled>
                   Pilih organization
@@ -119,7 +119,7 @@ export default function LoginPage() {
           </Button>
 
           {!organizations && (
-            <div className="flex justify-between text-sm text-muted-foreground">
+            <div className="flex flex-wrap justify-between gap-x-4 gap-y-2 text-sm">
               <Link href="/forgot-password" className="underline underline-offset-4">
                 Lupa password?
               </Link>
