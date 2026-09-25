@@ -74,6 +74,9 @@ export function formatConversionRate(rate: number | null): string {
 // menit" which would read as "responds instantly".
 export function formatAvgResponseSeconds(seconds: number | null): string {
   if (seconds === null) return "—";
+  // Rounding 20 seconds to "0 menit" read as "responds instantly" — a
+  // real Beranda row showed it (#163). Under a minute says so.
+  if (seconds < 60) return "< 1 menit";
   if (seconds < 3600) return `${Math.round(seconds / 60)} menit`;
   return `${Math.round(seconds / 3600)} jam`;
 }

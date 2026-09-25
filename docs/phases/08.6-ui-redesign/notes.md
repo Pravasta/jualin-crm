@@ -238,3 +238,34 @@ bersih dari oklch mentah (abu-abu `0.6`/`0.65` yang gagal AA sudah hilang).
 + CDP): lead Penawaran dengan timeline & dua tugas (satu terlambat), lead Menang yang bisa dikonversi, lead Kalah,
 dan lead tanpa kontak, di 360/390/820/1024/1280/1440. `scrollWidth` = lebar layar di semuanya, dan tidak ada
 `dd`/`h1` yang terpotong.
+
+---
+
+## #163 — Beranda
+
+**Yang berubah:** `home-screen.tsx` (render), `lib/metrics.ts` (`formatAvgResponseSeconds` di bawah satu menit, dengan test).
+
+- **Empat kartu KPI**, 2 kolom di HP/tablet dan 4 mulai 1024: Lead masuk · Belum ter-assign · Conversion rate · Lead
+  Menang, dengan urutan dan angka besar 28 px sesuai handoff. Tiga kartu yang merujuk satu daftar lead adalah
+  tautan. Conversion rate tidak, karena ia rasio dan tidak ada satu daftar yang cocok.
+- **Conversion rate** kini diberi keterangan **"Tanpa Spam & Tidak Memenuhi Syarat"** di kartunya. Brief §10.1
+  meminta penjelasan ini di Laporan karena pengguna akan bertanya kenapa angkanya beda dari hitungan sendiri.
+  Pertanyaan yang sama muncul di Beranda. "Belum ada data" tetap tampil berbeda dari 0%.
+- **Belum ter-assign > 0** kini `text-accent-strong` (7.04:1), mengikuti handoff. Dulu merah Kalah: tanpa pemilik
+  adalah peringatan, bukan kegagalan.
+- **Jumlah per status** jadi kartu sendiri dengan chip bertepi warna status (pasangan yang sama dengan badge, 5.03–5.27:1).
+- **Performa per anggota:** tabel mulai 768 px, kartu di HP. **Setiap baris kini membuka daftar lead anggota itu**
+  (`assigned_to=<membership_id>` + rentang periode yang sama). Brief §8.3: "setiap angka bisa diklik". Dulu baris
+  ini tidak bisa diklik.
+- Memuat = skeleton per kartu dan per baris, bukan "…".
+- **"< 1 menit"**, bukan **"0 menit"**. Data sungguhan menunjukkan anggota yang menyentuh lead 20 detik setelah
+  masuk tertulis "0 menit", yang terbaca seperti "langsung". Di bawah 60 detik kini tertulis apa adanya.
+
+**Menyimpang dari brief/handoff:** **pintasan ke Laporan belum dipasang**, karena rutenya lahir di #171. Tambahan
+cakupan itu dicatat sebagai komentar di #171, dengan alasan yang sama seperti item navigasi Laporan.
+
+**Verifikasi:** typecheck, lint, **253 test**, build. Visual terhadap `crm_be` sungguhan di 360/820/1024/1440:
+`scrollWidth` = lebar layar di semuanya. Tabel performa yang di #161 masih terpotong di 360 px kini menjadi kartu.
+**Catatan:** sesi uji kedaluwarsa di tengah jalan (halaman diarahkan ke Masuk), jadi login ulang lewat API.
+Pengecekan visual yang melaporkan `scrollWidth` bersih tetap harus membaca **teks halamannya**, bukan hanya
+angkanya: halaman Masuk juga tidak meluap.
