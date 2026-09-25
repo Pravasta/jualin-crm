@@ -183,3 +183,58 @@ berbeda-beda):
 dipakai lagi, polanya: `curl` login → cookie jar → `Network.setCookie` → `Emulation.setDeviceMetricsOverride`
 → ukur `document.documentElement.scrollWidth`. Tombol `position: fixed` punya `offsetParent === null`, jadi pakai
 `getClientRects().length` untuk memeriksa keterlihatannya.
+
+---
+
+## #162 — Detail Lead
+
+**Yang berubah:** `leads/[id]/lead-detail.tsx` (render), `lead-status-panel.tsx` (tombol & label stepper),
+`lost-reason-dialog.tsx` dan `conflict-dialog.tsx` (token), `new-task-dialog.tsx` dan `lib/activity-text.ts`
+("Task" → "Tugas"). **Tidak ada logika yang berubah**: pemanggilan API, `version`, penanganan 409, aturan transisi
+(`lib/lead-pipeline.ts`, `lib/lead-status.ts`), dan izin role sama persis.
+
+| Lebar | Susunan |
+|---|---|
+| <1024 | Satu kolom, dengan urutan dari brief §9.2: header + area status → tambah catatan → timeline → penugasan → tugas → konversi / hapus |
+| ≥1024 | Kolom utama + kolom samping 300 px (penugasan, tugas, konversi, hapus) |
+
+- **Header:** `#nomor` monospace, nama 20/24 px, badge status, tombol **Ubah** (dulu tautan kecil). Detail lead
+  jadi daftar `dl` berlabel (Email, Telepon, Perusahaan, Sumber, Masuk). **Nilainya membungkus, tidak pernah
+  dipotong.** Pada percobaan pertama, telepon terpotong jadi "0857-9999-00…" di 1024 px. Jumlah kolom mengikuti
+  lebar kolom utama: 2 kolom di 1024, 3 di 1280, dan 5 mulai 1400.
+- **Stepper di 360 px:** tiap tahap hanya ~60 px, sedangkan "Penawaran" dalam semibold 11.5 px ~62 px. Satu kata
+  tidak bisa dipatahkan, jadi label meluap ke tetangganya. Kini 10.5 px di bawah 640 px, dengan
+  `overflow-wrap:anywhere` sebagai pengaman terakhir. **Diukur**, bukan dilihat: di 360, 390, 820, dan 1024 px tidak
+  ada label terlihat yang `scrollWidth > clientWidth`. Yang terukur hanya span `sr-only` "(selesai)", yang memang
+  1 px.
+- **Tombol status:** Lanjutkan/Buka kembali kini tombol primary solid (putih di atas primary, 5.05:1).
+  Kembali/Tutup tetap netral. 44 px di HP.
+- **Tambah catatan:** tiga tipe berlabel **Catatan · Telepon · WhatsApp** dengan ikon lucide, sesuai brief §8.5.
+  Dulu labelnya "📝 Catatan / 📞 Log telepon / 💬 WhatsApp dibuka". Emoji tampil berbeda per OS dan tidak bisa
+  mengikuti token. Tipe yang dikirim ke API tidak berubah.
+- **Timeline:** jejak manusia = ikon di atas `accent-tint`, teks `foreground` tebal-sedang. Peristiwa sistem = titik
+  netral, teks `muted-foreground` (5.32:1 di atas `--muted`, lolos AA). Nama penulis pindah ke baris waktu.
+- **Tugas:** checkbox + judul dibungkus `label` (target sentuh 44 px di HP). Selesai tetap **satu arah**.
+  Terlambat = `text-destructive` tebal. Tombol hapus 36 px di HP.
+- **Konversi:** latar `STATUS_META.won.color` (putih 5.03:1), dulu hijau oklch mentah. **Hapus lead:** outline
+  `destructive`, terpisah dari tombol rutin (brief §5.1 prinsip 3).
+
+**Kosakata:** "Task" di layar diganti **"Tugas"** (kartu, dialog "Tugas baru", timeline "Tugas dibuat: …" /
+"Tugas selesai", pesan konflik). Brief §6 menetapkan "Tugas" untuk layar, dan menu sudah bernama "Tugas" sejak Phase 3.
+`glossary.md` tetap memakai **Task** untuk entity, jadi nama tipe dan variabel di kode tidak diubah.
+`activity-text.test.ts` ikut diperbarui (dua string).
+
+**Menyimpang dari handoff:**
+- Label jatuh tempo tugas masih tanggal biasa ("26 Sep 2026" / "· Terlambat"), belum label kalender ("besok",
+  "Terlambat 2 hari"). Label kalender dimiliki layar Tugas (#165, brief §8.7). Membuat dua versi di dua issue akan
+  menghasilkan dua implementasi.
+- Tugas dan penugasan **tidak** dibuat bisa dilipat di HP. Brief menyebutnya "bisa", bukan wajib, dan keduanya
+  pendek.
+
+**Temuan #159 untuk layar ini selesai:** `lead-detail.tsx`, `lost-reason-dialog.tsx`, dan `conflict-dialog.tsx`
+bersih dari oklch mentah (abu-abu `0.6`/`0.65` yang gagal AA sudah hilang).
+
+**Verifikasi:** typecheck, lint (0/0), 252 test, build. **Visual terhadap `crm_be` sungguhan** (Chrome headless
++ CDP): lead Penawaran dengan timeline & dua tugas (satu terlambat), lead Menang yang bisa dikonversi, lead Kalah,
+dan lead tanpa kontak, di 360/390/820/1024/1280/1440. `scrollWidth` = lebar layar di semuanya, dan tidak ada
+`dd`/`h1` yang terpotong.

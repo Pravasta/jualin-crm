@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -65,12 +66,14 @@ export function LostReasonDialog({
             <button
               key={r}
               type="button"
+              aria-pressed={reason === r}
               onClick={() => setReason(r)}
-              className="rounded-md border px-3 py-2 text-left text-sm transition-colors"
-              style={{
-                borderColor: reason === r ? "oklch(0.55 0.2 25)" : "oklch(0.922 0 0)",
-                background: reason === r ? "oklch(0.55 0.2 25 / 6%)" : "#fff",
-              }}
+              className={cn(
+                "min-h-11 rounded-lg border-[1.5px] px-3 text-left text-sm transition-colors md:min-h-9",
+                reason === r
+                  ? "border-destructive bg-destructive/6 font-semibold text-destructive"
+                  : "border-border bg-card hover:bg-muted"
+              )}
             >
               {LOST_REASON_LABELS[r]}
             </button>
@@ -85,7 +88,7 @@ export function LostReasonDialog({
             type="button"
             disabled={!reason || loading}
             onClick={handleConfirm}
-            className="bg-[oklch(0.55_0.2_25)] text-white hover:bg-[oklch(0.5_0.2_25)]"
+            className="bg-destructive text-white hover:bg-destructive/90"
           >
             {loading ? "Menyimpan…" : "Tandai kalah"}
           </Button>

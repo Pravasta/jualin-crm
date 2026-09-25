@@ -58,10 +58,10 @@ export function LeadStatusPanel({ status, converted, saving, onChoose }: LeadSta
       ) : isFinalStatus(status) ? (
         <div className="text-[13px] text-muted-foreground">Status ini bersifat final.</div>
       ) : (
-        <div className="grid grid-cols-1 gap-x-3 gap-y-2.5 sm:grid-cols-[92px_1fr] sm:items-center">
+        <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-[104px_1fr] sm:items-center sm:gap-y-2.5">
           {groups.map((group) => (
             <Fragment key={group.key}>
-              <div className="text-xs font-medium text-muted-foreground">{group.title}</div>
+              <div className="text-[12.5px] font-semibold text-muted-foreground">{group.title}</div>
               <div className="flex flex-wrap gap-2">
                 {group.actions.map((action) => (
                   <button
@@ -70,7 +70,7 @@ export function LeadStatusPanel({ status, converted, saving, onChoose }: LeadSta
                     disabled={saving}
                     onClick={() => onChoose(action.status)}
                     className={cn(
-                      "h-8 rounded-md border px-3 text-[13px] font-medium disabled:opacity-50",
+                      "min-h-11 rounded-lg border-[1.5px] px-3.5 text-[14px] font-semibold disabled:opacity-50 md:min-h-8 md:px-3 md:text-[13px]",
                       BUTTON_STYLE[action.direction]
                     )}
                   >
@@ -90,10 +90,10 @@ export function LeadStatusPanel({ status, converted, saving, onChoose }: LeadSta
 // closing are neutral. Tokens, not raw colors — the row this replaces carried
 // its own oklch() literals.
 const BUTTON_STYLE: Record<StatusDirection, string> = {
-  forward: "border-primary/40 bg-primary/10 text-accent-strong",
-  reopen: "border-primary/40 bg-primary/10 text-accent-strong",
-  back: "border-border bg-background text-foreground/80 hover:bg-muted",
-  close: "border-border bg-background text-foreground/80 hover:bg-muted",
+  forward: "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
+  reopen: "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
+  back: "border-input bg-card text-foreground hover:bg-muted",
+  close: "border-input bg-card text-foreground hover:bg-muted",
 };
 
 const MARKER = 22; // px — marker diameter; the connector is centred on it
@@ -125,7 +125,12 @@ function Stepper({ status }: { status: LeadStatus }) {
           <Marker state={step.state} color={currentColor} />
           <span
             className={cn(
-              "px-0.5 text-[11.5px] leading-tight break-words",
+              // 10.5px below 640px: at 360px each of the five steps gets ~60px,
+              // and "Penawaran" in semibold at 11.5px is ~62px — one word can't
+              // wrap, so it spilled into its neighbour (#162). overflow-wrap:
+              // anywhere is the last-resort guard: "wrap, never overflow"
+              // (design brief §9.2).
+              "w-full px-0.5 text-[10.5px] leading-tight [overflow-wrap:anywhere] sm:text-[11.5px]",
               step.state === "current" ? "font-semibold text-foreground" : "",
               step.state === "done" ? "text-foreground" : "",
               step.state === "upcoming" || step.state === "inactive" ? "text-muted-foreground" : ""

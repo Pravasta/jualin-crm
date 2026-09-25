@@ -8,6 +8,17 @@
 // "Muat ulang".
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  ArrowLeft,
+  CircleDot,
+  MessageCircle,
+  Phone,
+  Plus,
+  StickyNote,
+  Trash2,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FormErrorBanner } from "@/components/form-error-banner";
@@ -28,7 +39,8 @@ import { listMemberships, type Member } from "@/lib/memberships";
 import { activityToTimelineEntry, lostReasonDisplayLabel } from "@/lib/activity-text";
 import { hasContact } from "@/lib/lead-contact";
 import { canConvertLead, hasBeenConverted } from "@/lib/lead-status";
-import { SOURCE_LABELS, type LeadStatus, type LostReason } from "@/lib/labels";
+import { SOURCE_LABELS, STATUS_META, type LeadStatus, type LostReason } from "@/lib/labels";
+import { cn } from "@/lib/utils";
 import { formatDateID } from "@/lib/date";
 import { globalMessage, isLeadConvertedLocked, versionConflictCurrent } from "@/lib/auth-errors";
 import { useSession } from "@/lib/session-context";
@@ -43,11 +55,37 @@ function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
-const NOTE_TYPE_OPTIONS: { type: UserActivityType; label: string }[] = [
-  { type: "note_added", label: "📝 Catatan" },
-  { type: "call_logged", label: "📞 Log telepon" },
-  { type: "whatsapp_opened", label: "💬 WhatsApp dibuka" },
+// The three types a person can record by hand — brief §8.5 names them
+// Catatan · Telepon · WhatsApp. Icons, not emoji: emoji render differently
+// per OS and can't take the token colors.
+const NOTE_TYPE_OPTIONS: { type: UserActivityType; label: string; icon: LucideIcon }[] = [
+  { type: "note_added", label: "Catatan", icon: StickyNote },
+  { type: "call_logged", label: "Telepon", icon: Phone },
+  { type: "whatsapp_opened", label: "WhatsApp", icon: MessageCircle },
 ];
+
+// Timeline marker per activity: the three human types keep their icon on an
+// accent tint; everything the system did is a small neutral dot. The eye
+// scans the timeline for what PEOPLE did (brief §7.4), so those stand out.
+const HUMAN_ICON: Partial<Record<Activity["type"], LucideIcon>> = {
+  note_added: StickyNote,
+  call_logged: Phone,
+  whatsapp_opened: MessageCircle,
+};
+
+function formatDateTimeID(iso: string): string {
+  return new Date(iso).toLocaleString("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h2 className="text-[14px] font-bold">{children}</h2>;
+}
 
 export function LeadDetail({ leadId }: { leadId: string }) {
   const router = useRouter();
@@ -239,7 +277,7 @@ export function LeadDetail({ leadId }: { leadId: string }) {
       if (versionConflictCurrent<Task>(err)) {
         // A task conflict is lower-stakes than a lead conflict — surface
         // it inline and refetch, rather than a second modal pattern.
-        setTaskError("Task ini sudah diubah di tempat lain. Daftar dimuat ulang.");
+        setTaskError("Tugas ini sudah diubah di tempat lain. Daftar dimuat ulang.");
         reload();
       } else {
         setTaskError(globalMessage(err));
@@ -291,59 +329,81 @@ export function LeadDetail({ leadId }: { leadId: string }) {
     canConvertLead(lead.status) &&
     !alreadyConverted;
 
+  const meta: { label: string; value: React.ReactNode }[] = [
+    { label: "Email", value: lead.email?.trim() || "—" },
+    { label: "Telepon", value: lead.phone?.trim() || "—" },
+    { label: "Perusahaan", value: lead.company?.trim() || "—" },
+    { label: "Sumber", value: SOURCE_LABELS[lead.source] },
+    { label: "Masuk", value: formatDateID(lead.created_at) },
+  ];
+
+  // Phone: one column in the order the brief sets (§9.2) — header + status,
+  // note form, timeline — then assignment, tasks and the two Owner/Admin
+  // actions. From 1024px the last group becomes a 300px side column.
   return (
-    <div>
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5">
       <button
         type="button"
         onClick={() => router.push("/leads")}
-        className="mb-3.5 flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground"
+        className="flex min-h-9 items-center gap-1.5 self-start text-[13.5px] font-medium text-muted-foreground hover:text-foreground"
       >
-        ← Kembali ke daftar lead
+        <ArrowLeft className="size-4" aria-hidden />
+        Daftar lead
       </button>
 
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_320px]">
-        <div className="flex flex-col gap-4">
-          {/* Header */}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-5">
+        <div className="flex min-w-0 flex-col gap-4">
+          {/* Header + status area */}
           <Card>
             <CardContent>
-              <div className="mb-1 flex items-start justify-between">
-                <div>
-                  <div className="mb-0.5 text-xs text-muted-foreground">#{lead.lead_number}</div>
-                  <div className="flex items-center gap-2 text-[19px] font-semibold">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-mono text-[13px] text-muted-foreground">#{lead.lead_number}</div>
+                  <h1 className="mt-0.5 text-[20px] leading-tight font-bold tracking-tight break-words md:text-[24px]">
                     {lead.name}
-                    <button
-                      type="button"
-                      onClick={() => setEditDialogOpen(true)}
-                      className="text-xs font-normal text-accent-strong underline"
-                    >
-                      Ubah
-                    </button>
-                  </div>
+                  </h1>
                 </div>
-                <StatusBadge status={lead.status} size="md" />
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  <StatusBadge status={lead.status} size="md" />
+                  <Button variant="outline" size="sm" onClick={() => setEditDialogOpen(true)} className="h-9 md:h-7">
+                    Ubah
+                  </Button>
+                </div>
               </div>
-              <div className="mt-2.5 flex flex-wrap gap-4 text-[13px] text-foreground/70">
-                {lead.email && <span>{lead.email}</span>}
-                {lead.phone && <span>{lead.phone}</span>}
-                <span>Sumber: {SOURCE_LABELS[lead.source]}</span>
-                <span>Masuk: {formatDateID(lead.created_at)}</span>
-                {lead.company && <span>{lead.company}</span>}
-                {!hasContact(lead) && <NoContactBadge />}
-              </div>
+
+              {/* Values wrap, never truncate: a phone number cut to "0857-9999-00…"
+                  is useless, and this is the screen people call from. Columns
+                  follow the main column's width, which narrows at 1024px when
+                  the side column appears. */}
+              <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 min-[1400px]:grid-cols-5">
+                {meta.map((m) => (
+                  <div key={m.label} className="min-w-0">
+                    <dt className="text-[11.5px] font-semibold tracking-[0.04em] text-muted-foreground uppercase">
+                      {m.label}
+                    </dt>
+                    <dd className="mt-0.5 text-[14px] [overflow-wrap:anywhere]">
+                      {m.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+
               {!hasContact(lead) && (
                 // Says what to DO, not just what is wrong: the fix is the
-                // "Ubah" link next to the name (issue #143).
-                <div className="mt-1.5 text-[12.5px] text-muted-foreground">
+                // "Ubah" button next to the name (issue #143).
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
+                  <NoContactBadge />
                   Tambahkan email atau telepon lewat Ubah agar bisa ditindaklanjuti.
                 </div>
               )}
               {lead.notes && (
-                <div className="mt-2.5 text-[13px] text-muted-foreground">{lead.notes}</div>
+                <p className="mt-3 rounded-lg bg-muted px-3 py-2 text-[13.5px] text-foreground">{lead.notes}</p>
               )}
               {lostReasonLabel && (
                 <div
-                  className="mt-2.5 inline-block rounded-md px-2.5 py-1 text-[12.5px]"
-                  style={{ background: "oklch(0.55 0.2 25 / 7%)", color: "oklch(0.5 0.2 25)" }}
+                  className="mt-3 inline-block rounded-md px-2.5 py-1 text-[13px] font-semibold"
+                  // The Kalah pair verified in #159: 4.86:1 on its tint.
+                  style={{ background: STATUS_META.lost.background, color: STATUS_META.lost.color }}
                 >
                   Alasan kalah: {lostReasonLabel}
                 </div>
@@ -361,111 +421,106 @@ export function LeadDetail({ leadId }: { leadId: string }) {
 
           {/* Add note */}
           <Card>
-            <CardContent>
-              <div className="mb-2.5 text-[13.5px] font-semibold">Tambah catatan</div>
+            <CardContent className="flex flex-col gap-3">
+              <SectionTitle>Tambah catatan</SectionTitle>
               <FormErrorBanner message={noteError} />
-              <div className="mb-2.5 flex gap-1.5">
-                {NOTE_TYPE_OPTIONS.map((nt) => (
-                  <button
-                    key={nt.type}
-                    type="button"
-                    onClick={() => setNoteType(nt.type)}
-                    className="h-7 rounded-md px-2.5 text-[12.5px]"
-                    style={{
-                      border: `1px solid ${noteType === nt.type ? "oklch(0.56 0.19 41)" : "oklch(0.922 0 0)"}`,
-                      background: noteType === nt.type ? "oklch(0.56 0.19 41 / 8%)" : "#fff",
-                    }}
-                  >
-                    {nt.label}
-                  </button>
-                ))}
+              <div role="radiogroup" aria-label="Jenis catatan" className="flex flex-wrap gap-2">
+                {NOTE_TYPE_OPTIONS.map((nt) => {
+                  const active = noteType === nt.type;
+                  const Icon = nt.icon;
+                  return (
+                    <button
+                      key={nt.type}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => setNoteType(nt.type)}
+                      className={cn(
+                        "flex min-h-10 items-center gap-1.5 rounded-lg border-[1.5px] px-3 text-[13.5px] font-medium transition-colors md:min-h-8",
+                        active
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-input bg-card text-foreground hover:bg-muted"
+                      )}
+                    >
+                      <Icon className="size-4" aria-hidden />
+                      {nt.label}
+                    </button>
+                  );
+                })}
               </div>
               <textarea
                 value={noteDraft}
                 onChange={(e) => setNoteDraft(e.target.value)}
                 placeholder="Tulis catatan…"
-                className="min-h-16 w-full rounded-md border border-input px-2.5 py-2 text-[13px] outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                aria-label="Isi catatan"
+                className="min-h-20 w-full rounded-lg border border-input bg-card px-3 py-2 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-[14px]"
               />
               <Button
                 type="button"
-                size="sm"
-                className="mt-2"
+                className="self-start md:h-9 md:px-4"
                 disabled={noteSaving || !noteDraft.trim()}
                 onClick={handleSubmitNote}
               >
-                {noteSaving ? "Menyimpan…" : "Simpan"}
+                {noteSaving ? "Menyimpan…" : "Simpan ke timeline"}
               </Button>
             </CardContent>
           </Card>
 
           {/* Timeline */}
           <Card>
-            <CardContent>
-              <div className="mb-3 text-[13.5px] font-semibold">Riwayat</div>
+            <CardContent className="flex flex-col gap-2">
+              <SectionTitle>Timeline</SectionTitle>
               {timeline.length === 0 && (
-                <p className="text-[12.5px] text-muted-foreground">Belum ada riwayat.</p>
+                <p className="text-[13px] text-muted-foreground">Belum ada riwayat.</p>
               )}
-              <div className="flex flex-col">
-                {timeline.map(({ activity, entry }) => (
-                  <div
-                    key={activity.id}
-                    className="flex gap-2.5 border-b border-border/60 py-2.5 last:border-b-0"
-                  >
-                    <span
-                      className="mt-0.5 flex size-5.5 shrink-0 items-center justify-center rounded-full text-[11px]"
-                      style={{
-                        background: entry.isHuman ? "oklch(0.56 0.19 41 / 10%)" : "oklch(0.96 0 0)",
-                        color: entry.isHuman ? "oklch(0.5 0.17 41)" : "oklch(0.6 0 0)",
-                      }}
-                    >
-                      {entry.isHuman
-                        ? activity.type === "call_logged"
-                          ? "📞"
-                          : activity.type === "whatsapp_opened"
-                            ? "💬"
-                            : "📝"
-                        : "•"}
-                    </span>
-                    <div className="flex-1">
-                      {entry.isHuman && entry.authorName && (
-                        <div className="text-[12.5px] font-semibold text-foreground/85">
-                          {entry.authorName}
-                        </div>
-                      )}
-                      <div
-                        className="text-[13px]"
-                        style={{ color: entry.isHuman ? "oklch(0.25 0 0)" : "oklch(0.5 0 0)" }}
+              <ol className="flex flex-col">
+                {timeline.map(({ activity, entry }) => {
+                  const Icon = entry.isHuman ? (HUMAN_ICON[activity.type] ?? StickyNote) : CircleDot;
+                  return (
+                    <li key={activity.id} className="flex gap-3 border-b border-border/60 py-3 last:border-b-0">
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full",
+                          entry.isHuman ? "bg-accent-tint text-accent-strong" : "bg-muted text-muted-foreground"
+                        )}
                       >
-                        {entry.text}
+                        <Icon className={entry.isHuman ? "size-3.5" : "size-3"} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div
+                          className={cn(
+                            "text-[14px] break-words",
+                            entry.isHuman ? "font-medium text-foreground" : "text-muted-foreground"
+                          )}
+                        >
+                          {entry.text}
+                        </div>
+                        <div className="mt-0.5 text-[12px] text-muted-foreground">
+                          {entry.isHuman && entry.authorName ? `${entry.authorName} · ` : ""}
+                          {formatDateTimeID(activity.created_at)}
+                        </div>
                       </div>
-                      <div className="mt-0.5 text-[11.5px] text-muted-foreground">
-                        {new Date(activity.created_at).toLocaleString("id-ID", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    </li>
+                  );
+                })}
+              </ol>
             </CardContent>
           </Card>
         </div>
 
-        {/* Right column */}
-        <div className="flex flex-col gap-4">
+        {/* Side column (≥1024px) / end of the page (phone, tablet) */}
+        <div className="flex min-w-0 flex-col gap-4">
           <Card>
-            <CardContent>
-              <div className="mb-2.5 text-[13px] font-semibold">Penugasan</div>
+            <CardContent className="flex flex-col gap-2.5">
+              <SectionTitle>Penugasan</SectionTitle>
               <FormErrorBanner message={assignError} />
               <select
                 value={lead.assigned_to_membership_id ?? ""}
                 disabled={assignSaving}
                 onChange={(e) => handleAssignChange(e.target.value)}
-                className="h-8 w-full rounded-md border border-input bg-background px-2.5 text-[13px] outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                aria-label="Pemilik lead"
+                className="h-11 w-full rounded-lg border border-input bg-card px-3 text-base outline-none focus-visible:ring-3 focus-visible:ring-ring/50 md:h-9 md:text-[14px]"
               >
                 <option value="">Tanpa pemilik</option>
                 {members.map((m) => (
@@ -478,62 +533,66 @@ export function LeadDetail({ leadId }: { leadId: string }) {
           </Card>
 
           <Card>
-            <CardContent>
-              <div className="mb-2.5 flex items-center justify-between">
-                <span className="text-[13px] font-semibold">Task</span>
-                <button
-                  type="button"
-                  onClick={() => setNewTaskDialogOpen(true)}
-                  className="text-xs font-medium text-accent-strong"
-                >
-                  + Tambah
-                </button>
+            <CardContent className="flex flex-col gap-1">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <SectionTitle>Tugas</SectionTitle>
+                <Button variant="ghost" size="sm" onClick={() => setNewTaskDialogOpen(true)} className="h-9 text-accent-strong md:h-7">
+                  <Plus className="size-4" aria-hidden />
+                  Tambah
+                </Button>
               </div>
               <FormErrorBanner message={taskError} />
               {tasks.length === 0 && (
-                <p className="py-1.5 text-[12.5px] text-muted-foreground">Belum ada task.</p>
+                <p className="py-1 text-[13px] text-muted-foreground">Belum ada tugas.</p>
               )}
-              {tasks.map((task) => {
-                const overdue =
-                  task.status === "open" && task.due_at && new Date(task.due_at) < new Date();
-                return (
-                  <div key={task.id} className="flex items-start gap-2 border-t border-border/60 py-2 first:border-t-0">
-                    <input
-                      type="checkbox"
-                      checked={task.status === "done"}
-                      disabled={task.status === "done"}
-                      onChange={() => handleToggleTask(task)}
-                      className="mt-0.5"
-                    />
-                    <div className="flex-1">
-                      <div
-                        className="text-[12.5px]"
-                        style={{
-                          textDecoration: task.status === "done" ? "line-through" : "none",
-                          color: task.status === "done" ? "oklch(0.65 0 0)" : "inherit",
-                        }}
+              <ul className="flex flex-col">
+                {tasks.map((task) => {
+                  const done = task.status === "done";
+                  const overdue = !done && task.due_at && new Date(task.due_at) < new Date();
+                  return (
+                    <li key={task.id} className="flex items-start gap-2.5 border-t border-border/60 py-2.5 first:border-t-0">
+                      {/* One-way: once done, the box is locked (brief §8.5). The
+                          label makes the whole title a 44px touch target. */}
+                      <label className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2.5 md:min-h-0">
+                        <input
+                          type="checkbox"
+                          checked={done}
+                          disabled={done}
+                          onChange={() => handleToggleTask(task)}
+                          className="mt-0.5 size-4.5 shrink-0 accent-[var(--primary)]"
+                        />
+                        <span className="min-w-0">
+                          <span
+                            className={cn(
+                              "block text-[14px] break-words",
+                              done ? "text-muted-foreground line-through" : "text-foreground"
+                            )}
+                          >
+                            {task.title}
+                          </span>
+                          <span
+                            className={cn(
+                              "block text-[12.5px]",
+                              overdue ? "font-bold text-destructive" : "text-muted-foreground"
+                            )}
+                          >
+                            {task.due_at ? formatDateID(task.due_at) : "Tanpa jatuh tempo"}
+                            {overdue ? " · Terlambat" : ""}
+                          </span>
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTask(task)}
+                        className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive md:size-7"
+                        aria-label={`Hapus tugas ${task.title}`}
                       >
-                        {task.title}
-                      </div>
-                      <div
-                        className="text-[11px]"
-                        style={{ color: overdue ? "oklch(0.55 0.2 25)" : "oklch(0.6 0 0)" }}
-                      >
-                        {task.due_at ? formatDateID(task.due_at) : "Tanpa jatuh tempo"}
-                        {overdue ? " · Terlambat" : ""}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteTask(task)}
-                      className="text-muted-foreground hover:text-destructive"
-                      aria-label="Hapus task"
-                    >
-                      ×
-                    </button>
-                  </div>
-                );
-              })}
+                        <X className="size-4" aria-hidden />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             </CardContent>
           </Card>
 
@@ -543,25 +602,26 @@ export function LeadDetail({ leadId }: { leadId: string }) {
               type="button"
               disabled={convertSaving}
               onClick={handleConvert}
-              className="h-9 bg-[oklch(0.5_0.15_145)] text-white hover:bg-[oklch(0.45_0.15_145)]"
+              // White on the Menang green: 5.03:1 (#159).
+              className="h-11 text-white md:h-10"
+              style={{ background: STATUS_META.won.color }}
             >
-              {convertSaving ? "Mengonversi…" : "Konversi menjadi customer"}
+              {convertSaving ? "Mengonversi…" : "Konversi menjadi Customer"}
             </Button>
           )}
 
           {canDelete && (
-            <button
+            // Destructive, and looks it — outlined in the destructive token,
+            // apart from the everyday buttons above (brief §5.1 principle 3).
+            <Button
               type="button"
+              variant="outline"
               onClick={() => setDeleteDialogOpen(true)}
-              className="h-8.5 rounded-md text-[13px] font-medium"
-              style={{
-                border: "1px solid oklch(0.577 0.245 27.325 / 35%)",
-                background: "oklch(0.577 0.245 27.325 / 6%)",
-                color: "oklch(0.55 0.22 27)",
-              }}
+              className="h-11 border-destructive/40 bg-card text-destructive hover:bg-destructive/6 hover:text-destructive md:h-9"
             >
+              <Trash2 className="size-4" aria-hidden />
               Hapus lead
-            </button>
+            </Button>
           )}
         </div>
       </div>
