@@ -85,7 +85,7 @@ describe("activityToTimelineEntry", () => {
       activity({ type: "task_created", metadata: { task_id: "t-1", title: "Telepon lagi besok" } }),
       NAMES
     );
-    expect(entry.text).toBe("Task dibuat: Telepon lagi besok");
+    expect(entry.text).toBe("Tugas dibuat: Telepon lagi besok");
   });
 
   // task_completed: {"task_id": "..."} ONLY — no title in this metadata,
@@ -95,7 +95,7 @@ describe("activityToTimelineEntry", () => {
       activity({ type: "task_completed", metadata: { task_id: "t-1" } }),
       NAMES
     );
-    expect(entry.text).toBe("Task diselesaikan");
+    expect(entry.text).toBe("Tugas selesai");
   });
 
   it.each(["note_added", "call_logged", "whatsapp_opened"] as const)(

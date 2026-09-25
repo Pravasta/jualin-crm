@@ -24,7 +24,7 @@ export function ConflictDialog({
 }) {
   return (
     <Dialog open={open}>
-      <DialogContent showCloseButton={false} className="border-t-4 border-t-[oklch(0.62_0.15_75)]">
+      <DialogContent showCloseButton={false} className="border-t-4 border-t-primary">
         <DialogHeader>
           <DialogTitle>Data ini sudah diubah orang lain</DialogTitle>
           <DialogDescription>

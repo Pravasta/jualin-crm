@@ -88,7 +88,7 @@ export function NewTaskDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Task baru</DialogTitle>
+          <DialogTitle>Tugas baru</DialogTitle>
           <DialogDescription>Tambahkan follow-up untuk lead ini.</DialogDescription>
         </DialogHeader>
 
@@ -149,7 +149,7 @@ export function NewTaskDialog({
               Batal
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Menyimpan…" : "Buat task"}
+              {loading ? "Menyimpan…" : "Buat tugas"}
             </Button>
           </DialogFooter>
         </form>

@@ -67,11 +67,11 @@ export function activityToTimelineEntry(
 
     case "task_created": {
       const title = str("title");
-      return { isHuman: false, text: title ? `Task dibuat: ${title}` : "Task dibuat" };
+      return { isHuman: false, text: title ? `Tugas dibuat: ${title}` : "Tugas dibuat" };
     }
 
     case "task_completed":
-      return { isHuman: false, text: "Task diselesaikan" };
+      return { isHuman: false, text: "Tugas selesai" };
 
     case "note_added":
       return {
