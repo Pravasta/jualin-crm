@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasAnyLeadFilter, parseCSVParam, toggleCSVValue } from "./lead-filters";
+import { hasAnyLeadFilter, parseCSVParam, sheetFilterCount, toggleCSVValue } from "./lead-filters";
 
 describe("parseCSVParam", () => {
   it("splits a comma-separated URL param", () => {
@@ -51,5 +51,20 @@ describe("hasAnyLeadFilter", () => {
     expect(hasAnyLeadFilter({ ...empty, keyword: "budi" })).toBe(true);
     expect(hasAnyLeadFilter({ ...empty, createdFrom: "2026-01-01" })).toBe(true);
     expect(hasAnyLeadFilter({ ...empty, createdTo: "2026-01-31" })).toBe(true);
+  });
+});
+
+describe("sheetFilterCount", () => {
+  const empty = { status: [], source: [], assignedTo: "", keyword: "", createdFrom: "", createdTo: "" };
+
+  it("is zero when only on-screen filters (status, keyword) are set", () => {
+    expect(sheetFilterCount({ ...empty, status: ["new", "won"], keyword: "dewi" })).toBe(0);
+  });
+
+  it("counts each source, the owner, and the date range once", () => {
+    expect(sheetFilterCount({ ...empty, source: ["form", "api"] })).toBe(2);
+    expect(sheetFilterCount({ ...empty, assignedTo: "none" })).toBe(1);
+    expect(sheetFilterCount({ ...empty, createdFrom: "2026-09-01", createdTo: "2026-09-30" })).toBe(1);
+    expect(sheetFilterCount({ ...empty, createdTo: "2026-09-30" })).toBe(1);
   });
 });

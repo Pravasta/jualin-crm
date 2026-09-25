@@ -20,6 +20,7 @@
       **wajib** mengganti nilai mentah ini dengan token (`text-muted-foreground`, `border-border`,
       `var(--accent-strong)`), bukan menyalin ulang angkanya. Teks yang dicoret (tugas selesai) tetap
       teks: 4.5:1 berlaku.
+      **Kemajuan:** `leads-list.tsx` bersih sejak **#161** (tersisa hanya bayangan FAB, dekoratif).
       **Pemicu peninjauan:** #174 — `grep -rn "oklch(0\.[0-9]* 0 0)" crm_dashboard/src/app` harus
       kosong, atau setiap sisanya punya alasan tertulis.
 

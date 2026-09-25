@@ -10,7 +10,10 @@ describe("NoContactBadge", () => {
 
   it("is neutral, not an error colour: a lead without contact is a legitimate state", () => {
     const html = renderToStaticMarkup(createElement(NoContactBadge));
-    expect(html).toContain("bg-muted");
+    // A neutral surface token — `bg-secondary` since the Phase 8.6 tokens
+    // (#161), `bg-muted` before. What matters is that it is one of the
+    // neutrals, never a status or error color.
+    expect(html).toMatch(/bg-(secondary|muted)\b/);
     expect(html).not.toMatch(/danger|destructive|red|amber/);
   });
 });

@@ -5,22 +5,31 @@
 // and the URL is the source of truth for filter state so the page can be
 // reloaded or shared without losing context (issue #32 acceptance
 // criteria).
+//
+// Phase 8.6 (#161): table from 768px up, cards below it; status chips stay
+// on screen and scroll sideways on a phone, while source/owner/date move
+// behind a "Filter" button into a bottom sheet. Nothing about what the
+// filters mean changed — same URL params, same queries.
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Plus, Search, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { FormErrorBanner } from "@/components/form-error-banner";
 import { NoContactBadge } from "@/components/no-contact-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { dateInputToEndOfDayUTC, dateInputToStartOfDayUTC, formatDateID } from "@/lib/date";
-import { hasContact } from "@/lib/lead-contact";
-import { hasAnyLeadFilter, parseCSVParam, toggleCSVValue } from "@/lib/lead-filters";
+import { hasContact, primaryContact } from "@/lib/lead-contact";
+import { hasAnyLeadFilter, parseCSVParam, sheetFilterCount, toggleCSVValue } from "@/lib/lead-filters";
 import { listLeads, type Lead } from "@/lib/leads";
 import { listMemberships, type Member } from "@/lib/memberships";
 import { getMetricsSummary, statusCount, type MetricsSummary } from "@/lib/metrics";
 import { LEAD_SOURCES, LEAD_STATUSES, SOURCE_LABELS, STATUS_META } from "@/lib/labels";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { globalMessage } from "@/lib/auth-errors";
+import { cn } from "@/lib/utils";
 import { NewLeadDialog } from "./new-lead-dialog";
 
 const PER_PAGE = 25;
@@ -63,6 +72,7 @@ export function LeadsList() {
   const [summary, setSummary] = useState<MetricsSummary | null>(null);
 
   const [newLeadOpen, setNewLeadOpen] = useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   // Bumped after a successful create to force the list effect to re-run
   // even when the URL (and therefore searchParams) doesn't change — a
   // new lead may or may not match the current filters, and re-running
@@ -92,14 +102,16 @@ export function LeadsList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedKeyword]);
 
-  const hasAnyFilter = hasAnyLeadFilter({
+  const filterState = {
     status: statusFilter,
     source: sourceFilter,
     assignedTo,
     keyword: urlKeyword,
     createdFrom: createdFromInput,
     createdTo: createdToInput,
-  });
+  };
+  const hasAnyFilter = hasAnyLeadFilter(filterState);
+  const hiddenFilterCount = sheetFilterCount(filterState);
 
   function handleClearFilters() {
     setKeywordInput("");
@@ -190,6 +202,11 @@ export function LeadsList() {
 
   const membersById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
 
+  const ownerName = (lead: Lead): string | null =>
+    lead.assigned_to_membership_id
+      ? (membersById.get(lead.assigned_to_membership_id)?.full_name ?? "—")
+      : null;
+
   const isEmptyNoData = !loading && total === 0 && !hasAnyFilter;
   const isEmptyFiltered = !loading && total === 0 && hasAnyFilter;
   const showTable = !loading && total > 0;
@@ -198,22 +215,59 @@ export function LeadsList() {
   const rangeStart = total === 0 ? 0 : (page - 1) * PER_PAGE + 1;
   const rangeEnd = Math.min(page * PER_PAGE, total);
 
-  return (
-    <div>
-      <div className="mb-3.5 flex items-center justify-between gap-3">
-        <Input
-          value={keywordInput}
-          onChange={(e) => setKeywordInput(e.target.value)}
-          placeholder="Cari nama, email, atau telepon…"
-          className="h-8.5 max-w-80"
-        />
+  // Source, owner and entry date — rendered inline from 768px up and inside
+  // the Filter sheet below it. One definition, so the two can't drift.
+  const secondaryFilters = (
+    <>
+      <div className="flex flex-col gap-1.5 md:flex-row md:items-center">
+        <span className="text-[12.5px] font-semibold text-muted-foreground md:sr-only">Sumber</span>
+        <div className="flex flex-wrap gap-1.5">
+          {LEAD_SOURCES.map((source) => {
+            const active = sourceFilter.includes(source);
+            return (
+              <button
+                key={source}
+                type="button"
+                aria-pressed={active}
+                onClick={() => updateFilterParams({ source: toggleCSVValue(sourceFilter, source).join(",") || null })}
+                className={cn(
+                  "min-h-9 rounded-full border-[1.5px] px-3 text-[13px] font-medium transition-colors md:min-h-8",
+                  active
+                    ? "border-primary bg-accent-tint text-accent-strong"
+                    : "border-input bg-card text-foreground hover:bg-muted"
+                )}
+              >
+                {SOURCE_LABELS[source]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <label className="flex flex-col gap-1.5 md:flex-row md:items-center">
+        <span className="text-[12.5px] font-semibold text-muted-foreground md:sr-only">Pemilik</span>
+        <select
+          value={assignedTo}
+          onChange={(e) => updateFilterParams({ assigned_to: e.target.value || null })}
+          className="h-11 w-full rounded-lg border border-input bg-card px-3 text-base outline-none focus-visible:ring-3 focus-visible:ring-ring/50 md:h-9 md:w-auto md:text-[13.5px]"
+        >
+          <option value="">Semua pemilik</option>
+          <option value="none">Tanpa pemilik aktif</option>
+          {members.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.full_name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="flex flex-col gap-1.5 md:flex-row md:items-center">
+        <span className="text-[12.5px] font-semibold text-muted-foreground md:sr-only">Tanggal masuk</span>
         <div className="flex items-center gap-2">
           <input
             type="date"
             value={createdFromInput}
             onChange={(e) => updateFilterParams({ created_from: e.target.value || null })}
             aria-label="Tanggal masuk dari"
-            className="h-8.5 rounded-md border border-input bg-background px-2.5 text-[13px] outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="h-11 min-w-0 flex-1 rounded-lg border border-input bg-card px-2.5 text-base outline-none focus-visible:ring-3 focus-visible:ring-ring/50 md:h-9 md:flex-none md:text-[13px]"
           />
           <span className="text-xs text-muted-foreground">s/d</span>
           <input
@@ -221,51 +275,71 @@ export function LeadsList() {
             value={createdToInput}
             onChange={(e) => updateFilterParams({ created_to: e.target.value || null })}
             aria-label="Tanggal masuk sampai"
-            className="h-8.5 rounded-md border border-input bg-background px-2.5 text-[13px] outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="h-11 min-w-0 flex-1 rounded-lg border border-input bg-card px-2.5 text-base outline-none focus-visible:ring-3 focus-visible:ring-ring/50 md:h-9 md:flex-none md:text-[13px]"
           />
-          <select
-            value={assignedTo}
-            onChange={(e) => updateFilterParams({ assigned_to: e.target.value || null })}
-            className="h-8.5 rounded-md border border-input bg-background px-2.5 text-[13px] outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-          >
-            <option value="">Semua pemilik</option>
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.full_name}
-              </option>
-            ))}
-          </select>
-          <Button onClick={() => setNewLeadOpen(true)}>+ Lead baru</Button>
         </div>
       </div>
+    </>
+  );
 
-      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+  const unassignedActive = assignedTo === "none";
+
+  return (
+    // pb-16 on phones: room for the floating "Lead baru" button, so it never
+    // covers the last card's status badge at the end of the scroll.
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 pb-16 md:gap-4 md:pb-0">
+      <div className="flex items-center gap-2.5">
+        <div className="relative min-w-0 flex-1 md:max-w-96">
+          <Search
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            value={keywordInput}
+            onChange={(e) => setKeywordInput(e.target.value)}
+            placeholder="Cari nama, email, atau telepon"
+            aria-label="Cari lead"
+            className="h-11 bg-card pl-9 md:h-9"
+          />
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => setFilterSheetOpen(true)}
+          className="h-11 gap-1.5 bg-card px-3.5 text-[14px] md:hidden"
+        >
+          <SlidersHorizontal className="size-4" aria-hidden />
+          Filter
+          {hiddenFilterCount > 0 && (
+            <span className="rounded-full bg-accent-strong px-1.5 text-[11px] leading-4 text-white">
+              {hiddenFilterCount}
+            </span>
+          )}
+        </Button>
+        <Button onClick={() => setNewLeadOpen(true)} className="ml-auto hidden h-9 gap-1.5 px-4 md:inline-flex">
+          <Plus className="size-4" aria-hidden />
+          Lead baru
+        </Button>
+      </div>
+
+      {/* Always visible, with counts. On a phone the row scrolls sideways
+          instead of wrapping into four lines above the list — the one place
+          horizontal scrolling is intended (td.md §4.2). */}
+      <div
+        role="group"
+        aria-label="Filter status"
+        className="-mx-3.5 flex gap-2 overflow-x-auto px-3.5 pb-0.5 [scrollbar-width:none] md:mx-0 md:flex-wrap md:overflow-visible md:px-0"
+      >
         <button
           type="button"
-          onClick={() =>
-            updateFilterParams({ assigned_to: assignedTo === "none" ? null : "none" })
-          }
-          className="flex items-center gap-1.5 rounded-full border-[1.5px] px-2.5 py-1 text-xs font-semibold transition-colors"
-          style={{
-            borderColor:
-              assignedTo === "none"
-                ? "oklch(0.55 0.2 25)"
-                : summary && summary.unassigned > 0
-                  ? "oklch(0.55 0.2 25 / 45%)"
-                  : "oklch(0.922 0 0)",
-            background: assignedTo === "none" ? "oklch(0.55 0.2 25 / 10%)" : "#fff",
-            color:
-              assignedTo === "none"
-                ? "oklch(0.5 0.2 25)"
-                : summary && summary.unassigned > 0
-                  ? "oklch(0.5 0.2 25)"
-                  : "oklch(0.35 0 0)",
-          }}
+          aria-pressed={unassignedActive}
+          onClick={() => updateFilterParams({ assigned_to: unassignedActive ? null : "none" })}
+          className={cn(
+            "min-h-9 shrink-0 rounded-full border-[1.5px] border-accent-strong px-3 text-[12.5px] font-bold whitespace-nowrap transition-colors md:min-h-8",
+            unassignedActive ? "bg-accent-strong text-white" : "bg-card text-accent-strong"
+          )}
         >
-          Tanpa pemilik aktif
-          <span className="rounded-full bg-black/8 px-1.5">{summary?.unassigned ?? "…"}</span>
+          Tanpa pemilik aktif · {summary?.unassigned ?? "…"}
         </button>
-        <span className="mx-1 h-4 w-px bg-border" aria-hidden />
         {LEAD_STATUSES.map((status) => {
           const active = statusFilter.includes(status);
           const meta = STATUS_META[status];
@@ -273,136 +347,149 @@ export function LeadsList() {
             <button
               key={status}
               type="button"
+              aria-pressed={active}
               onClick={() => updateFilterParams({ status: toggleCSVValue(statusFilter, status).join(",") || null })}
-              className="flex items-center gap-1.5 rounded-full border-[1.5px] px-2.5 py-1 text-xs font-medium transition-colors"
+              className="min-h-9 shrink-0 rounded-full border-[1.5px] px-3 text-[12.5px] font-semibold whitespace-nowrap transition-colors md:min-h-8"
+              // Active = solid status color with white text: the same pair as
+              // the badge read backwards, 5.03–5.27:1 (#159).
               style={{
-                borderColor: active ? meta.color : "oklch(0.922 0 0)",
-                background: active ? meta.background : "#fff",
-                color: active ? meta.color : "oklch(0.35 0 0)",
+                borderColor: meta.color,
+                background: active ? meta.color : "var(--card)",
+                color: active ? "#fff" : meta.color,
               }}
             >
-              {meta.label}
-              <span className="opacity-60">{statusCount(summary, status)}</span>
+              {meta.label} · {statusCount(summary, status)}
             </button>
           );
         })}
       </div>
-      <div className="mb-3.5 flex flex-wrap items-center gap-1.5">
-        {LEAD_SOURCES.map((source) => {
-          const active = sourceFilter.includes(source);
-          return (
-            <button
-              key={source}
-              type="button"
-              onClick={() => updateFilterParams({ source: toggleCSVValue(sourceFilter, source).join(",") || null })}
-              className="rounded-full border-[1.5px] px-2.5 py-1 text-xs font-medium transition-colors"
-              style={{
-                borderColor: active ? "oklch(0.56 0.19 41)" : "oklch(0.922 0 0)",
-                background: active ? "oklch(0.56 0.19 41 / 10%)" : "#fff",
-                color: active ? "oklch(0.48 0.17 41)" : "oklch(0.35 0 0)",
-              }}
-            >
-              {SOURCE_LABELS[source]}
-            </button>
-          );
-        })}
+
+      <div className="hidden flex-wrap items-center gap-x-4 gap-y-2.5 md:flex">
+        {secondaryFilters}
         {hasAnyFilter && (
           <button
             type="button"
             onClick={handleClearFilters}
-            className="rounded-full px-2.5 py-1 text-xs font-medium text-accent-strong underline"
+            className="text-[13px] font-semibold text-accent-strong underline underline-offset-2"
           >
             Hapus semua filter
           </button>
         )}
       </div>
+      {hasAnyFilter && (
+        <button
+          type="button"
+          onClick={handleClearFilters}
+          className="-mt-1 self-start text-[13px] font-semibold text-accent-strong underline underline-offset-2 md:hidden"
+        >
+          Hapus semua filter
+        </button>
+      )}
 
       {error && <FormErrorBanner message={error} />}
 
-      {isEmptyNoData && (
-        <div className="rounded-lg border border-dashed border-muted-foreground/30 bg-background px-6 py-12 text-center">
-          <div className="mb-1.5 text-[14.5px] font-semibold">Belum ada lead</div>
-          <div className="mb-4 text-[13px] text-muted-foreground">
-            Buat lead pertama Anda untuk mulai melacak calon pelanggan.
-          </div>
-          <Button onClick={() => setNewLeadOpen(true)}>+ Buat lead pertama</Button>
+      {loading && leads.length === 0 && !error && (
+        <div aria-busy="true" aria-label="Memuat lead" className="flex flex-col gap-2">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="h-19 animate-pulse rounded-[10px] bg-muted md:h-13" />
+          ))}
         </div>
       )}
 
-      {isEmptyFiltered && (
-        <div className="rounded-lg border border-dashed border-muted-foreground/30 bg-background px-6 py-12 text-center">
-          <div className="mb-1.5 text-[14.5px] font-semibold">Tidak ada lead yang cocok</div>
-          <div className="mb-4 text-[13px] text-muted-foreground">
-            Tidak ada lead yang sesuai dengan filter saat ini.
-          </div>
-          <Button variant="outline" onClick={handleClearFilters}>
-            Hapus filter
+      {isEmptyNoData && (
+        <div className="rounded-xl border border-dashed border-border bg-card px-5 py-14 text-center">
+          <div className="mb-1.5 text-[16px] font-bold">Belum ada lead</div>
+          <p className="mx-auto mb-4.5 max-w-[36ch] text-[14px] text-muted-foreground">
+            Lead akan muncul di sini begitu masuk lewat formulir, API, webhook, atau dicatat manual.
+          </p>
+          <Button onClick={() => setNewLeadOpen(true)} className="h-10 px-4">
+            Tambah lead pertama
           </Button>
         </div>
       )}
 
-      {loading && leads.length === 0 && !error && (
-        <div className="rounded-lg border border-border bg-background px-6 py-12 text-center text-sm text-muted-foreground">
-          Memuat…
+      {isEmptyFiltered && (
+        <div className="rounded-xl border border-dashed border-border bg-card px-5 py-14 text-center">
+          <div className="mb-1.5 text-[16px] font-bold">Tidak ada lead yang cocok</div>
+          <p className="mx-auto mb-4.5 max-w-[36ch] text-[14px] text-muted-foreground">
+            Coba lebarkan filter status, sumber, pemilik, atau tanggal masuk.
+          </p>
+          <Button variant="outline" onClick={handleClearFilters} className="h-10 px-4">
+            Hapus semua filter
+          </Button>
         </div>
       )}
 
       {showTable && (
-        <div className="overflow-hidden rounded-lg border border-border bg-background">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
+        <>
+          {/* 768px and up: table. Columns join as width allows, so Nama never
+              gets crushed by fixed columns (table-fixed, widths in rem):
+                768+   Nama (with #number beneath) · Status · Pemilik · Masuk
+                1024+  + Sumber
+                1280+  + Nomor as its own column · Kontak
+              Status is 12.5rem because "Tidak Memenuhi Syarat" is the widest
+              badge and must not be clipped. */}
+          <div className="hidden overflow-hidden rounded-xl border border-border bg-card md:block">
+            <table className="w-full table-fixed border-collapse text-[14px]">
               <thead>
-                <tr className="bg-muted/40">
-                  <th className="px-3.5 py-2 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Lead
-                  </th>
-                  <th className="px-3.5 py-2 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Status
-                  </th>
-                  <th className="px-3.5 py-2 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Pemilik
-                  </th>
-                  <th className="px-3.5 py-2 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Sumber
-                  </th>
-                  <th className="px-3.5 py-2 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    Tanggal masuk
-                  </th>
+                <tr className="bg-muted text-left text-[11.5px] font-bold tracking-[0.05em] text-muted-foreground uppercase">
+                  <th className="hidden w-24 px-4 py-2.5 xl:table-cell">Nomor</th>
+                  <th className="px-4 py-2.5 xl:px-3">Nama</th>
+                  <th className="w-[12.5rem] px-3 py-2.5">Status</th>
+                  <th className="w-32 px-3 py-2.5 lg:w-36">Pemilik</th>
+                  <th className="hidden w-24 px-3 py-2.5 lg:table-cell">Sumber</th>
+                  <th className="w-28 px-3 py-2.5">Masuk</th>
+                  <th className="hidden px-3 py-2.5 xl:table-cell">Kontak</th>
                 </tr>
               </thead>
               <tbody>
                 {leads.map((lead) => {
-                  const owner = lead.assigned_to_membership_id
-                    ? membersById.get(lead.assigned_to_membership_id)?.full_name
-                    : null;
+                  const owner = ownerName(lead);
                   return (
                     <tr
                       key={lead.id}
                       onClick={() => router.push(`/leads/${lead.id}`)}
-                      className="cursor-pointer border-t border-border/70 hover:bg-muted/40"
+                      className="cursor-pointer border-t border-border/60 hover:bg-muted/50"
                     >
-                      <td className="px-3.5 py-2.5">
-                        <div className="text-[13px] font-medium">{lead.name}</div>
-                        <div className="text-[11.5px] text-muted-foreground">
+                      <td className="hidden px-4 py-3 font-mono text-[13px] text-muted-foreground xl:table-cell">
+                        #{lead.lead_number}
+                      </td>
+                      <td className="min-w-0 px-4 py-3 xl:px-3">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          {/* The row is clickable for the mouse; this link is
+                              what a keyboard or screen reader reaches. */}
+                          <Link
+                            href={`/leads/${lead.id}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="truncate font-semibold hover:underline"
+                          >
+                            {lead.name}
+                          </Link>
+                          {!hasContact(lead) && <NoContactBadge />}
+                        </div>
+                        <div className="font-mono text-[12.5px] text-muted-foreground xl:hidden">
                           #{lead.lead_number}
-                          {lead.email?.trim() ? ` · ${lead.email}` : ""}
-                          {!hasContact(lead) && <NoContactBadge className="ml-1.5 align-middle" />}
                         </div>
                       </td>
-                      <td className="px-3.5 py-2.5">
+                      <td className="px-3 py-3">
                         <StatusBadge status={lead.status} />
                       </td>
                       <td
-                        className="px-3.5 py-2.5 text-[13px]"
-                        style={owner ? undefined : { color: "oklch(0.65 0 0)", fontStyle: "italic" }}
+                        className={cn(
+                          "truncate px-3 py-3",
+                          owner ? "text-foreground" : "font-semibold text-accent-strong"
+                        )}
                       >
-                        {owner ?? "—"}
+                        {owner ?? "Tanpa pemilik"}
                       </td>
-                      <td className="px-3.5 py-2.5 text-[13px] text-foreground/70">
+                      <td className="hidden px-3 py-3 text-muted-foreground lg:table-cell">
                         {SOURCE_LABELS[lead.source]}
                       </td>
-                      <td className="px-3.5 py-2.5 text-[13px] text-foreground/70">
+                      <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">
                         {formatDateID(lead.created_at)}
+                      </td>
+                      <td className="hidden truncate px-3 py-3 text-[13px] text-muted-foreground xl:table-cell">
+                        {primaryContact(lead)}
                       </td>
                     </tr>
                   );
@@ -410,7 +497,41 @@ export function LeadsList() {
               </tbody>
             </table>
           </div>
-          <div className="flex items-center justify-between border-t border-border px-3.5 py-2.5 text-[12.5px] text-muted-foreground">
+
+          {/* Below 768px: cards. No table that has to be scrolled sideways. */}
+          <ul className="flex flex-col gap-2.5 md:hidden">
+            {leads.map((lead) => {
+              const owner = ownerName(lead);
+              return (
+                <li key={lead.id}>
+                  <Link
+                    href={`/leads/${lead.id}`}
+                    className="block rounded-[10px] border border-border bg-card p-3.5 active:bg-muted/60"
+                  >
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="min-w-0">
+                        <div className="truncate text-[15px] font-bold">{lead.name}</div>
+                        <div className="mt-0.5 font-mono text-[12.5px] text-muted-foreground">
+                          #{lead.lead_number}
+                        </div>
+                      </div>
+                      <StatusBadge status={lead.status} className="shrink-0" />
+                    </div>
+                    {!hasContact(lead) && <NoContactBadge className="mt-2" />}
+                    <div className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1 text-[13px] text-muted-foreground">
+                      <span className={owner ? undefined : "font-semibold text-accent-strong"}>
+                        {owner ?? "Tanpa pemilik"}
+                      </span>
+                      <span>{SOURCE_LABELS[lead.source]}</span>
+                      <span>{formatDateID(lead.created_at)}</span>
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="flex flex-wrap items-center justify-between gap-2.5 text-[13px] text-muted-foreground">
             <span>
               Menampilkan {rangeStart}–{rangeEnd} dari {total} lead
             </span>
@@ -418,28 +539,64 @@ export function LeadsList() {
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
-                  size="sm"
                   disabled={page <= 1}
                   onClick={() => updateParams({ page: String(page - 1) })}
+                  className="h-10 bg-card md:h-8"
                 >
                   Sebelumnya
                 </Button>
-                <span>
+                <span className="hidden sm:inline">
                   Halaman {page} dari {totalPages}
                 </span>
                 <Button
                   variant="outline"
-                  size="sm"
                   disabled={page >= totalPages}
                   onClick={() => updateParams({ page: String(page + 1) })}
+                  className="h-10 bg-card md:h-8"
                 >
                   Berikutnya
                 </Button>
               </div>
             )}
           </div>
-        </div>
+        </>
       )}
+
+      {/* Phone: the create action rides above the bottom bar, in thumb
+          reach. Hidden while the list is empty — that state has its own
+          "Tambah lead pertama" button and two would compete. */}
+      {!isEmptyNoData && (
+        <button
+          type="button"
+          onClick={() => setNewLeadOpen(true)}
+          aria-label="Lead baru"
+          className="fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_8px_20px_oklch(0.56_0.19_41/35%)] md:hidden"
+        >
+          <Plus className="size-6" aria-hidden />
+        </button>
+      )}
+
+      <Sheet open={filterSheetOpen} onOpenChange={setFilterSheetOpen}>
+        <SheetContent>
+          <SheetTitle className="text-[16px]">Filter</SheetTitle>
+          <div className="flex flex-col gap-4">{secondaryFilters}</div>
+          <div className="mt-2 flex gap-2.5">
+            <Button
+              variant="outline"
+              onClick={handleClearFilters}
+              disabled={!hasAnyFilter}
+              className="h-11 flex-1 text-[14px]"
+            >
+              Hapus filter
+            </Button>
+            {/* Filters apply as they're chosen (the list behind the sheet is
+                already updated) — this button only closes the sheet. */}
+            <Button onClick={() => setFilterSheetOpen(false)} className="h-11 flex-1 text-[14px]">
+              Tampilkan {loading ? "…" : total} lead
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <NewLeadDialog
         open={newLeadOpen}

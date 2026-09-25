@@ -5,7 +5,7 @@
 export function NoContactBadge({ className = "" }: { className?: string }) {
   return (
     <span
-      className={`inline-block rounded-full border border-border bg-muted px-2 py-px text-[11px] font-medium text-foreground/70 ${className}`}
+      className={`inline-block rounded-[4px] bg-secondary px-1.5 py-px text-[11px] font-semibold whitespace-nowrap text-secondary-foreground ${className}`}
     >
       Belum ada kontak
     </span>
