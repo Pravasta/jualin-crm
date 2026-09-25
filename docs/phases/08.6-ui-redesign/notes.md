@@ -595,3 +595,53 @@ terhadap `crm_be` sungguhan (8 lead → pita "data sedikit" muncul) di 360, 820,
 layar. Tooltip tren diuji lewat **fokus** dan pointer (skrip CDP butuh `Emulation.setFocusEmulationEnabled`; tanpa
 itu, tab headless tidak menerima event fokus). **Diperbaiki saat verifikasi:** kolom angka tabel Tugas di 360 px
 menyisakan 90 px untuk nama ("Andi Pratama" terpotong). Kolom angka dipersempit di HP, dan nama kini muat (diukur).
+
+---
+
+## #172 — Tema mobile kontras ≥7:1
+
+**Yang berubah (`crm_employee`):** `lib/shared/theme.dart` (token), `lib/shared/labels.dart` (`StatusMeta`: `color` +
+`tint` + `icon`), widget baru `lib/shared/widgets/status_badge.dart` yang dipakai Lead Saya dan header Detail, serta
+test baru `test/shared/theme_contrast_test.dart`.
+
+### Token — dihitung, dan kini dijaga test
+
+| Token | Nilai | Rasio (dihitung) | Sebelumnya |
+|---|---|---|---|
+| `foreground` | `#1F1915` (hangat, sama dengan dashboard) | 17.38:1 di atas putih | `#0A0A0A` |
+| `mutedForeground` | `#58514C` | **7.79:1** putih · 7.05:1 di atas `surfaceSunken` | `#737373`, 4.74:1 |
+| `primary` | `#BC2E00` | putih di atasnya **5.95:1** (sheet: 5.98) | `#CA3C00`, 5.05:1 |
+| `accentStrong` | `#A72B00` | 7.03:1 | sama |
+| `border` / `surfaceSunken` | `#E2DDD9` / `#F7F3EF` | dekoratif | abu dingin |
+
+Status **Opsi A** (ikon + tint), hue sama dengan dashboard. Kedelapan pasangan teks/tint: **7.01–7.13:1**. Kali ini
+klaim token sheet (§04) **terbukti benar** setelah dihitung ulang, berbeda dengan klaim tint dashboard di #159.
+"Dihubungi" pindah dari teal ke ungu dan "Memenuhi Syarat" dari ungu ke teal, supaya sama dengan dashboard.
+Sebelumnya kedua app memberi warna yang tertukar untuk status yang sama.
+
+`theme_contrast_test.dart` memakai `Color.computeLuminance()` (rumus WCAG): ke-8 status ≥ 7:1, `foreground`/`muted`
+≥ 7:1 di atas putih dan `surfaceSunken`, putih di atas `primary` ≥ 4.5:1, dan pasangan semantik ≥ 4.5:1. Juga: setiap
+status punya **ikon sendiri**, dan **Tidak Memenuhi Syarat (⊖) ≠ Spam (⊘)**, karena warnanya sengaja sama-sama abu
+(temuan validator #171).
+
+### Menyimpang dari issue — perlu keputusan pemilik produk
+
+**Font tetap Roboto, bukan Plus Jakarta Sans.** Checklist #172 menyebut Plus Jakarta Sans. Yang dipertahankan adalah
+keputusan Phase 5: Roboto adalah font sistem Android, jadi tidak ada unduhan tambahan di HP kelas menengah-bawah
+(target app ini), dan token sheet sendiri mencatat penggantian font **tidak mengubah satu pun rasio kontras**.
+Kemiripan keluarga dengan dashboard datang dari warna, bentuk, dan bobot. **Bila tetap ingin Plus Jakarta Sans:**
+bundel TTF sebagai aset (±400–500 KB untuk 4 bobot), tanpa paket `google_fonts`. Itu issue kecil tersendiri.
+
+### Ruang lingkup
+
+Keenam layar (Masuk, gerbang biometrik, Lead Saya, Detail, Tugas Saya, Notifikasi) memakai token lewat
+`AppColors`/`AppTheme`, jadi warnanya berubah bersama. Tata letak **tidak** diubah di issue ini (tata letak Lead Saya dan
+Detail ada di #173). Tidak ada warna mentah di layar selain di `theme.dart`/`labels.dart`.
+
+**Verifikasi:** `flutter analyze` bersih, `flutter test` **229 lolos** (+13 kontras). **Tidak ada emulator/perangkat** di
+sesi ini, jadi badge dirender lewat widget test **sementara** yang memuat Roboto dan Material Icons asli dari SDK ke
+PNG: 8 badge + dua baris Lead Saya (dengan dan tanpa kontak) terbaca benar, dan ikonnya berbeda. Test sementara itu
+dihapus sebelum commit. **Pengecekan di HP sungguhan (360×800, 393×852) belum dilakukan.**
+
+**Dicatat untuk session berikutnya:** `dart format` pada folder yang disentuh ikut memformat ulang tujuh berkas lain
+(hanya format). Semuanya dikembalikan supaya diff tetap sempit. Format hanya berkas yang memang diubah.
