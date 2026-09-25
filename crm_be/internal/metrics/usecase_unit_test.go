@@ -39,6 +39,16 @@ func (f *fakeMetricsRepo) Sources(_ context.Context, _ tenant.Context, filter me
 	return []*metrics.SourceMetric{}, nil
 }
 
+func (f *fakeMetricsRepo) ResponseTimes(_ context.Context, _ tenant.Context, filter metrics.Filter) (*metrics.ResponseTimes, error) {
+	f.lastFilter = filter
+	return &metrics.ResponseTimes{}, nil
+}
+
+func (f *fakeMetricsRepo) Tasks(_ context.Context, _ tenant.Context, filter metrics.Filter) ([]*metrics.TaskMetric, error) {
+	f.lastFilter = filter
+	return []*metrics.TaskMetric{}, nil
+}
+
 func (f *fakeMetricsRepo) LostReasons(_ context.Context, _ tenant.Context, filter metrics.Filter) ([]*metrics.LostReasonMetric, error) {
 	f.lastFilter = filter
 	return []*metrics.LostReasonMetric{}, nil
@@ -249,6 +259,10 @@ func TestUnit_NewReports_EmployeeForbidden(t *testing.T) {
 	assertForbidden(t, err)
 	_, err = u.LostReasons(context.Background(), actor, f)
 	assertForbidden(t, err)
+	_, err = u.ResponseTimes(context.Background(), actor, f)
+	assertForbidden(t, err)
+	_, err = u.Tasks(context.Background(), actor, f)
+	assertForbidden(t, err)
 }
 
 func TestUnit_NewReports_OwnerAdminManagerAllowed(t *testing.T) {
@@ -266,6 +280,12 @@ func TestUnit_NewReports_OwnerAdminManagerAllowed(t *testing.T) {
 			}
 			if _, err := u.LostReasons(context.Background(), actor, f); err != nil {
 				t.Errorf("lost reasons: %v", err)
+			}
+			if _, err := u.ResponseTimes(context.Background(), actor, f); err != nil {
+				t.Errorf("response times: %v", err)
+			}
+			if _, err := u.Tasks(context.Background(), actor, f); err != nil {
+				t.Errorf("tasks: %v", err)
 			}
 		})
 	}

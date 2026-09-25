@@ -309,3 +309,114 @@ func (r *postgresRepository) LostReasons(ctx context.Context, t tenant.Context, 
 	}
 	return out, nil
 }
+
+// ResponseTimes buckets each lead in the filter by the time from arrival to
+// its first touch — the same MIN(activities.created_at WHERE type <>
+// 'lead_created') subquery Employees averages, so the two can't disagree
+// about what "response" means. percentile_cont ignores NULLs, so the median
+// is over touched leads only, and is NULL when there are none.
+func (r *postgresRepository) ResponseTimes(ctx context.Context, t tenant.Context, filter Filter) (*ResponseTimes, error) {
+	args := []any{t.OrganizationID}
+	where := append([]string{"l.organization_id = $1", "l.deleted_at IS NULL"}, leadFilterConditions(filter, &args, "l.")...)
+
+	q := `
+		WITH touched AS (
+			SELECT extract(epoch FROM (
+				(SELECT MIN(a.created_at) FROM activities a
+				 WHERE a.organization_id = l.organization_id AND a.lead_id = l.id AND a.type <> 'lead_created')
+				- l.created_at
+			)) AS secs
+			FROM leads l
+			WHERE ` + strings.Join(where, " AND ") + `
+		)
+		SELECT
+			count(*) FILTER (WHERE secs < 3600),
+			count(*) FILTER (WHERE secs >= 3600 AND secs < 14400),
+			count(*) FILTER (WHERE secs >= 14400 AND secs < 86400),
+			count(*) FILTER (WHERE secs >= 86400),
+			count(*) FILTER (WHERE secs IS NULL),
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY secs)
+		FROM touched`
+
+	var lt1h, h1to4, h4to24, over24, never int
+	var median *float64
+	if err := r.q.QueryRow(ctx, q, args...).Scan(&lt1h, &h1to4, &h4to24, &over24, &never, &median); err != nil {
+		return nil, fmt.Errorf("metrics: response times: %w", err)
+	}
+	return &ResponseTimes{
+		Buckets: []ResponseBucket{
+			{Bucket: ResponseLessThan1h, Count: lt1h},
+			{Bucket: Response1hTo4h, Count: h1to4},
+			{Bucket: Response4hTo24h, Count: h4to24},
+			{Bucket: ResponseOver24h, Count: over24},
+			{Bucket: ResponseNeverTouched, Count: never},
+		},
+		MedianSeconds: median,
+	}, nil
+}
+
+// Tasks counts, per active membership, tasks completed within the range
+// and open tasks past due now (see TaskMetric). A task whose lead has been
+// deleted is not counted — it can no longer be opened from anywhere.
+// The source filter applies through the task's lead; the assignee filter
+// narrows the rows, same as Employees.
+func (r *postgresRepository) Tasks(ctx context.Context, t tenant.Context, filter Filter) ([]*TaskMetric, error) {
+	args := []any{t.OrganizationID}
+	arg := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	taskWhere := []string{"tk.organization_id = $1", "tk.deleted_at IS NULL", "l.deleted_at IS NULL"}
+	if filter.Source != nil {
+		taskWhere = append(taskWhere, "l.source = "+arg(*filter.Source))
+	}
+	completed := []string{"tk.status = 'done'"}
+	if filter.From != nil {
+		completed = append(completed, "tk.completed_at >= "+arg(*filter.From))
+	}
+	if filter.To != nil {
+		completed = append(completed, "tk.completed_at <= "+arg(*filter.To))
+	}
+	memberRow := ""
+	if filter.Assignee != nil {
+		memberRow = " AND m.id = " + arg(*filter.Assignee)
+	}
+
+	q := `
+		SELECT
+			m.id,
+			u.full_name,
+			count(tk.id) FILTER (WHERE ` + strings.Join(completed, " AND ") + `),
+			count(tk.id) FILTER (WHERE tk.status = 'open' AND tk.due_at < now())
+		FROM memberships m
+		JOIN users u ON u.id = m.user_id
+		LEFT JOIN (
+			SELECT tk.id, tk.assigned_to_membership_id, tk.status, tk.completed_at, tk.due_at
+			FROM tasks tk
+			JOIN leads l ON l.id = tk.lead_id AND l.organization_id = tk.organization_id
+			WHERE ` + strings.Join(taskWhere, " AND ") + `
+		) tk ON tk.assigned_to_membership_id = m.id
+		WHERE m.organization_id = $1 AND m.deleted_at IS NULL` + memberRow + `
+		GROUP BY m.id, u.full_name
+		ORDER BY u.full_name`
+
+	rows, err := r.q.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("metrics: tasks: %w", err)
+	}
+	defer rows.Close()
+
+	out := []*TaskMetric{}
+	for rows.Next() {
+		var m TaskMetric
+		if err := rows.Scan(&m.MembershipID, &m.FullName, &m.CompletedCount, &m.OverdueCount); err != nil {
+			return nil, fmt.Errorf("metrics: scan tasks: %w", err)
+		}
+		out = append(out, &m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("metrics: tasks: %w", err)
+	}
+	return out, nil
+}

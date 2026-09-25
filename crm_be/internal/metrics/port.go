@@ -17,4 +17,6 @@ type Repository interface {
 	Trend(ctx context.Context, t tenant.Context, filter Filter, bucket TrendBucket) (*Trend, error)
 	Sources(ctx context.Context, t tenant.Context, filter Filter) ([]*SourceMetric, error)
 	LostReasons(ctx context.Context, t tenant.Context, filter Filter) ([]*LostReasonMetric, error)
+	ResponseTimes(ctx context.Context, t tenant.Context, filter Filter) (*ResponseTimes, error)
+	Tasks(ctx context.Context, t tenant.Context, filter Filter) ([]*TaskMetric, error)
 }

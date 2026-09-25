@@ -111,3 +111,57 @@ func TestHandler_NewReports_EmployeeForbidden_Returns403(t *testing.T) {
 		}
 	}
 }
+
+func TestHandler_ResponseTimesAndTasks_Shape(t *testing.T) {
+	r, pool := newTestRouter(t)
+	ctx := context.Background()
+	org := seedOrganization(t, ctx, pool)
+	seedMembership(t, ctx, pool, org, "a@example.com", "A")
+	seedLeadAt(t, ctx, pool, org, nil, "new", time.Now().UTC())
+	token := bearerToken(t, uuid.Must(uuid.NewV7()), org, uuid.Must(uuid.NewV7()), tenant.RoleOwner)
+
+	w := doGet(r, "/v1/metrics/response-times", token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("response-times: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var rt struct {
+		Data struct {
+			Buckets []struct {
+				Bucket string `json:"bucket"`
+				Count  int    `json:"count"`
+			} `json:"buckets"`
+			MedianSeconds *float64 `json:"median_seconds"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &rt); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(rt.Data.Buckets) != 5 || rt.Data.Buckets[4].Bucket != "never_touched" || rt.Data.Buckets[4].Count != 1 || rt.Data.MedianSeconds != nil {
+		t.Fatalf("unexpected response-times body: %s", w.Body.String())
+	}
+
+	w = doGet(r, "/v1/metrics/tasks", token)
+	if w.Code != http.StatusOK {
+		t.Fatalf("tasks: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var tk struct {
+		Data []struct {
+			FullName       string `json:"full_name"`
+			CompletedCount int    `json:"completed_count"`
+			OverdueCount   int    `json:"overdue_count"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &tk); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(tk.Data) != 1 || tk.Data[0].FullName != "A" {
+		t.Fatalf("unexpected tasks body: %s", w.Body.String())
+	}
+
+	emp := bearerToken(t, uuid.Must(uuid.NewV7()), org, uuid.Must(uuid.NewV7()), tenant.RoleEmployee)
+	for _, path := range []string{"/v1/metrics/response-times", "/v1/metrics/tasks"} {
+		if w := doGet(r, path, emp); w.Code != http.StatusForbidden {
+			t.Errorf("%s: expected 403 for Employee, got %d", path, w.Code)
+		}
+	}
+}
