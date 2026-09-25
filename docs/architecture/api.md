@@ -31,6 +31,8 @@ Prefix path `/v1/` pada **seluruh** endpoint, termasuk yang hanya dipakai intern
 /v1/metrics/trend
 /v1/metrics/sources
 /v1/metrics/lost-reasons
+/v1/metrics/response-times
+/v1/metrics/tasks
 ```
 
 Murah sekarang, mustahil ditambahkan setelah ada integrator.
@@ -723,7 +725,7 @@ integrasi payment service (`STATUS.md` bagian *Keputusan Belum Diambil*).
 
 ---
 
-## Laporan — `GET /v1/metrics/*` (Phase 3; diperluas Phase 8.6 #169)
+## Laporan — `GET /v1/metrics/*` (Phase 3; diperluas Phase 8.6 #169, #170)
 
 Agregat baca-saja untuk Beranda dan layar Laporan. **Owner/Admin/Manager** (`metrics.read`); Employee → `403`.
 Tidak ada migration: semuanya dihitung dari `leads`, `activities`, dan `customers` yang sudah ada.
@@ -735,6 +737,8 @@ Tidak ada migration: semuanya dihitung dari `leads`, `activities`, dan `customer
 | `/v1/metrics/trend` | `{bucket, points: [{date, count}]}` | 8.6 #169 |
 | `/v1/metrics/sources` | 4 baris: `{source, count, won_count, conversion_rate}` | 8.6 #169 |
 | `/v1/metrics/lost-reasons` | 6 baris: `{reason, count}` | 8.6 #169 |
+| `/v1/metrics/response-times` | `{buckets: [{bucket, count}], median_seconds}` — 5 bucket tetap | 8.6 #170 |
+| `/v1/metrics/tasks` | per membership aktif: `{membership_id, full_name, completed_count, overdue_count}` | 8.6 #170 |
 
 ### Filter bersama — berlaku di kelima endpoint
 
@@ -766,6 +770,30 @@ hasil kosong, bukan `403` (yang akan mengonfirmasi keberadaannya). Di `/employee
 `/summary` dan `/sources` memakai **fungsi yang sama**: `won ÷ (total − spam − unqualified)`, `null` bila penyebutnya
 nol ("belum ada yang bisa dihitung" ≠ 0%). `/sources` mengirim `won_count`, bukan `converted_count`: yang dihitung
 adalah status **Menang**, sama dengan `/summary`, bukan baris `customers`.
+
+### `/response-times` — satu definisi "respons"
+
+"Disentuh" berarti **aktivitas pertama yang bukan `lead_created`**, definisi yang sama persis dengan
+`avg_response_seconds` di `/employees`. Lima bucket dalam urutan tetap, batas bawah inklusif:
+
+| `bucket` | Jarak lead masuk → sentuhan pertama |
+|---|---|
+| `lt_1h` | < 1 jam |
+| `1h_4h` | 1 jam ≤ … < 4 jam (tepat 1 jam masuk sini) |
+| `4h_24h` | 4 jam ≤ … < 24 jam |
+| `gt_24h` | ≥ 24 jam (tepat 24 jam masuk sini) |
+| `never_touched` | belum pernah disentuh — **bukan** `gt_24h` |
+
+`median_seconds` dihitung atas lead yang **sudah** disentuh saja, dan `null` bila tidak ada.
+
+### `/tasks` — dua angka, dua aturan waktu
+
+- `completed_count`: `status = 'done'` **dan** `completed_at` di dalam `from`/`to`. Ini satu-satunya rentang yang
+  **tidak** membatasi `leads.created_at`.
+- `overdue_count`: `status = 'open'` **dan** `due_at < now()`. Ini **keadaan saat ini dan tidak mengikuti rentang**:
+  tabel `tasks` tidak menyimpan riwayat keterlambatan. Klien wajib mengatakannya di layar.
+- Tugas yang dihapus, dan tugas pada lead yang dihapus, tidak dihitung. `source` diterapkan lewat lead tugas itu, dan
+  `assigned_to` mempersempit baris.
 
 ### Nilai nol tetap dikirim
 

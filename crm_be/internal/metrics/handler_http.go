@@ -30,6 +30,8 @@ func (h *Handler) RegisterRoutes(r gin.IRouter, authMW gin.HandlerFunc) {
 	g.GET("/trend", h.trend)
 	g.GET("/sources", h.sources)
 	g.GET("/lost-reasons", h.lostReasons)
+	g.GET("/response-times", h.responseTimes)
+	g.GET("/tasks", h.tasks)
 }
 
 // parseFilter mirrors internal/lead's created_from/created_to parsing —
@@ -152,6 +154,41 @@ func (h *Handler) lostReasons(c *gin.Context) {
 	data := make([]gin.H, 0, len(out))
 	for _, m := range out {
 		data = append(data, gin.H{"reason": m.Reason, "count": m.Count})
+	}
+	httpx.OK(c, http.StatusOK, data)
+}
+
+func (h *Handler) responseTimes(c *gin.Context) {
+	t := authn.TenantFromContext(c)
+
+	rt, err := h.usecase.ResponseTimes(c.Request.Context(), t, parseFilter(c))
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	buckets := make([]gin.H, 0, len(rt.Buckets))
+	for _, b := range rt.Buckets {
+		buckets = append(buckets, gin.H{"bucket": b.Bucket, "count": b.Count})
+	}
+	httpx.OK(c, http.StatusOK, gin.H{"buckets": buckets, "median_seconds": rt.MedianSeconds})
+}
+
+func (h *Handler) tasks(c *gin.Context) {
+	t := authn.TenantFromContext(c)
+
+	out, err := h.usecase.Tasks(c.Request.Context(), t, parseFilter(c))
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	data := make([]gin.H, 0, len(out))
+	for _, m := range out {
+		data = append(data, gin.H{
+			"membership_id":   m.MembershipID,
+			"full_name":       m.FullName,
+			"completed_count": m.CompletedCount,
+			"overdue_count":   m.OverdueCount,
+		})
 	}
 	httpx.OK(c, http.StatusOK, data)
 }

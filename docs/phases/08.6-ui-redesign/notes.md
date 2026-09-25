@@ -502,3 +502,41 @@ organization, bukan UTC. Dicatat di `api.md`.
   tak dikenal diabaikan; Employee → `403` di ketiganya.
 - `curl` terhadap container API yang dibangun ulang, dengan data uji lokal: ketiga endpoint menjawab sesuai bentuk di
   `api.md`.
+
+---
+
+## #170 — Laporan API: waktu respons & tugas
+
+**Yang berubah (`crm_be/internal/metrics`, tanpa migration):** `ResponseTimes` dan `Tasks` di entity, port, repository,
+usecase, dan handler. Test baru di `repository_response_tasks_test.go`, plus tambahan di `handler_reports_test.go`
+dan `usecase_unit_test.go`.
+
+- **Waktu respons memakai subquery sentuhan pertama yang sama dengan `/employees`** (`MIN(activities.created_at)
+  WHERE type <> 'lead_created'`). Satu arti "respons" di seluruh paket. Median memakai `percentile_cont(0.5)`, yang
+  mengabaikan NULL, jadi median hanya atas lead yang sudah disentuh dan `NULL` bila tidak ada.
+- **`never_touched` bucket sendiri**, bukan dilebur ke "> 1 hari". Menyembunyikannya membuat layar memuji tim yang
+  mendiamkan lead (TD §2.5).
+- **Batas bucket inklusif di bawah:** tepat 1 jam → `1h_4h`, tepat 24 jam → `gt_24h`, sesuai rencana test TD §7.
+- **Tugas:** `completed_count` mengikuti rentang (`completed_at`). `overdue_count` adalah **snapshot `now()`**,
+  penyimpangan yang disengaja karena tidak ada riwayat keterlambatan (TD §2.6). Tugas yang dihapus dan tugas pada
+  **lead yang dihapus** tidak dihitung, karena tugas seperti itu tidak bisa dibuka dari mana pun. Poin kedua ini
+  tambahan terhadap TD, yang hanya menyebut `tasks.deleted_at`. Filter `source` lewat lead tugas, dan `assigned_to`
+  mempersempit baris seperti `/employees`.
+
+**Menyimpang dari TD:** hanya tambahan "lead yang dihapus tidak dihitung" di atas. Nama field sesuai TD.
+
+**Untuk #171 (terlihat lewat `curl` dengan data uji):** tugas **tanpa penanggung jawab** tidak muncul di `/tasks`,
+karena bentuknya per anggota (TD §2.6). Tugas "Telepon ulang…" yang terlambat dan tidak ditugaskan ke siapa pun hilang
+dari blok ini. Layar Laporan harus menyebut bahwa blok ini "per anggota", atau pemilik produk memutuskan baris
+"Tanpa penanggung jawab". Belum dibangun, karena itu keputusan tampilan, bukan kekurangan API. Dicatat di
+`docs/issues/170-report-tasks.md`.
+
+**Verifikasi:**
+- `go test -race ./...`: 31 paket lolos. `golangci-lint`: 0 issues.
+- Repository (Postgres asli): lima batas bucket termasuk tepat 1 j/4 j/24 j; `lead_created` saja tidak dihitung sebagai
+  sentuhan; median 9000 s atas empat lead tersentuh; median `nil` bila tak ada; tugas selesai di dalam/luar rentang,
+  terlambat, tanpa jatuh tempo, terhapus, dan pada lead terhapus; filter sumber/anggota; **isolasi tenant** untuk
+  kedua query, dan UUID anggota dari tenant lain menghasilkan nol baris.
+- **Batas bucket diuji mutasi:** `secs < 3600` diganti sementara `<= 3600`, dan test gagal (lead tepat 1 jam terhitung
+  dua kali).
+- Unit: Employee ditolak dan Owner/Admin/Manager diizinkan di keduanya. Handler: bentuk respons dan 403 Employee.

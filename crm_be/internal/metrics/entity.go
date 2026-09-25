@@ -111,3 +111,46 @@ func conversionRate(total, won, spam, unqualified int) *float64 {
 	rate := float64(won) / float64(denominator)
 	return &rate
 }
+
+// Response-time buckets (Phase 8.6 TD §2.5, brief §10.3). Boundaries are
+// half-open, lower bound inclusive: exactly one hour is "1h_4h", exactly a
+// day is "gt_24h". never_touched is its own bucket — a lead nobody has
+// touched is not "> 1 hari", and folding it in would flatter a team that
+// left it sitting.
+const (
+	ResponseLessThan1h   = "lt_1h"
+	Response1hTo4h       = "1h_4h"
+	Response4hTo24h      = "4h_24h"
+	ResponseOver24h      = "gt_24h"
+	ResponseNeverTouched = "never_touched"
+)
+
+type ResponseBucket struct {
+	Bucket string
+	Count  int
+}
+
+// ResponseTimes is GET /v1/metrics/response-times's payload. "Touched"
+// means exactly what avg_response_seconds means on /employees: the first
+// activity that isn't lead_created (Phase 3 TD §2.3) — one definition of
+// "response" in this package. MedianSeconds is nil when no lead in range
+// was ever touched.
+type ResponseTimes struct {
+	Buckets       []ResponseBucket
+	MedianSeconds *float64
+}
+
+// TaskMetric is one row of GET /v1/metrics/tasks — every active
+// membership, any role (TD §2.6).
+//
+// CompletedCount follows the range (completed_at within from/to).
+// OverdueCount does NOT: it is open tasks past due RIGHT NOW. The tasks
+// table keeps no history of lateness, so "how many were late 30 days ago"
+// can't be answered — the screen must say so (TD §4.4). This is the only
+// metric whose range is not leads.created_at.
+type TaskMetric struct {
+	MembershipID   uuid.UUID
+	FullName       string
+	CompletedCount int
+	OverdueCount   int
+}

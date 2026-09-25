@@ -112,3 +112,25 @@ func (u *Usecase) LostReasons(ctx context.Context, t tenant.Context, filter Filt
 	}
 	return out, nil
 }
+
+func (u *Usecase) ResponseTimes(ctx context.Context, t tenant.Context, filter Filter) (*ResponseTimes, error) {
+	if err := authz.Require(t, authz.ActionMetricsRead); err != nil {
+		return nil, err
+	}
+	out, err := u.repo.ResponseTimes(ctx, t, filter)
+	if err != nil {
+		return nil, fmt.Errorf("metrics: response times: %w", err)
+	}
+	return out, nil
+}
+
+func (u *Usecase) Tasks(ctx context.Context, t tenant.Context, filter Filter) ([]*TaskMetric, error) {
+	if err := authz.Require(t, authz.ActionMetricsRead); err != nil {
+		return nil, err
+	}
+	out, err := u.repo.Tasks(ctx, t, filter)
+	if err != nil {
+		return nil, fmt.Errorf("metrics: tasks: %w", err)
+	}
+	return out, nil
+}
