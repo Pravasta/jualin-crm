@@ -19,3 +19,16 @@ bool hasEmailAddress(String? email) => !_isBlank(email);
 
 bool leadHasContact({String? email, String? phone}) =>
     hasEmailAddress(email) || hasPhoneNumber(phone);
+
+/// The sentence under the Telepon/WhatsApp bar, or null when both work
+/// (design brief §11.3: "tombol tidak pernah diam"). A missing number turns
+/// both off; a number that couldn't be normalised to an international one
+/// (no `phone_e164`) turns only WhatsApp off — and that is said too, or the
+/// dead green button looks broken (#173).
+String? callActionsNote({String? phone, String? phoneE164}) {
+  if (!hasPhoneNumber(phone)) return 'Lead ini belum punya nomor telepon.';
+  if (phoneE164 == null || phoneE164.trim().isEmpty) {
+    return 'Nomor ini tidak bisa dipakai untuk WhatsApp.';
+  }
+  return null;
+}

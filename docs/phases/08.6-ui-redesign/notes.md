@@ -645,3 +645,43 @@ dihapus sebelum commit. **Pengecekan di HP sungguhan (360×800, 393×852) belum 
 
 **Dicatat untuk session berikutnya:** `dart format` pada folder yang disentuh ikut memformat ulang tujuh berkas lain
 (hanya format). Semuanya dikembalikan supaya diff tetap sempit. Format hanya berkas yang memang diubah.
+
+---
+
+## #173 — Mobile: Lead Saya & Detail Lead
+
+**Yang berubah (`crm_employee`):** `leads_page.dart`, `lead_list_item.dart`, `lead_detail_page.dart`, `leads_state.dart`
+(`isFiltered`), `lead_contact.dart` (`callActionsNote`), dan tiga test baru/tambahan. **Logika bloc, cache, pita
+pemotongan (#152), tarik-untuk-menyegarkan, transisi status, dan pencatatan Telepon/WhatsApp tidak disentuh.**
+
+### Lead Saya
+- **Kartu bersudut 12** menggantikan daftar bergaris, sesuai handoff. **Nama mendapat lebar penuh, dan badge ada di
+  bawahnya**, sebaris dengan `#nomor · disentuh …`. Render pertama menaruh badge di kanan seperti handoff, tapi
+  "Tidak Memenuhi Syarat" memeras nama panjang jadi empat baris di 360 dp. Terlihat di render dan diperbaiki.
+- **Chip status bertepi warna status**, penuh saat dipilih (chip dashboard). Teks ≥7.5:1 di kedua keadaan. Tinggi 36 dp
+  di baris 52 dp. Pencarian berbingkai, 48 dp.
+- **Dua keadaan kosong** (brief §13): *"Belum ada lead ditugaskan"* vs *"Tidak ada lead yang cocok"* + tombol **Hapus
+  filter** (mengosongkan pencarian dan chip). Dulu keduanya satu pesan, sehingga Employee yang salah pilih chip
+  mengira lead-nya hilang.
+- **Tombol + (FAB) dari handoff tidak dibangun.** Membuat lead di mobile di luar cakupan Employee (brief §15), dan di
+  prototipe FAB itu hanya membuka lead contoh.
+
+### Detail Lead
+- Header mengikuti handoff: `#nomor`, nama 24 sp, **badge + "disentuh …"**, lalu **fakta berlabel** (Telepon, Sumber,
+  Perusahaan) yang membungkus, tidak memotong. Email tetap tautan yang membuka app email (#149). Catatan dalam kotak,
+  dan alasan kalah tebal.
+- **Ubah status** = satu tombol penuh 48 dp. Tanpa pilihan (terkonversi/final), yang tampil adalah kalimat
+  penjelasnya, bukan tombol. Sheet pilihan kini menampilkan **ikon dan warna status tujuan** di setiap opsi, dan
+  tetap **hanya transisi yang sah** (`statusTransitionOptions`). Prototipe menawarkan kedelapan status, dan itu
+  melanggar ADR-015/016.
+- **Bilah aksi tetap di bawah**, bukan di atas seperti handoff, karena brief §11.3: terjangkau ibu jari tanpa menggulir.
+  **WhatsApp kini tombol hijau solid** (putih di atas hijau Menang, 7.53:1), setara dengan Telepon.
+- **Celah brief §11.3 ditutup:** nomor yang ada tapi **tidak bisa dijadikan format internasional** mematikan WhatsApp
+  **tanpa penjelasan**. Kini tertulis *"Nomor ini tidak bisa dipakai untuk WhatsApp."* (`callActionsNote`, dengan test).
+- Stepper tahapan tidak dibawa (PRD K5).
+
+**Verifikasi:** `flutter analyze` bersih. `flutter test` **236 lolos** (+7: `callActionsNote`, `isFiltered`, widget test
+`LeadListItem`). Kartu Lead Saya dirender lewat widget test **sementara** dengan Roboto dan Material Icons asli ke PNG,
+dua kali (sebelum dan sesudah perbaikan badge), lalu test itu dihapus. **Detail Lead tidak dirender** karena bergantung
+pada bloc dan auth. **Belum dicek di HP sungguhan (360×800, 393×852)**, karena tidak ada emulator/perangkat di sesi ini.
+Ini perlu dilakukan bersama sesi verifikasi HP Android yang tertunda (`docs/issues/073`).

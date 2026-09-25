@@ -58,4 +58,20 @@ void main() {
       expect(hasEmailAddress('   '), isFalse);
     });
   });
+
+  // #173 — the bar under Telepon/WhatsApp never goes quiet (brief §11.3).
+  group('callActionsNote', () {
+    test('no number at all: both buttons are off, and it says so', () {
+      expect(callActionsNote(phone: null, phoneE164: null), 'Lead ini belum punya nomor telepon.');
+      expect(callActionsNote(phone: '   ', phoneE164: null), 'Lead ini belum punya nomor telepon.');
+    });
+
+    test('a number that is not international: only WhatsApp is off, and it says so', () {
+      expect(callActionsNote(phone: '12345', phoneE164: null), 'Nomor ini tidak bisa dipakai untuk WhatsApp.');
+    });
+
+    test('both work: no sentence', () {
+      expect(callActionsNote(phone: '0812-3456-7890', phoneE164: '+6281234567890'), isNull);
+    });
+  });
 }
