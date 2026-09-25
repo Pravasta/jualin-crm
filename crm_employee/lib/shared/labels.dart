@@ -28,72 +28,87 @@ const List<String> leadStatuses = [
   'spam',
 ];
 
+/// How a status is drawn in this app — the token sheet's "Opsi A" (Phase
+/// 8.6, #172): an icon plus the label, in [color] on its own [tint]. On a
+/// one-handed phone in the sun the icon is read before the text, so shape
+/// carries the status and color never does alone. (The dashboard uses
+/// "Opsi B", outline + shape: in a 25-row table eight icons turn into
+/// noise.) Hues match the dashboard's, so a status looks like itself on
+/// both.
+///
+/// Every [color]/[tint] pair is 7.01–7.13:1 — recomputed, and re-checked by
+/// test/shared/theme_contrast_test.dart.
 @immutable
 class StatusMeta {
   final String label;
 
-  /// Badge background — always solid-fill (design brief §11: "supaya
-  /// kontras terjaga apa pun kondisi cahaya", the lesson Phase 3's #40
-  /// text-on-tint badges didn't have to learn the hard way, but this
-  /// design avoided from the start).
-  final Color background;
+  /// Text and icon color.
+  final Color color;
 
-  /// Badge text — always white on [background]. Every pair verified
-  /// ≥4.5:1 independently (see `shared/theme.dart`'s doc comment and
-  /// `notes.md`'s `## #70`), not copied from the design tool's own
-  /// printed numbers.
-  final Color foreground;
+  /// Badge background.
+  final Color tint;
+
+  final IconData icon;
 
   const StatusMeta({
     required this.label,
-    required this.background,
-    required this.foreground,
+    required this.color,
+    required this.tint,
+    required this.icon,
   });
 }
 
 const Map<String, StatusMeta> statusMeta = {
   'new': StatusMeta(
     label: 'Baru',
-    background: Color(0xFF0055A9),
-    foreground: Colors.white,
+    color: Color(0xFF004EB3),
+    tint: Color(0xFFEDF8FF),
+    icon: Icons.add_circle_outline,
   ),
   'contacted': StatusMeta(
     label: 'Dihubungi',
-    background: Color(0xFF006B74),
-    foreground: Colors.white,
+    color: Color(0xFF673BA2),
+    tint: Color(0xFFF9F4FF),
+    icon: Icons.phone_outlined,
   ),
   'qualified': StatusMeta(
     label: 'Memenuhi Syarat',
-    background: Color(0xFF6529A9),
-    foreground: Colors.white,
+    color: Color(0xFF005E60),
+    tint: Color(0xFFEBFAFA),
+    icon: Icons.check,
   ),
   'proposal': StatusMeta(
-    // Gold, not a shade of the brand orange — design brief §11:
-    // otherwise too easy to mistake for the primary action color, or
-    // for "Kalah" (red), at a glance under bad light.
     label: 'Penawaran',
-    background: Color(0xFF8D6000),
-    foreground: Colors.white,
+    color: Color(0xFF834300),
+    tint: Color(0xFFFFF5E9),
+    icon: Icons.description_outlined,
   ),
   'won': StatusMeta(
     label: 'Menang',
-    background: Color(0xFF005F0E),
-    foreground: Colors.white,
+    color: Color(0xFF006307),
+    tint: Color(0xFFEFFBEF),
+    icon: Icons.star_outline,
   ),
   'lost': StatusMeta(
     label: 'Kalah',
-    background: Color(0xFFB00A1D),
-    foreground: Colors.white,
+    color: Color(0xFFAB000E),
+    tint: Color(0xFFFFF2EF),
+    icon: Icons.close,
   ),
+  // The two statuses excluded from conversion rate are both near-gray on
+  // purpose — so their ICONS must differ: "minus" (not a fit) vs "ban"
+  // (junk). Color can't tell them apart (ΔE 3 on the dashboard, #171).
   'unqualified': StatusMeta(
     label: 'Tidak Memenuhi Syarat',
-    background: Color(0xFF474D5E),
-    foreground: Colors.white,
+    color: Color(0xFF545454),
+    tint: Color(0xFFF7F7F7),
+    icon: Icons.remove_circle_outline,
   ),
   'spam': StatusMeta(
     label: 'Spam',
-    background: Color(0xFF2E2E2E),
-    foreground: Colors.white,
+    color: Color(0xFF654F4B),
+    tint: Color(0xFFF9F6F5),
+    icon: Icons.block,
   ),
 };
 

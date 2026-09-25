@@ -6,6 +6,7 @@ import '../../../../shared/relative_time.dart';
 import '../../../../shared/theme.dart';
 import '../../../../shared/widgets/cache_banner.dart';
 import '../../../../shared/widgets/no_contact_badge.dart';
+import '../../../../shared/widgets/status_badge.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../domain/entities/activity.dart';
@@ -214,8 +215,6 @@ class _LeadHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final meta = statusMeta[lead.status];
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.space20,
@@ -232,24 +231,8 @@ class _LeadHeader extends StatelessWidget {
               Expanded(
                 child: Text(lead.name, style: AppTextStyles.screenTitle),
               ),
-              if (meta != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  height: 26,
-                  decoration: BoxDecoration(
-                    color: meta.background,
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    meta.label,
-                    style: TextStyle(
-                      color: meta.foreground,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
+              const SizedBox(width: AppSpacing.space8),
+              StatusBadge(status: lead.status),
             ],
           ),
           const SizedBox(height: AppSpacing.space4),

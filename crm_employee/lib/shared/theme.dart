@@ -19,48 +19,56 @@ import 'package:flutter/material.dart';
 class AppColors {
   AppColors._();
 
-  // --- Base (locked from crm_dashboard, design brief §4.1) ---
+  // Phase 8.6 (#172): the mobile scale of the Phase 8.6 token sheet
+  // (docs/design_handoff_jualin_crm/screens/Token Desain Jualin.dc.html §04)
+  // — the dashboard's hues and warm neutrals, pushed darker because this
+  // app is read standing up, one-handed, under Indonesian sun. Target is
+  // 7:1 for text wherever the design allows it, not the 4.5:1 AA floor.
+  // Every ratio below is RECOMPUTED (and re-checked by
+  // test/shared/theme_contrast_test.dart on every run), not copied from
+  // the sheet — the procedure #70 set.
 
-  /// Primary action button background. White text on this: **5.05:1**
-  /// (design's own figure: 4.83 — recomputed here, still passes either
-  /// way).
-  static const primary = Color(0xFFCA3C00);
+  // --- Base ---
+
+  /// Primary action button background. White text on this: **5.95:1**
+  /// (sheet: 5.98). Darker than the dashboard's #ca3c00 so white text holds
+  /// up outdoors.
+  static const primary = Color(0xFFBC2E00);
 
   /// Accented text/icons on white. Never used as a background for white
   /// text (that's [primary]). **7.03:1** on white.
   static const accentStrong = Color(0xFFA72B00);
 
-  /// Primary text on white. **19.80:1**.
-  static const foreground = Color(0xFF0A0A0A);
+  /// Primary text — warm near-black, the dashboard's foreground.
+  /// **17.38:1** on white.
+  static const foreground = Color(0xFF1F1915);
 
-  /// Secondary/metadata text on white. **4.74:1** — passes AA but sits
-  /// right at the edge; the design spec itself flags this as
-  /// borderline and restricts it to metadata ≥13px, never critical
-  /// information. Respected here, not just noted.
-  static const mutedForeground = Color(0xFF737373);
+  /// Secondary/metadata text. **7.79:1** on white, 7.05:1 on
+  /// [surfaceSunken]. Was #737373 at 4.74:1 — AA, but the design brief
+  /// asks more than AA of anything read in sunlight, and metadata here
+  /// carries "disentuh 2j lalu", which is the point of the list.
+  static const mutedForeground = Color(0xFF58514C);
 
   /// Decorative only (dividers) — never used for text, so no contrast
   /// requirement applies.
-  static const border = Color(0xFFE5E5E5);
+  static const border = Color(0xFFE2DDD9);
 
   /// App background, bottom nav, cache banner backdrop. Decorative.
-  static const surfaceSunken = Color(0xFFF5F5F5);
+  static const surfaceSunken = Color(0xFFF7F3EF);
 
   static const surface = Colors.white;
 
-  // --- Semantic (new, same hue family) ---
+  // --- Semantic (same hue family) ---
 
-  /// Text on [dangerTint]. **6.29:1**.
+  /// Text on [dangerTint]. **6.29:1**; 7.22:1 on white.
   static const danger = Color(0xFFB00A1D);
   static const dangerTint = Color(0xFFFFEBE8);
 
-  /// Text on [warningTint]. **6.65:1** (design's own figure: 7.6 —
-  /// recomputed, still passes).
+  /// Text on [warningTint]. **6.65:1**.
   static const warning = Color(0xFF7A4A00);
   static const warningTint = Color(0xFFFDF0DC);
 
-  /// Text on [successTint]. **7.16:1** (design's own figure: 7.0 —
-  /// recomputed, still passes).
+  /// Text on [successTint]. **7.16:1**.
   static const success = Color(0xFF005F0E);
   static const successTint = Color(0xFFE6F8E6);
 }
@@ -98,6 +106,13 @@ const double kMinTouchTarget = 48;
 
 /// Roboto — Android's system font (design brief §1.4: legible, and never
 /// adds download weight on a low-end device since it's already there).
+///
+/// Phase 8.6 (#172) kept this on purpose: the token sheet moves the
+/// DASHBOARD to Plus Jakarta Sans, but bundling it here would add a font
+/// download to every install on the low-end phones this app targets, for
+/// no legibility gain — the sheet itself notes a font swap changes none of
+/// the contrast ratios. The family resemblance comes from color, shape and
+/// weight, not the typeface. Recorded in notes.md "## #172".
 /// Deliberately NOT `google_fonts` — Flutter's Material widgets already
 /// resolve to Roboto-equivalent metrics on an Android target with no
 /// font family specified, and TD phase 5 has no dependency budget for a

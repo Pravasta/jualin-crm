@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../../../shared/labels.dart';
 import '../../../../shared/relative_time.dart';
 import '../../../../shared/theme.dart';
 import '../../../../shared/widgets/no_contact_badge.dart';
+import '../../../../shared/widgets/status_badge.dart';
 import '../../domain/entities/lead.dart';
 import '../../domain/lead_contact.dart';
 
@@ -17,8 +17,6 @@ class LeadListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final meta = statusMeta[lead.status];
-
     return InkWell(
       onTap: onTap,
       child: Container(
@@ -53,24 +51,7 @@ class LeadListItem extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AppSpacing.space12),
-            if (meta != null)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                height: 26,
-                decoration: BoxDecoration(
-                  color: meta.background,
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  meta.label,
-                  style: TextStyle(
-                    color: meta.foreground,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
+            StatusBadge(status: lead.status),
           ],
         ),
       ),
