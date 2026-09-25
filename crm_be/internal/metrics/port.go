@@ -13,4 +13,8 @@ import (
 type Repository interface {
 	Summary(ctx context.Context, t tenant.Context, filter Filter) (*Summary, error)
 	Employees(ctx context.Context, t tenant.Context, filter Filter) ([]*EmployeeMetric, error)
+	// Trend requires filter.From and filter.To — Usecase.Trend enforces it.
+	Trend(ctx context.Context, t tenant.Context, filter Filter, bucket TrendBucket) (*Trend, error)
+	Sources(ctx context.Context, t tenant.Context, filter Filter) ([]*SourceMetric, error)
+	LostReasons(ctx context.Context, t tenant.Context, filter Filter) ([]*LostReasonMetric, error)
 }

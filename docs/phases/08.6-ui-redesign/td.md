@@ -101,6 +101,11 @@ Keempat sumber **selalu** dikirim, termasuk yang nol.
 { "data": [ { "source": "form", "count": 26, "converted_count": 5, "conversion_rate": 0.19 } ] }
 ```
 
+> ⚠️ **Dikoreksi saat #169 (Aturan #30):** field-nya **`won_count`**, bukan `converted_count`. Paragraf di
+> bawah mewajibkan definisi yang sama dengan `/summary`, dan `/summary` menghitung **status Menang**, bukan baris
+> `customers`. Nama `converted_count` akan menjanjikan angka yang berbeda dari yang dikirim. Filter anggota
+> memakai query `assigned_to`, nama yang sama dengan daftar lead.
+
 `conversion_rate` **`null`** bila penyebutnya nol — penyebut memakai definisi yang sama dengan
 `/summary`: total **dikurangi** `spam` dan `unqualified` (Phase 3 TD §2.2). Dua tempat menghitung
 conversion rate dengan cara berbeda adalah bug yang menunggu dilaporkan pelanggan.

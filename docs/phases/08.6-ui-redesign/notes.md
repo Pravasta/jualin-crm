@@ -457,3 +457,48 @@ tidak valid). `scrollWidth` = lebar layar. **Alur yang butuh password tidak dija
 logikanya tidak disentuh.
 
 **Temuan #159, pengecekan ulang:** `grep "oklch(0\.[0-9]* 0 0)"` di `(protected)` dan `(auth)` tetap kosong.
+
+---
+
+## #169 — Laporan API: tren, sumber, alasan kalah + filter anggota & sumber
+
+**Yang berubah (`crm_be/internal/metrics`, tanpa migration):** `entity.go` (`Filter.Assignee`/`Source`, `Trend`,
+`SourceMetric`, `LostReasonMetric`, `conversionRate`), `port.go` (3 method), `repository_postgres.go` (3 query +
+`leadFilterConditions`), `usecase.go` (validasi rentang tren, pemilihan bucket), `handler_http.go` (3 rute + parsing
+filter). Test baru: `repository_reports_test.go`, `handler_reports_test.go`, dan tambahan di `usecase_unit_test.go`.
+
+- **Satu definisi conversion rate.** Rumus `won ÷ (total − spam − unqualified)` diekstrak ke `conversionRate()` dan
+  dipakai `/summary` **dan** `/sources`. Dua tempat menghitung rasio yang sama dengan cara berbeda adalah bug yang
+  menunggu dilaporkan pelanggan (TD §2.3).
+- **Filter bersama** di satu fungsi `leadFilterConditions` (dulu `leadRangeConditions`), jadi kelima endpoint
+  memfilter dengan cara yang identik. Nilai tak valid diabaikan, sama dengan aturan lama. `source` divalidasi terhadap
+  daftar yang sama dengan `CHECK` database.
+- **Filter anggota di `/employees` juga mempersempit barisnya.** Tanpa itu, anggota lain tetap tampil dengan angka
+  nol, yang terbaca sebagai "mereka tidak punya apa-apa", bukan "tidak ditampilkan".
+- **Tren:** `generate_series` atas bucket di `organizations.timezone`, lalu `LEFT JOIN` lead. Hari kosong ikut
+  terkirim, dan minggu mulai Senin. Validasi rentang ada di **usecase**, bukan handler: aturan "maksimal 366 hari"
+  adalah batas perlindungan query, bukan bentuk request.
+- Kode detail validasi memakai kosakata yang sudah ada (`required`, `invalid_value`). Tidak ada kode baru.
+
+**Menyimpang dari TD:** `converted_count` → **`won_count`** (sudah dikoreksi di tempat, `td.md` §2.3). Alasannya:
+yang dihitung adalah status Menang, sama dengan `/summary`.
+
+**Untuk #171 (layar Laporan):** `from`/`to` adalah instan, dan bucket adalah hari organization yang **disentuh**
+rentang. Terbukti lewat `curl`: `from=20 Sep 00:00Z` s/d `to=26 Sep 23:59Z` pada organization WIB mengembalikan
+**8** titik (20–27 Sep), karena `26 Sep 23:59Z` = `27 Sep 06:59 WIB`. Layar harus mengirim batas periode dalam waktu
+organization, bukan UTC. Dicatat di `api.md`.
+
+**Verifikasi:**
+- `go test -race ./...` seluruh backend lolos. `golangci-lint`: 0 issues.
+- Unit (tanpa Docker): `from`/`to` wajib, rentang mundur dan > 366 hari ditolak **tanpa** menyentuh repository,
+  bucket 0/45 hari → day dan 46/366 → week, Employee ditolak di ketiganya, Owner/Admin/Manager diizinkan.
+- Repository (Postgres asli): hari kosong ikut terkirim; **zona waktu Asia/Jayapura** (16:00Z 15 Jan terhitung 16 Jan);
+  minggu mulai Senin; 4 sumber/6 alasan termasuk nol; spam keluar dari penyebut; conversion `nil` bila penyebut nol;
+  filter anggota dan sumber di `/summary` dan `/employees`; **isolasi tenant** untuk ketiga query baru, dan UUID
+  anggota dari tenant lain menghasilkan nol.
+- **Test zona waktu diuji mutasi:** pengelompokan diganti sementara ke `AT TIME ZONE 'UTC'`, test gagal dengan pesan
+  "bucketed in UTC", lalu kode dikembalikan.
+- Handler: tanpa rentang → `400 validation_failed` dengan dua detail; tanggal keluar sebagai `YYYY-MM-DD`; `source`
+  tak dikenal diabaikan; Employee → `403` di ketiganya.
+- `curl` terhadap container API yang dibangun ulang, dengan data uji lokal: ketiga endpoint menjawab sesuai bentuk di
+  `api.md`.

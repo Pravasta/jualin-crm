@@ -2,9 +2,11 @@ package metrics
 
 import (
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/authn"
 	"github.com/Pravasta/jualin-crm/crm_be/internal/shared/httpx"
@@ -25,11 +27,18 @@ func (h *Handler) RegisterRoutes(r gin.IRouter, authMW gin.HandlerFunc) {
 	g.Use(authMW)
 	g.GET("/summary", h.summary)
 	g.GET("/employees", h.employees)
+	g.GET("/trend", h.trend)
+	g.GET("/sources", h.sources)
+	g.GET("/lost-reasons", h.lostReasons)
 }
 
 // parseFilter mirrors internal/lead's created_from/created_to parsing —
 // an unparseable or absent value is silently ignored rather than
 // rejected, leaving that bound unset (Filter's nil = unbounded).
+//
+// assigned_to and source (Phase 8.6 TD §2.1) follow the same rule: a
+// non-UUID assignee or a source outside the four the database allows is
+// treated as not given. assigned_to is the same name the lead list uses.
 func parseFilter(c *gin.Context) Filter {
 	var f Filter
 	if from, err := time.Parse(time.RFC3339, c.Query("from")); err == nil {
@@ -37,6 +46,12 @@ func parseFilter(c *gin.Context) Filter {
 	}
 	if to, err := time.Parse(time.RFC3339, c.Query("to")); err == nil {
 		f.To = &to
+	}
+	if id, err := uuid.Parse(c.Query("assigned_to")); err == nil {
+		f.Assignee = &id
+	}
+	if src := c.Query("source"); slices.Contains(leadSources, src) {
+		f.Source = &src
 	}
 	return f
 }
@@ -85,4 +100,58 @@ func employeeJSON(em *EmployeeMetric) gin.H {
 		"avg_response_seconds": em.AvgResponseSeconds,
 		"converted_count":      em.ConvertedCount,
 	}
+}
+
+func (h *Handler) trend(c *gin.Context) {
+	t := authn.TenantFromContext(c)
+
+	tr, err := h.usecase.Trend(c.Request.Context(), t, parseFilter(c))
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+
+	points := make([]gin.H, 0, len(tr.Points))
+	for _, p := range tr.Points {
+		// A calendar date in the organization's timezone, not an instant —
+		// so YYYY-MM-DD rather than an ISO timestamp with Z (TD §2.2):
+		// printing it as UTC midnight would shift the day for WITA/WIT.
+		points = append(points, gin.H{"date": p.Date.Format("2006-01-02"), "count": p.Count})
+	}
+	httpx.OK(c, http.StatusOK, gin.H{"bucket": tr.Bucket, "points": points})
+}
+
+func (h *Handler) sources(c *gin.Context) {
+	t := authn.TenantFromContext(c)
+
+	out, err := h.usecase.Sources(c.Request.Context(), t, parseFilter(c))
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	data := make([]gin.H, 0, len(out))
+	for _, m := range out {
+		data = append(data, gin.H{
+			"source":          m.Source,
+			"count":           m.Count,
+			"won_count":       m.WonCount,
+			"conversion_rate": m.ConversionRate,
+		})
+	}
+	httpx.OK(c, http.StatusOK, data)
+}
+
+func (h *Handler) lostReasons(c *gin.Context) {
+	t := authn.TenantFromContext(c)
+
+	out, err := h.usecase.LostReasons(c.Request.Context(), t, parseFilter(c))
+	if err != nil {
+		httpx.WriteError(c, err)
+		return
+	}
+	data := make([]gin.H, 0, len(out))
+	for _, m := range out {
+		data = append(data, gin.H{"reason": m.Reason, "count": m.Count})
+	}
+	httpx.OK(c, http.StatusOK, data)
 }
