@@ -30,6 +30,11 @@ export const NAV_ITEMS: NavItemConfig[] = [
   { href: "/leads", label: "Lead" },
   { href: "/customers", label: "Customer" },
   { href: "/tasks", label: "Tugas" },
+  // Laporan (Phase 8.6 #171) — Owner/Admin/Manager only, but like every
+  // other item not filtered here: Employee can't enter the dashboard at
+  // all (dashboard_not_available_for_role), so no one who sees this menu
+  // is refused by the screen.
+  { href: "/reports", label: "Laporan" },
   { href: "/team", label: "Tim" },
   { href: "/connect", label: "Connect" },
   { href: "/subscription", label: "Langganan" },
@@ -40,9 +45,9 @@ export const NAV_ITEMS: NavItemConfig[] = [
 // opened many times a day, and "Lainnya" for the rest. The bar is FIXED
 // across pages — the prototype swapped its fifth slot per page (Connect on
 // one, Paket on another), and navigation that moves isn't navigation.
-// "Laporan" joins this list in #171, when its route exists (issues.md: a
-// menu item pointing at a missing route is a broken link).
-export const BOTTOM_NAV_HREFS = ["/", "/leads", "/tasks"] as const;
+// "Laporan" joined in #171, together with its route (issues.md: a menu
+// item pointing at a missing route is a broken link).
+export const BOTTOM_NAV_HREFS = ["/", "/leads", "/tasks", "/reports"] as const;
 
 /** Everything not on the bottom bar, in sidebar order — the "Lainnya" sheet. */
 export const MORE_NAV_ITEMS: NavItemConfig[] = NAV_ITEMS.filter(

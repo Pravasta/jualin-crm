@@ -224,7 +224,13 @@ export function HomeScreen() {
 
       <Card>
         <CardContent className="flex flex-col gap-3">
-          <h2 className="text-[15px] font-bold">Performa per anggota</h2>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-[15px] font-bold">Performa per anggota</h2>
+            {/* The shortcut #163 deferred until the route existed (#171). */}
+            <Link href="/reports" className="text-[13.5px] font-semibold text-accent-strong hover:underline">
+              Lihat Laporan lengkap →
+            </Link>
+          </div>
           {loading ? (
             <div aria-busy="true" aria-label="Memuat performa anggota" className="flex flex-col gap-2">
               {Array.from({ length: 3 }, (_, i) => (

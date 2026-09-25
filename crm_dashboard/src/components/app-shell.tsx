@@ -28,6 +28,7 @@ import {
   Settings,
   LogOut,
   Ellipsis,
+  ChartColumn,
   type LucideIcon,
 } from "lucide-react";
 
@@ -55,6 +56,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/leads": Users,
   "/customers": UserRound,
   "/tasks": SquareCheckBig,
+  "/reports": ChartColumn,
   "/team": UsersRound,
   "/connect": Plug,
   "/subscription": CreditCard,
@@ -205,7 +207,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <nav
         aria-label="Navigasi utama"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden"
       >
         {BOTTOM_NAV_ITEMS.map((item) => {
           const active = isActive(pathname, item.href);

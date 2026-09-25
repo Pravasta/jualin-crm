@@ -66,7 +66,17 @@ describe("NAV_ITEMS", () => {
   // not, and must not creep back in.
   it("uses Indonesian labels except for the two glossary terms", () => {
     const labels = NAV_ITEMS.map((item) => item.label);
-    expect(labels).toEqual(["Beranda", "Lead", "Customer", "Tugas", "Tim", "Connect", "Langganan", "Pengaturan"]);
+    expect(labels).toEqual([
+      "Beranda",
+      "Lead",
+      "Customer",
+      "Tugas",
+      "Laporan", // #171 — brief §8.1 places it here
+      "Tim",
+      "Connect",
+      "Langganan",
+      "Pengaturan",
+    ]);
     expect(labels).not.toContain("Home");
     expect(labels).not.toContain("Task");
     expect(labels).not.toContain("Settings");
@@ -93,7 +103,7 @@ describe("initialsOf", () => {
 describe("phone navigation", () => {
   it("bottom bar holds the everyday screens; everything else is under Lainnya", () => {
     const bottom = NAV_ITEMS.filter((i) => (BOTTOM_NAV_HREFS as readonly string[]).includes(i.href));
-    expect(bottom.map((i) => i.label)).toEqual(["Beranda", "Lead", "Tugas"]);
+    expect(bottom.map((i) => i.label)).toEqual(["Beranda", "Lead", "Tugas", "Laporan"]);
     expect(MORE_NAV_ITEMS.map((i) => i.label)).toEqual([
       "Customer",
       "Tim",
@@ -121,5 +131,6 @@ describe("phone navigation", () => {
     expect(isMoreActive("/")).toBe(false);
     expect(isMoreActive("/leads/123")).toBe(false);
     expect(isMoreActive("/tasks")).toBe(false);
+    expect(isMoreActive("/reports")).toBe(false);
   });
 });

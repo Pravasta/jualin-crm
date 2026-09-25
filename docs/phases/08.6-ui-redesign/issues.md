@@ -94,4 +94,4 @@ Dibaca **seluruhnya** di #174. Berkas tanpa penunjuk tidak pernah dibaca lagi (#
 | Berkas | Isi | Pemicu |
 |---|---|---|
 | [`159`](../../issues/159-design-tokens.md) | Abu-abu dingin mentah di layar, sebagian gagal AA; tint status 94% karena klaim token sheet tidak benar | #161, #162, #165 menggantinya dengan token; #174 memeriksa `grep` kosong |
-| [`170`](../../issues/170-report-tasks.md) | Tugas tanpa penanggung jawab tidak masuk blok Tugas; `overdue_count` adalah keadaan sekarang | #171 memilih cara menyebutnya di layar; #174 memeriksa |
+| [`170`](../../issues/170-report-tasks.md) | **Ditutup #171** — pilihan (a); "Terlambat sekarang" tertulis di layar | #174 membaca ulang |
