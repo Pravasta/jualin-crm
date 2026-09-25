@@ -87,7 +87,18 @@ class _LeadsPageState extends State<LeadsPage> {
                     hint: 'Persempit dengan status atau pencarian.',
                   ),
                 ),
-              Expanded(child: _Body(state: state)),
+              Expanded(
+                child: _Body(
+                  state: state,
+                  onClearFilters: () {
+                    _debounce?.cancel();
+                    _searchController.clear();
+                    final bloc = context.read<LeadsBloc>();
+                    bloc.add(const LeadsSearchChanged(''));
+                    bloc.add(const LeadsStatusFilterChanged(null));
+                  },
+                ),
+              ),
             ],
           ),
         );
@@ -116,7 +127,7 @@ class _SearchField extends StatelessWidget {
         onChanged: onChanged,
         style: AppTextStyles.body,
         decoration: InputDecoration(
-          hintText: 'Cari nama lead...',
+          hintText: 'Cari nama lead',
           hintStyle: AppTextStyles.body.copyWith(
             color: AppColors.mutedForeground,
           ),
@@ -125,14 +136,10 @@ class _SearchField extends StatelessWidget {
             color: AppColors.mutedForeground,
             size: 20,
           ),
-          isDense: true,
           filled: true,
-          fillColor: AppColors.surfaceSunken,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            borderSide: BorderSide.none,
-          ),
-          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          fillColor: AppColors.surface,
+          constraints: const BoxConstraints(minHeight: kMinTouchTarget),
+          contentPadding: const EdgeInsets.symmetric(vertical: 14),
         ),
       ),
     );
@@ -148,7 +155,7 @@ class _StatusChipRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 48,
+      height: 52,
       child: ListView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(
@@ -168,6 +175,7 @@ class _StatusChipRow extends StatelessWidget {
                 label: statusMeta[status]!.label,
                 isSelected: selected == status,
                 onTap: () => onSelected(status),
+                color: statusMeta[status]!.color,
               ),
             ),
         ],
@@ -176,36 +184,47 @@ class _StatusChipRow extends StatelessWidget {
   }
 }
 
+/// A status filter chip — outlined in the status color, filled when
+/// selected (the dashboard's chip, Phase 8.6 #173). Text is the status
+/// color on white or white on the status color: both ≥7.5:1 with the
+/// mobile scale (#172). "Semua" has no status, so it uses the foreground.
 class _StatusChip extends StatelessWidget {
   final String label;
   final bool isSelected;
   final VoidCallback onTap;
+  final Color color;
 
   const _StatusChip({
     required this.label,
     required this.isSelected,
     required this.onTap,
+    this.color = AppColors.foreground,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppRadius.pill),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        height: 32,
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary : AppColors.surfaceSunken,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w600,
-            color: isSelected ? Colors.white : AppColors.mutedForeground,
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          height: 36,
+          decoration: BoxDecoration(
+            color: isSelected ? color : AppColors.surface,
+            border: Border.all(color: color, width: 1.5),
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+              color: isSelected ? Colors.white : color,
+            ),
           ),
         ),
       ),
@@ -215,17 +234,30 @@ class _StatusChip extends StatelessWidget {
 
 class _Body extends StatelessWidget {
   final LeadsState state;
+  final VoidCallback onClearFilters;
 
-  const _Body({required this.state});
+  const _Body({required this.state, required this.onClearFilters});
 
   @override
   Widget build(BuildContext context) {
+    // Brief §13: "belum ada lead" and "tidak ada yang cocok" are different
+    // answers — the first is not the Employee's to fix, the second is one
+    // tap away (#173).
+    final filtered = state.isFiltered;
     return switch (state) {
       LeadsInitial() || LeadsLoading() => const _LoadingSkeleton(),
       LeadsError(:final message) => _ErrorView(message: message),
+      LeadsLoaded(:final leads) when leads.isEmpty && filtered =>
+        _NoMatchView(onClearFilters: onClearFilters),
       LeadsLoaded(:final leads) when leads.isEmpty => const _EmptyView(),
       LeadsLoaded(:final leads) => ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.space16,
+          AppSpacing.space4,
+          AppSpacing.space16,
+          AppSpacing.space16,
+        ),
         itemCount: leads.length,
         itemBuilder: (context, index) => LeadListItem(
           lead: leads[index],
@@ -236,6 +268,46 @@ class _Body extends StatelessWidget {
   }
 }
 
+class _NoMatchView extends StatelessWidget {
+  final VoidCallback onClearFilters;
+
+  const _NoMatchView({required this.onClearFilters});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.space40,
+        vertical: AppSpacing.space24 * 3,
+      ),
+      children: [
+        const Text(
+          'Tidak ada lead yang cocok',
+          textAlign: TextAlign.center,
+          style: AppTextStyles.cardTitle,
+        ),
+        const SizedBox(height: AppSpacing.space8),
+        Text(
+          'Tidak ada lead Anda dengan status atau nama ini.',
+          textAlign: TextAlign.center,
+          style: AppTextStyles.body.copyWith(color: AppColors.mutedForeground),
+        ),
+        const SizedBox(height: AppSpacing.space20),
+        Center(
+          child: OutlinedButton(
+            onPressed: onClearFilters,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, kMinTouchTarget),
+            ),
+            child: const Text('Hapus filter'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _LoadingSkeleton extends StatelessWidget {
   const _LoadingSkeleton();
 
@@ -243,15 +315,15 @@ class _LoadingSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView.builder(
       padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.space20,
+        horizontal: AppSpacing.space16,
         vertical: AppSpacing.space8,
       ),
       itemCount: 4,
       itemBuilder: (context, index) => Container(
-        height: 68,
+        height: 84,
         margin: const EdgeInsets.only(bottom: AppSpacing.space12),
         decoration: BoxDecoration(
-          color: const Color(0xFFF0F0F0),
+          color: AppColors.surfaceSunken,
           borderRadius: BorderRadius.circular(AppRadius.card),
         ),
       ),

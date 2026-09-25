@@ -12,6 +12,11 @@ sealed class LeadsState extends Equatable {
 
   const LeadsState({this.statusFilter, this.query = ''});
 
+  /// Whether the list is narrowed by a status chip or a search — decides
+  /// "Tidak ada lead yang cocok" (with a way out) from "Belum ada lead
+  /// ditugaskan" when the list is empty (brief §13, #173).
+  bool get isFiltered => statusFilter != null || query.trim().isNotEmpty;
+
   @override
   List<Object?> get props => [statusFilter, query];
 }

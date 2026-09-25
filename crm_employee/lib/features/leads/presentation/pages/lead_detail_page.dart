@@ -225,22 +225,39 @@ class _LeadHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          // Phase 8.6 (#173), the handoff's order: number, name, then the
+          // status with how fresh the lead is — the two things decided at a
+          // glance — and only then the facts, each under its own label.
+          Text('#${lead.leadNumber}', style: AppTextStyles.metadata),
+          const SizedBox(height: 2),
+          Text(
+            lead.name,
+            style: AppTextStyles.screenTitle.copyWith(fontSize: 24, height: 30 / 24),
+          ),
+          const SizedBox(height: AppSpacing.space8),
+          Wrap(
+            spacing: AppSpacing.space8,
+            runSpacing: AppSpacing.space4,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Expanded(
-                child: Text(lead.name, style: AppTextStyles.screenTitle),
-              ),
-              const SizedBox(width: AppSpacing.space8),
               StatusBadge(status: lead.status),
+              Text(
+                'disentuh ${relativeTime(lead.updatedAt)}',
+                style: AppTextStyles.metadata.copyWith(fontSize: 14),
+              ),
             ],
           ),
-          const SizedBox(height: AppSpacing.space4),
-          Text(
-            '#${lead.leadNumber} · ${sourceLabels[lead.source] ?? lead.source} · '
-            'disentuh ${relativeTime(lead.updatedAt)}',
-            style: AppTextStyles.metadata,
+          const SizedBox(height: AppSpacing.space16),
+          _Fact(
+            label: 'Telepon',
+            value: hasPhoneNumber(lead.phone) ? lead.phone!.trim() : '—',
           ),
+          _Fact(
+            label: 'Sumber',
+            value: sourceLabels[lead.source] ?? lead.source,
+          ),
+          if (lead.company != null && lead.company!.trim().isNotEmpty)
+            _Fact(label: 'Perusahaan', value: lead.company!.trim()),
           if (!leadHasContact(email: lead.email, phone: lead.phone)) ...[
             const SizedBox(height: AppSpacing.space8),
             const Align(
@@ -248,10 +265,7 @@ class _LeadHeader extends StatelessWidget {
               child: NoContactBadge(),
             ),
           ],
-          if (lead.company != null) ...[
-            const SizedBox(height: AppSpacing.space12),
-            Text(lead.company!, style: AppTextStyles.body),
-          ],
+
           if (hasEmailAddress(lead.email)) ...[
             const SizedBox(height: AppSpacing.space4),
             // Issue #149: tappable, opens the mail app. Placed here and not
@@ -294,13 +308,24 @@ class _LeadHeader extends StatelessWidget {
           ],
           if (lead.notes != null && lead.notes!.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.space12),
-            Text(lead.notes!, style: AppTextStyles.body),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.space12),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceSunken,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(lead.notes!, style: AppTextStyles.body),
+            ),
           ],
           if (lead.status == 'lost' && lead.lostReason != null) ...[
             const SizedBox(height: AppSpacing.space8),
             Text(
               'Alasan kalah: ${lostReasonDisplayLabel(lead.lostReason) ?? lead.lostReason}',
-              style: AppTextStyles.metadata.copyWith(color: AppColors.danger),
+              style: AppTextStyles.body.copyWith(
+                color: AppColors.danger,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ],
@@ -331,33 +356,32 @@ class _StatusSection extends StatelessWidget {
         AppSpacing.space20,
         AppSpacing.space16,
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
+      // No options → a sentence saying why, never a button that could only
+      // end in a refusal (#142). Otherwise one full-width 48dp button:
+      // thumb-sized, and it only ever opens the VALID transitions.
+      child: options.isEmpty
+          ? Text(
               converted
                   ? 'Lead ini sudah dikonversi menjadi Customer; statusnya tidak dapat diubah lagi.'
-                  : options.isEmpty
-                      ? 'Status ini bersifat final.'
-                      : 'Ubah status lead',
+                  : 'Status ini bersifat final.',
               style: AppTextStyles.body.copyWith(color: AppColors.mutedForeground),
-            ),
-          ),
-          if (options.isNotEmpty)
-            OutlinedButton(
+            )
+          : OutlinedButton.icon(
               onPressed: state.isUpdatingStatus
                   ? null
                   : () => _openStatusPicker(context, state, options),
-              child: state.isUpdatingStatus
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(kMinTouchTarget),
+              ),
+              icon: state.isUpdatingStatus
                   ? const SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Ubah status'),
+                  : const Icon(Icons.swap_horiz),
+              label: const Text('Ubah status'),
             ),
-        ],
-      ),
     );
   }
 
@@ -422,7 +446,14 @@ class _StatusOptionsSheet extends StatelessWidget {
           ),
           for (final option in options)
             ListTile(
-              title: Text(option.label),
+              minTileHeight: kMinTouchTarget + 8,
+              // The target status's own icon and color, so the choice reads
+              // the way the badge it will become reads (#173).
+              leading: Icon(
+                statusMeta[option.status]?.icon,
+                color: statusMeta[option.status]?.color,
+              ),
+              title: Text(option.label, style: AppTextStyles.body),
               onTap: () => Navigator.of(context).pop(option),
             ),
           const SizedBox(height: AppSpacing.space8),
@@ -659,6 +690,7 @@ class _ActionBar extends StatelessWidget {
     // Telepon while nothing said there was no number.
     final hasPhone = hasPhoneNumber(lead.phone);
     final hasWhatsApp = lead.phoneE164 != null;
+    final note = callActionsNote(phone: lead.phone, phoneE164: lead.phoneE164);
 
     return SafeArea(
       top: false,
@@ -677,15 +709,10 @@ class _ActionBar extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (!hasPhone) ...[
-              // Why both buttons are off, in words — a dead button with no
-              // reason reads as a bug. About the PHONE, not about contact in
-              // general: a lead with an email but no number is not "without
-              // contact", yet these buttons still cannot work for it.
-              const Text(
-                'Lead ini belum punya nomor telepon.',
-                style: AppTextStyles.metadata,
-              ),
+            // Why a button is off, in words — a dead button with no reason
+            // reads as a bug (lead_contact.dart's callActionsNote).
+            if (note != null) ...[
+              Text(note, style: AppTextStyles.metadata),
               const SizedBox(height: AppSpacing.space8),
             ],
             Row(
@@ -703,7 +730,10 @@ class _ActionBar extends StatelessWidget {
                 ),
                 const SizedBox(width: AppSpacing.space12),
                 Expanded(
-                  child: OutlinedButton.icon(
+                  // Filled green, as in the handoff: the two field channels
+                  // are equal-weight, thumb-sized targets. White on this
+                  // green (the Menang color) is 7.53:1.
+                  child: FilledButton.icon(
                     onPressed: hasWhatsApp && !isBusy
                         ? () => context.read<LeadDetailBloc>().add(
                             const LeadWhatsAppRequested(),
@@ -711,8 +741,8 @@ class _ActionBar extends StatelessWidget {
                         : null,
                     icon: const Icon(Icons.chat),
                     label: const Text('WhatsApp'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: statusMeta['won']!.color,
                     ),
                   ),
                 ),
@@ -720,6 +750,34 @@ class _ActionBar extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// One labelled fact in the detail header (#173) — label above value, the
+/// handoff's layout; values wrap rather than truncate (a phone number cut
+/// short is useless on the screen people call from).
+class _Fact extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _Fact({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.space12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: AppTextStyles.metadata.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 2),
+          Text(value, style: AppTextStyles.body),
+        ],
       ),
     );
   }
