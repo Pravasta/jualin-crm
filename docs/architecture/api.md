@@ -28,6 +28,9 @@ Prefix path `/v1/` pada **seluruh** endpoint, termasuk yang hanya dipakai intern
 /v1/leads/{id}
 /v1/metrics/summary
 /v1/metrics/employees
+/v1/metrics/trend
+/v1/metrics/sources
+/v1/metrics/lost-reasons
 ```
 
 Murah sekarang, mustahil ditambahkan setelah ada integrator.
@@ -717,3 +720,54 @@ integrasi payment service (`STATUS.md` bagian *Keputusan Belum Diambil*).
 > adanya.** Tidak ada penjumlahan, pajak, konversi mata uang, pembulatan, atau perbandingan numerik di
 > mana pun terhadapnya — itulah kenapa tipenya `string`, bukan `numeric`. Begitu ada yang perlu
 > *berhitung*, itu tanda pekerjaannya milik payment service, bukan repository ini.
+
+---
+
+## Laporan — `GET /v1/metrics/*` (Phase 3; diperluas Phase 8.6 #169)
+
+Agregat baca-saja untuk Beranda dan layar Laporan. **Owner/Admin/Manager** (`metrics.read`); Employee → `403`.
+Tidak ada migration: semuanya dihitung dari `leads`, `activities`, dan `customers` yang sudah ada.
+
+| Endpoint | Isi | Sejak |
+|---|---|---|
+| `/v1/metrics/summary` | `total_new`, `by_status`, `unassigned`, `conversion_rate` | Phase 3 |
+| `/v1/metrics/employees` | per membership: `lead_count`, `avg_response_seconds`, `converted_count` | Phase 3 |
+| `/v1/metrics/trend` | `{bucket, points: [{date, count}]}` | 8.6 #169 |
+| `/v1/metrics/sources` | 4 baris: `{source, count, won_count, conversion_rate}` | 8.6 #169 |
+| `/v1/metrics/lost-reasons` | 6 baris: `{reason, count}` | 8.6 #169 |
+
+### Filter bersama — berlaku di kelima endpoint
+
+| Query | Arti | Nilai tak valid |
+|---|---|---|
+| `from`, `to` | RFC 3339. Membatasi **`leads.created_at`**, tidak pernah timestamp lain | diabaikan (batas tidak dipasang), **kecuali `/trend`** |
+| `assigned_to` | UUID membership (nama yang sama dengan daftar lead) | diabaikan |
+| `source` | `manual` · `api` · `form` · `webhook` | diabaikan |
+
+`assigned_to` hanya **mempersempit** di dalam organization pemanggil. UUID membership milik tenant lain menghasilkan
+hasil kosong, bukan `403` (yang akan mengonfirmasi keberadaannya). Di `/employees`, filter anggota juga mempersempit
+**barisnya**, bukan hanya lead yang dihitung.
+
+### `/trend` — rentang wajib, bucket dipilih server
+
+- `from` **dan** `to` wajib. `to` ≥ `from`, dan rentang ≤ **366 hari**. Selain itu `400 validation_failed` dengan
+  `details` per field (`required` / `invalid_value`).
+- Rentang ≤ **45 hari** → `bucket: "day"`, lebih panjang → `"week"` (minggu mulai **Senin**). Klien tidak memilih.
+- **`date` adalah tanggal kalender di `organizations.timezone`** (`"2026-09-25"`), bukan instan. Karena itu formatnya
+  `YYYY-MM-DD`, bukan ISO 8601 `Z`: menuliskannya sebagai tengah malam UTC akan menggeser hari bagi organization di
+  WITA/WIT (Aturan #13).
+- **Semua bucket dalam rentang dikirim, termasuk yang `count: 0`.**
+- **Bucket yang dikirim adalah hari/minggu organization yang disentuh rentang.** `from`/`to` adalah instan, jadi
+  `to=2026-09-26T23:59:59Z` untuk organization WIB jatuh pada **27 Sep 06:59 WIB**, dan 27 Sep ikut muncul. Klien yang
+  ingin "7 hari kalender" mengirim batas dalam waktu organization (mis. `2026-09-20T00:00:00+07:00`), bukan dalam UTC.
+
+### Conversion rate — satu definisi
+
+`/summary` dan `/sources` memakai **fungsi yang sama**: `won ÷ (total − spam − unqualified)`, `null` bila penyebutnya
+nol ("belum ada yang bisa dihitung" ≠ 0%). `/sources` mengirim `won_count`, bukan `converted_count`: yang dihitung
+adalah status **Menang**, sama dengan `/summary`, bukan baris `customers`.
+
+### Nilai nol tetap dikirim
+
+`/sources` selalu 4 baris dan `/lost-reasons` selalu 6 baris, dalam urutan tetap (mengikuti `CHECK` di
+`0003_crm_core.sql`). Sumber yang tak pernah dipakai adalah informasi, bukan hal yang disembunyikan.

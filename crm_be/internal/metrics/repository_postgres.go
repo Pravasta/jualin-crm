@@ -21,13 +21,14 @@ func New(q db.Querier) Repository {
 	return &postgresRepository{q: q}
 }
 
-// leadRangeConditions builds the "leads.created_at within [from, to]"
-// predicate shared by every query below — the ONLY timestamp Phase 3 TD
-// §2.1 scopes either endpoint to. args starts with organization_id
-// already in place ($1); each added bound gets its own placeholder via
-// arg, same closure-based query-building pattern as
+// leadFilterConditions builds the predicate every query here shares:
+// leads.created_at within [from, to] — the ONLY timestamp Phase 3 TD §2.1
+// scopes these endpoints to — plus the optional assignee/source narrowing
+// Phase 8.6 TD §2.1 adds. args starts with organization_id already in
+// place ($1); each added value gets its own placeholder via arg, same
+// closure-based query-building pattern as
 // internal/customer.postgresRepository.FindAllByOrg.
-func leadRangeConditions(filter Filter, args *[]any, alias string) []string {
+func leadFilterConditions(filter Filter, args *[]any, alias string) []string {
 	conditions := []string{}
 	arg := func(v any) string {
 		*args = append(*args, v)
@@ -39,6 +40,12 @@ func leadRangeConditions(filter Filter, args *[]any, alias string) []string {
 	if filter.To != nil {
 		conditions = append(conditions, alias+"created_at <= "+arg(*filter.To))
 	}
+	if filter.Assignee != nil {
+		conditions = append(conditions, alias+"assigned_to_membership_id = "+arg(*filter.Assignee))
+	}
+	if filter.Source != nil {
+		conditions = append(conditions, alias+"source = "+arg(*filter.Source))
+	}
 	return conditions
 }
 
@@ -48,7 +55,7 @@ func leadRangeConditions(filter Filter, args *[]any, alias string) []string {
 // this method.
 func (r *postgresRepository) Summary(ctx context.Context, t tenant.Context, filter Filter) (*Summary, error) {
 	args := []any{t.OrganizationID}
-	conditions := append([]string{"organization_id = $1", "deleted_at IS NULL"}, leadRangeConditions(filter, &args, "")...)
+	conditions := append([]string{"organization_id = $1", "deleted_at IS NULL"}, leadFilterConditions(filter, &args, "")...)
 	where := strings.Join(conditions, " AND ")
 
 	byStatusQ := "SELECT status, count(*) FROM leads WHERE " + where + " GROUP BY status"
@@ -81,19 +88,12 @@ func (r *postgresRepository) Summary(ctx context.Context, t tenant.Context, filt
 
 	// spam/unqualified excluded from the DENOMINATOR, not just the
 	// numerator (TD §2.2) — this is what finally enforces Phase 2's
-	// acceptance criterion #5.
-	denominator := total - byStatus["spam"] - byStatus["unqualified"]
-	var conversionRate *float64
-	if denominator > 0 {
-		rate := float64(byStatus["won"]) / float64(denominator)
-		conversionRate = &rate
-	}
-
+	// acceptance criterion #5. One helper, shared with Sources.
 	return &Summary{
 		TotalNew:       total,
 		ByStatus:       byStatus,
 		Unassigned:     unassigned,
-		ConversionRate: conversionRate,
+		ConversionRate: conversionRate(total, byStatus["won"], byStatus["spam"], byStatus["unqualified"]),
 	}, nil
 }
 
@@ -116,7 +116,16 @@ func (r *postgresRepository) Employees(ctx context.Context, t tenant.Context, fi
 		"l.assigned_to_membership_id = m.id",
 		"l.organization_id = m.organization_id",
 		"l.deleted_at IS NULL",
-	}, leadRangeConditions(filter, &args, "l.")...)
+	}, leadFilterConditions(filter, &args, "l.")...)
+
+	// Filtering by one member narrows the ROWS too, not just the leads
+	// joined to them — otherwise every other member would still be listed,
+	// all zeros, which reads as "they had nothing" rather than "not shown".
+	assigneeRow := ""
+	if filter.Assignee != nil {
+		args = append(args, *filter.Assignee)
+		assigneeRow = fmt.Sprintf(" AND m.id = $%d", len(args))
+	}
 
 	q := `
 		SELECT
@@ -134,7 +143,7 @@ func (r *postgresRepository) Employees(ctx context.Context, t tenant.Context, fi
 			FROM activities a
 			WHERE a.lead_id = l.id AND a.organization_id = m.organization_id AND a.type <> 'lead_created'
 		) touch ON true
-		WHERE m.organization_id = $1 AND m.deleted_at IS NULL
+		WHERE m.organization_id = $1 AND m.deleted_at IS NULL` + assigneeRow + `
 		GROUP BY m.id, u.full_name
 		ORDER BY u.full_name`
 
@@ -154,6 +163,149 @@ func (r *postgresRepository) Employees(ctx context.Context, t tenant.Context, fi
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("metrics: employees: %w", err)
+	}
+	return out, nil
+}
+
+// Trend buckets leads by CALENDAR day or week in organizations.timezone
+// (Aturan #13, Phase 8.6 TD §2.2) — a lead at 23:30 WIT is that day in
+// Jayapura even though it is 14:30 UTC. generate_series produces every
+// bucket in the range so empty ones come back as 0 rather than missing.
+// Weeks start on Monday (date_trunc('week')). filter.From/To must be set;
+// Usecase.Trend guarantees it.
+func (r *postgresRepository) Trend(ctx context.Context, t tenant.Context, filter Filter, bucket TrendBucket) (*Trend, error) {
+	if filter.From == nil || filter.To == nil {
+		return nil, fmt.Errorf("metrics: trend: range required")
+	}
+	args := []any{t.OrganizationID, string(bucket), *filter.From, *filter.To}
+	join := append([]string{
+		"l.organization_id = $1",
+		"l.deleted_at IS NULL",
+		"date_trunc($2, l.created_at AT TIME ZONE o.timezone) = b.bucket",
+	}, leadFilterConditions(filter, &args, "l.")...)
+
+	q := `
+		WITH o AS (SELECT timezone FROM organizations WHERE id = $1),
+		buckets AS (
+			SELECT generate_series(
+				date_trunc($2, $3::timestamptz AT TIME ZONE o.timezone),
+				date_trunc($2, $4::timestamptz AT TIME ZONE o.timezone),
+				('1 ' || $2)::interval
+			) AS bucket
+			FROM o
+		)
+		SELECT b.bucket::date, count(l.id)
+		FROM buckets b
+		CROSS JOIN o
+		LEFT JOIN leads l ON ` + strings.Join(join, " AND ") + `
+		GROUP BY b.bucket
+		ORDER BY b.bucket`
+
+	rows, err := r.q.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("metrics: trend: %w", err)
+	}
+	defer rows.Close()
+
+	out := &Trend{Bucket: bucket, Points: []TrendPoint{}}
+	for rows.Next() {
+		var p TrendPoint
+		if err := rows.Scan(&p.Date, &p.Count); err != nil {
+			return nil, fmt.Errorf("metrics: scan trend: %w", err)
+		}
+		out.Points = append(out.Points, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("metrics: trend: %w", err)
+	}
+	return out, nil
+}
+
+// leadSources and lostReasons mirror the CHECK constraints in
+// 0003_crm_core.sql (ck_leads_source, ck_leads_lost_reason), in the order
+// the screen lists them. Both queries unnest them so every value comes
+// back, zeros included — a source nobody used is information, not noise.
+var (
+	leadSources = []string{"manual", "api", "form", "webhook"}
+	lostReasons = []string{"price", "competitor", "timing", "no_response", "not_interested", "other"}
+)
+
+func (r *postgresRepository) Sources(ctx context.Context, t tenant.Context, filter Filter) ([]*SourceMetric, error) {
+	args := []any{t.OrganizationID, leadSources}
+	join := append([]string{
+		"l.organization_id = $1",
+		"l.deleted_at IS NULL",
+		"l.source = s.source",
+	}, leadFilterConditions(filter, &args, "l.")...)
+
+	q := `
+		SELECT
+			s.source,
+			count(l.id),
+			count(l.id) FILTER (WHERE l.status = 'won'),
+			count(l.id) FILTER (WHERE l.status = 'spam'),
+			count(l.id) FILTER (WHERE l.status = 'unqualified')
+		FROM unnest($2::text[]) WITH ORDINALITY AS s(source, ord)
+		LEFT JOIN leads l ON ` + strings.Join(join, " AND ") + `
+		GROUP BY s.source, s.ord
+		ORDER BY s.ord`
+
+	rows, err := r.q.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("metrics: sources: %w", err)
+	}
+	defer rows.Close()
+
+	out := []*SourceMetric{}
+	for rows.Next() {
+		var m SourceMetric
+		var spam, unqualified int
+		if err := rows.Scan(&m.Source, &m.Count, &m.WonCount, &spam, &unqualified); err != nil {
+			return nil, fmt.Errorf("metrics: scan sources: %w", err)
+		}
+		m.ConversionRate = conversionRate(m.Count, m.WonCount, spam, unqualified)
+		out = append(out, &m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("metrics: sources: %w", err)
+	}
+	return out, nil
+}
+
+// LostReasons counts only status = 'lost' — lost_reason is guaranteed
+// non-null there by ck_leads_lost_requires_reason.
+func (r *postgresRepository) LostReasons(ctx context.Context, t tenant.Context, filter Filter) ([]*LostReasonMetric, error) {
+	args := []any{t.OrganizationID, lostReasons}
+	join := append([]string{
+		"l.organization_id = $1",
+		"l.deleted_at IS NULL",
+		"l.status = 'lost'",
+		"l.lost_reason = r.reason",
+	}, leadFilterConditions(filter, &args, "l.")...)
+
+	q := `
+		SELECT r.reason, count(l.id)
+		FROM unnest($2::text[]) WITH ORDINALITY AS r(reason, ord)
+		LEFT JOIN leads l ON ` + strings.Join(join, " AND ") + `
+		GROUP BY r.reason, r.ord
+		ORDER BY r.ord`
+
+	rows, err := r.q.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("metrics: lost reasons: %w", err)
+	}
+	defer rows.Close()
+
+	out := []*LostReasonMetric{}
+	for rows.Next() {
+		var m LostReasonMetric
+		if err := rows.Scan(&m.Reason, &m.Count); err != nil {
+			return nil, fmt.Errorf("metrics: scan lost reasons: %w", err)
+		}
+		out = append(out, &m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("metrics: lost reasons: %w", err)
 	}
 	return out, nil
 }
