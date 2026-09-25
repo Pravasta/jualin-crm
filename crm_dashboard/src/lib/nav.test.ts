@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { initialsOf, isActive, NAV_ITEMS, pageTitle } from "./nav";
+import {
+  BOTTOM_NAV_HREFS,
+  initialsOf,
+  isActive,
+  isMoreActive,
+  MORE_NAV_ITEMS,
+  NAV_ITEMS,
+  pageTitle,
+} from "./nav";
 
 describe("isActive", () => {
   it('matches "/" only exactly — otherwise every page highlights Beranda', () => {
@@ -79,5 +87,39 @@ describe("initialsOf", () => {
   it("never renders empty for an empty name", () => {
     expect(initialsOf("")).toBe("?");
     expect(initialsOf("   ")).toBe("?");
+  });
+});
+
+describe("phone navigation", () => {
+  it("bottom bar holds the everyday screens; everything else is under Lainnya", () => {
+    const bottom = NAV_ITEMS.filter((i) => (BOTTOM_NAV_HREFS as readonly string[]).includes(i.href));
+    expect(bottom.map((i) => i.label)).toEqual(["Beranda", "Lead", "Tugas"]);
+    expect(MORE_NAV_ITEMS.map((i) => i.label)).toEqual([
+      "Customer",
+      "Tim",
+      "Connect",
+      "Langganan",
+      "Pengaturan",
+    ]);
+  });
+
+  it("every sidebar item is reachable on a phone — bar or sheet, never neither", () => {
+    const reachable = new Set([...BOTTOM_NAV_HREFS, ...MORE_NAV_ITEMS.map((i) => i.href)]);
+    for (const item of NAV_ITEMS) expect(reachable.has(item.href)).toBe(true);
+    expect(reachable.size).toBe(NAV_ITEMS.length);
+  });
+
+  it("every bottom-bar href is a real sidebar route", () => {
+    const hrefs = NAV_ITEMS.map((i) => i.href);
+    for (const href of BOTTOM_NAV_HREFS) expect(hrefs).toContain(href);
+  });
+
+  it("Lainnya is active on pages that live inside it, including their sub-pages", () => {
+    expect(isMoreActive("/team")).toBe(true);
+    expect(isMoreActive("/connect/webhook/abc")).toBe(true);
+    expect(isMoreActive("/customers/123")).toBe(true);
+    expect(isMoreActive("/")).toBe(false);
+    expect(isMoreActive("/leads/123")).toBe(false);
+    expect(isMoreActive("/tasks")).toBe(false);
   });
 });
