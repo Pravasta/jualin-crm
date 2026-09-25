@@ -90,3 +90,11 @@ describe("periodToRange", () => {
     });
   });
 });
+
+describe("formatAvgResponseSeconds — under a minute", () => {
+  it("says '< 1 menit' instead of rounding to '0 menit'", () => {
+    expect(formatAvgResponseSeconds(20)).toBe("< 1 menit");
+    expect(formatAvgResponseSeconds(59)).toBe("< 1 menit");
+    expect(formatAvgResponseSeconds(60)).toBe("1 menit");
+  });
+});
