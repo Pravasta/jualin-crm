@@ -111,6 +111,12 @@ lead selesai dikonversi.
 |---|---|---|---|---|
 | `metrics.read` | ✅ | ✅ | ✅ | — |
 
+> **Phase 8.6 (#169, #170):** `metrics.read` menutupi **ketujuh** endpoint `/v1/metrics/*`: `summary`,
+> `employees`, dan lima yang baru (`trend`, `sources`, `lost-reasons`, `response-times`, `tasks`). Tidak ada
+> Action baru. Filter `assigned_to` hanya mempersempit di dalam organization pemanggil. UUID membership milik
+> tenant lain menghasilkan hasil kosong, bukan `403`, karena tidak ada yang perlu disembunyikan dari predikat yang
+> tidak cocok dengan apa pun (`api.md` *Laporan*).
+
 Employee tidak dapat: dashboard bukan alatnya (Employee dapat mobile di Phase 5 — sejak issue #136
 ini **ditegakkan sebagai gerbang login/refresh**, bukan hanya alasan di sini; lihat *Role × client* di
 `authentication.md`), dan agregat lintas
