@@ -6,13 +6,19 @@
 
 ## Keputusan yang perlu dicek ulang
 
-- [ ] **Tugas tanpa penanggung jawab tidak tampil di blok "Tugas" Laporan.** `/v1/metrics/tasks` per anggota
+- [x] **Tugas tanpa penanggung jawab tidak tampil di blok "Tugas" Laporan.** `/v1/metrics/tasks` per anggota
       (TD §2.6). Tugas yang tidak ditugaskan, termasuk yang terlambat, tidak masuk baris mana pun. Terlihat nyata
       dengan data uji lokal: satu tugas terlambat hilang dari laporan.
       Dua pilihan, sengaja tidak diambil sendiri: (a) layar menyebut blok ini "per anggota" dan menautkan ke
       Tugas terfilter; (b) API menambah satu baris "Tanpa penanggung jawab" (`membership_id: null`).
       **Pemicu peninjauan:** #171. Bila layar memilih (a), poin ini ditutup di sana. Bila (b), itu perubahan
       API kecil yang harus diputuskan pemilik produk lebih dulu.
+      **→ Ditutup di #171 dengan pilihan (a):** pemilik produk tidak memilih ketika ditanya, dan (a) tidak
+      mengubah API. Blok itu kini bertajuk "Tugas per anggota", catatannya menyebut *"Tugas tanpa penanggung
+      jawab tidak dihitung di sini"*, dan ada tautan ke `/tasks?status=open`. Bila baris "Tanpa penanggung
+      jawab" tetap diinginkan, itu perubahan API kecil yang bisa dibuka sebagai issue sendiri.
 
-- [ ] **`overdue_count` adalah keadaan saat ini, tidak mengikuti periode** (TD §2.6, penyimpangan yang disengaja).
+- [x] **`overdue_count` adalah keadaan saat ini, tidak mengikuti periode** (TD §2.6, penyimpangan yang disengaja).
       **Pemicu peninjauan:** #171 wajib menuliskannya di layar. #174 memeriksa bahwa kalimat itu ada.
+      **→ Ditulis di #171:** kolomnya bernama "Terlambat sekarang", dan catatan blok berbunyi *"Terlambat adalah
+      keadaan sekarang, bukan pada periode itu — riwayat keterlambatan tidak disimpan."*

@@ -540,3 +540,58 @@ dari blok ini. Layar Laporan harus menyebut bahwa blok ini "per anggota", atau p
 - **Batas bucket diuji mutasi:** `secs < 3600` diganti sementara `<= 3600`, dan test gagal (lead tepat 1 jam terhitung
   dua kali).
 - Unit: Employee ditolak dan Owner/Admin/Manager diizinkan di keduanya. Handler: bentuk respons dan 403 Employee.
+
+---
+
+## #171 — Layar Laporan
+
+**Yang berubah:** rute baru `(protected)/reports/` (`page.tsx`, `reports-screen.tsx`, `report-charts.tsx`),
+`lib/metrics.ts` (5 fetcher + filter bersama `metricsQuery`), `lib/report-period.ts` dan `lib/report-rows.ts`
+(masing-masing dengan test), `lib/nav.ts` dan `app-shell.tsx` (item **Laporan** di sidebar dan bilah bawah HP,
+kini 5 slot), serta `home-screen.tsx` (pintasan "Lihat Laporan lengkap →" yang ditunda dari #163).
+
+**Delapan blok, semuanya dari API sungguhan:** Ringkasan · Distribusi status · Tren · Performa anggota · Sumber ·
+Alasan kalah · Waktu respons · Tugas per anggota.
+
+- **Satu baris filter di atas semua blok** (periode, anggota, sumber), tercermin di URL. Setiap blok memuat dan gagal
+  sendiri, dengan tombol "Coba lagi" per blok. Saat filter berganti, blok memakai angka lama yang diredupkan, bukan
+  kembali ke skeleton (dataviz: *refetch keeps the frame*).
+- **Periode = hari kalender lokal** (`lib/report-period.ts`): 7 hari, 30 hari, bulan ini, bulan lalu, atau rentang
+  kustom. Rentang kustom diperiksa di klien (tanggal wajib, akhir ≥ mulai, ≤ 366 hari) sebelum blok mana pun memuat.
+  **Keterbatasan:** `/v1/me` tidak membawa zona waktu organization, jadi zona waktu **browser** dipakai sebagai
+  pengganti. Untuk bisnis Indonesia yang membuka dashboard-nya sendiri keduanya sama. Bila berbeda, tren menampilkan
+  satu hari tambahan di tepi, dan angkanya tetap benar (lihat #169).
+- **Keadaan:** memuat (skeleton per blok), **belum ada data** (ajakan ke Lead/Connect, bukan grafik kosong), tidak
+  cocok filter (kalimat berbeda, tanpa ajakan), **data sedikit** (< 10 lead: pita "belum bisa dijadikan pegangan",
+  angka tetap tampil), dan gagal memuat per blok.
+- **Setiap angka yang bisa, bisa diklik:** kartu Ringkasan, batang status, batang sumber, dan nama anggota membuka
+  daftar lead dengan periode, anggota, dan sumber yang sama.
+
+**Keputusan visual (skill dataviz):**
+- **Validator palet dijalankan** pada 8 warna status sebagai palet kategori: **GAGAL**. Spam dan Tidak Memenuhi Syarat
+  ΔE 3.0 bahkan untuk penglihatan normal, karena keduanya sengaja abu. Karena itu **warna status tidak pernah menjadi
+  pembeda satu-satunya**: setiap batang distribusi dilabeli **badge status** (teks + bentuk), tidak ada legenda warna,
+  dan tidak ada stacked bar berwarna status di mana pun. Aturan ini berlaku untuk grafik status berikutnya juga.
+- Grafik satu seri memakai **satu warna** (primary) tanpa legenda, karena judul sudah menamainya. Alasan kalah memakai
+  warna Kalah, karena setiap barisnya memang lead Kalah. "Belum disentuh" berwarna netral, karena itu bukan respons
+  yang lambat melainkan tidak ada respons.
+- Batang ≤ 24 px dengan ujung data membulat 4 px. **Nilai di ujung batang memakai warna teks, tidak pernah warna
+  seri.** Garis bantu hairline.
+- **Tren = kolom**, bukan garis: nilainya hitungan per bucket, dan hari tanpa lead harus terlihat kosong. Tooltip
+  muncul saat hover **dan fokus keyboard** (setiap kolom adalah tombol ber-`aria-label`). Target sentuhnya selebar
+  slot kolom, bukan hanya bagian yang dicat. Ada **"Lihat sebagai tabel"** sebagai padanan angka (brief §10.4).
+- Tidak ada library grafik baru (`package.json` tidak berubah).
+
+**Menyimpang dari brief, dengan alasan:**
+- **"% dikonversi" per anggota, bukan "conversion rate per anggota".** API per anggota tidak memberi rincian status,
+  jadi Spam dan Tidak Memenuhi Syarat tidak bisa dikeluarkan dari penyebut. Memberinya nama "conversion rate" akan
+  membuat dua angka berbeda terbaca sebagai satu hal. Catatan di blok menjelaskan perbedaannya.
+- **Blok Tugas:** keputusan `docs/issues/170` diambil sebagai **(a)**. Pemilik produk tidak memilih, dan (a) tidak
+  mengubah API. Blok menyebut "per anggota", menjelaskan bahwa tugas tanpa penanggung jawab tidak dihitung, dan
+  menautkan ke Tugas.
+
+**Verifikasi:** typecheck, lint, **279 test** (+11: `report-period`, `report-rows`, dan menu di `nav`), build. Visual
+terhadap `crm_be` sungguhan (8 lead → pita "data sedikit" muncul) di 360, 820, dan 1440 px: `scrollWidth` = lebar
+layar. Tooltip tren diuji lewat **fokus** dan pointer (skrip CDP butuh `Emulation.setFocusEmulationEnabled`; tanpa
+itu, tab headless tidak menerima event fokus). **Diperbaiki saat verifikasi:** kolom angka tabel Tugas di 360 px
+menyisakan 90 px untuk nama ("Andi Pratama" terpotong). Kolom angka dipersempit di HP, dan nama kini muat (diukur).

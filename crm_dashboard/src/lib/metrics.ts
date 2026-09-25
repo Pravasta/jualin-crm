@@ -8,7 +8,7 @@
 // simplification (see notes.md "## #32"), not a bug: getting an exact
 // per-combination count would mean one request per chip.
 import { apiFetch } from "./api-client";
-import type { LeadStatus } from "./labels";
+import type { LeadSource, LeadStatus, LostReason } from "./labels";
 
 export interface MetricsSummary {
   total_new: number;
@@ -20,17 +20,29 @@ export interface MetricsSummary {
 export interface MetricsSummaryFilter {
   createdFrom?: string;
   createdTo?: string;
+  /** Membership id — narrows to one member (Phase 8.6 #169). */
+  assignedTo?: string;
+  source?: LeadSource;
+}
+
+// One query string for every /v1/metrics/* call, so the Laporan screen's
+// filter row means the same thing to all eight blocks (api.md "Filter
+// bersama").
+function metricsQuery(filter: MetricsSummaryFilter): string {
+  const params = new URLSearchParams();
+  if (filter.createdFrom) params.set("from", filter.createdFrom);
+  if (filter.createdTo) params.set("to", filter.createdTo);
+  if (filter.assignedTo) params.set("assigned_to", filter.assignedTo);
+  if (filter.source) params.set("source", filter.source);
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
 }
 
 export function getMetricsSummary(
   filter: MetricsSummaryFilter = {},
   signal?: AbortSignal
 ): Promise<MetricsSummary> {
-  const params = new URLSearchParams();
-  if (filter.createdFrom) params.set("from", filter.createdFrom);
-  if (filter.createdTo) params.set("to", filter.createdTo);
-  const qs = params.toString();
-  return apiFetch<MetricsSummary>(`/v1/metrics/summary${qs ? `?${qs}` : ""}`, { signal });
+  return apiFetch<MetricsSummary>(`/v1/metrics/summary${metricsQuery(filter)}`, { signal });
 }
 
 // Shape verified against crm_be/internal/metrics/handler_http.go's
@@ -51,11 +63,7 @@ export function getMetricsEmployees(
   filter: MetricsSummaryFilter = {},
   signal?: AbortSignal
 ): Promise<EmployeeMetric[]> {
-  const params = new URLSearchParams();
-  if (filter.createdFrom) params.set("from", filter.createdFrom);
-  if (filter.createdTo) params.set("to", filter.createdTo);
-  const qs = params.toString();
-  return apiFetch<EmployeeMetric[]>(`/v1/metrics/employees${qs ? `?${qs}` : ""}`, { signal });
+  return apiFetch<EmployeeMetric[]>(`/v1/metrics/employees${metricsQuery(filter)}`, { signal });
 }
 
 // conversion_rate is a raw fraction (won / (total - spam - unqualified)),
@@ -110,4 +118,73 @@ export function statusCount(
 ): number | "…" {
   if (!summary) return "…";
   return summary.by_status[status] ?? 0;
+}
+
+// --- Laporan (Phase 8.6 #171) — shapes verified against
+// crm_be/internal/metrics/handler_http.go and docs/architecture/api.md.
+
+export interface MetricsTrend {
+  bucket: "day" | "week";
+  /** `date` is a calendar date (YYYY-MM-DD) in the organization's timezone,
+   *  not an instant — never pass it through `new Date()` as-is. */
+  points: { date: string; count: number }[];
+}
+
+/** from and to are REQUIRED here (400 otherwise). */
+export function getMetricsTrend(filter: MetricsSummaryFilter, signal?: AbortSignal): Promise<MetricsTrend> {
+  return apiFetch<MetricsTrend>(`/v1/metrics/trend${metricsQuery(filter)}`, { signal });
+}
+
+export interface SourceMetric {
+  source: LeadSource;
+  count: number;
+  won_count: number;
+  conversion_rate: number | null;
+}
+
+export function getMetricsSources(filter: MetricsSummaryFilter, signal?: AbortSignal): Promise<SourceMetric[]> {
+  return apiFetch<SourceMetric[]>(`/v1/metrics/sources${metricsQuery(filter)}`, { signal });
+}
+
+export interface LostReasonMetric {
+  reason: LostReason;
+  count: number;
+}
+
+export function getMetricsLostReasons(filter: MetricsSummaryFilter, signal?: AbortSignal): Promise<LostReasonMetric[]> {
+  return apiFetch<LostReasonMetric[]>(`/v1/metrics/lost-reasons${metricsQuery(filter)}`, { signal });
+}
+
+export type ResponseBucket = "lt_1h" | "1h_4h" | "4h_24h" | "gt_24h" | "never_touched";
+
+export interface MetricsResponseTimes {
+  buckets: { bucket: ResponseBucket; count: number }[];
+  median_seconds: number | null;
+}
+
+export const RESPONSE_BUCKET_LABELS: Record<ResponseBucket, string> = {
+  lt_1h: "< 1 jam",
+  "1h_4h": "1–4 jam",
+  "4h_24h": "4–24 jam",
+  gt_24h: "> 1 hari",
+  never_touched: "Belum disentuh",
+};
+
+export function getMetricsResponseTimes(
+  filter: MetricsSummaryFilter,
+  signal?: AbortSignal
+): Promise<MetricsResponseTimes> {
+  return apiFetch<MetricsResponseTimes>(`/v1/metrics/response-times${metricsQuery(filter)}`, { signal });
+}
+
+export interface TaskMetric {
+  membership_id: string;
+  full_name: string;
+  completed_count: number;
+  /** Open and past due RIGHT NOW — ignores the period (api.md). */
+  overdue_count: number;
+}
+
+export function getMetricsTasks(filter: MetricsSummaryFilter, signal?: AbortSignal): Promise<TaskMetric[]> {
+  return apiFetch<TaskMetric[]>(`/v1/metrics/tasks${metricsQuery(filter)}`, { signal });
 }
