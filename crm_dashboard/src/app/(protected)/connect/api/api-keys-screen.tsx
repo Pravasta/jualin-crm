@@ -16,6 +16,9 @@ import { globalMessage } from "@/lib/auth-errors";
 import { useSession } from "@/lib/session-context";
 import { CreateAPIKeyDialog } from "./create-api-key-dialog";
 import { RevokeAPIKeyDialog } from "./revoke-api-key-dialog";
+import { BackLink, EmptyCard, ListSkeleton, NotForRole, SectionHeader, tableHeadRow } from "../connect-ui";
+import { BookOpen, Plus } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
@@ -53,11 +56,7 @@ export function APIKeysScreen() {
   }, [refreshKey, canManage]);
 
   if (!canManage) {
-    return (
-      <p className="text-[13px] text-muted-foreground">
-        Manajemen API key tidak tersedia untuk role Anda.
-      </p>
-    );
+    return <NotForRole>Manajemen API key tidak tersedia untuk role Anda.</NotForRole>;
   }
 
   const loading = loadedKey !== refreshKey;
@@ -66,93 +65,108 @@ export function APIKeysScreen() {
   const now = new Date();
 
   return (
-    <div>
-      <div className="mb-3.5 flex items-center justify-between">
-        <h2 className="text-[13.5px] font-semibold">API Key</h2>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.push("/connect/api/docs")}>
-            Dokumentasi integrasi
-          </Button>
-          <Button onClick={() => setCreateOpen(true)}>+ Buat kunci baru</Button>
-        </div>
-      </div>
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 md:gap-4">
+      <BackLink href="/connect" label="Connect" />
+      <SectionHeader
+        title="API key"
+        description="Kunci untuk sistem eksternal Anda mengirim lead lewat REST API."
+        actions={
+          <>
+            <Button variant="outline" onClick={() => router.push("/connect/api/docs")} className="gap-1.5 bg-card md:h-9">
+              <BookOpen className="size-4" aria-hidden />
+              Dokumentasi integrasi
+            </Button>
+            <Button onClick={() => setCreateOpen(true)} className="gap-1.5 md:h-9 md:px-4">
+              <Plus className="size-4" aria-hidden />
+              Buat kunci baru
+            </Button>
+          </>
+        }
+      />
 
       <FormErrorBanner message={error} />
 
       {loading ? (
-        <p className="text-[13px] text-muted-foreground">Memuat…</p>
+        <ListSkeleton label="Memuat API key" />
       ) : keys.length === 0 ? (
-        <p className="text-[13px] text-muted-foreground">
-          Belum ada API key. Buat satu untuk mulai mengirim lead lewat integrasi eksternal.
-        </p>
+        <EmptyCard title="Belum ada API key">
+          Buat satu untuk mulai mengirim lead lewat integrasi eksternal.
+        </EmptyCard>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-background">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="bg-muted/40">
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Kunci
-                </th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Scope
-                </th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Dibuat oleh
-                </th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Terakhir dipakai
-                </th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Status
-                </th>
-                <th className="px-4 py-2.5" />
-              </tr>
-            </thead>
-            <tbody>
-              {keys.map((key) => {
-                const row = toAPIKeyRow(key, now);
-                return (
-                  <tr
-                    key={row.id}
-                    className={`border-t border-border/70 ${row.isRevoked ? "opacity-60" : ""}`}
-                  >
-                    <td className="px-4 py-2.5">
-                      <div className="font-mono text-[12.5px]">{row.keyPrefix}…</div>
-                      <div className="text-[11.5px] text-muted-foreground">{row.name}</div>
-                    </td>
-                    <td className="px-4 py-2.5 text-[13px]">{row.scopeLabels}</td>
-                    <td className="px-4 py-2.5 text-[13px] text-foreground/70">
-                      {memberName(key.created_by_membership_id)}
-                    </td>
-                    <td className="px-4 py-2.5 text-[13px] text-foreground/70">{row.lastUsedLabel}</td>
-                    <td className="px-4 py-2.5 text-[13px]">
-                      <span
-                        className={
-                          row.isRevoked
-                            ? "text-muted-foreground"
-                            : "font-medium text-accent-strong"
-                        }
-                      >
-                        {row.statusLabel}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      {!row.isRevoked && (
-                        <button
-                          type="button"
-                          onClick={() => setRevokeTarget(key)}
-                          className="rounded-md border border-border px-2.5 py-1 text-xs text-foreground/70 hover:bg-muted"
-                        >
-                          Cabut
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="hidden overflow-hidden rounded-xl border border-border bg-card md:block">
+            <table className="w-full table-fixed border-collapse text-[14px]">
+              <thead>
+                <tr className={tableHeadRow}>
+                  <th className="px-4 py-2.5">Kunci</th>
+                  <th className="hidden w-32 px-3 py-2.5 lg:table-cell">Scope</th>
+                  <th className="hidden w-40 px-3 py-2.5 lg:table-cell">Dibuat oleh</th>
+                  <th className="w-40 px-3 py-2.5">Terakhir dipakai</th>
+                  <th className="w-24 px-3 py-2.5">Status</th>
+                  <th className="w-28 px-4 py-2.5" aria-label="Aksi" />
+                </tr>
+              </thead>
+              <tbody>
+                {keys.map((key) => {
+                  const row = toAPIKeyRow(key, now);
+                  return (
+                    <tr key={row.id} className={cn("border-t border-border/60", row.isRevoked && "opacity-60")}>
+                      <td className="px-4 py-3">
+                        <div className="truncate font-mono text-[13px]">{row.keyPrefix}…</div>
+                        <div className="truncate text-[12.5px] text-muted-foreground">{row.name}</div>
+                      </td>
+                      <td className="hidden px-3 py-3 lg:table-cell">{row.scopeLabels}</td>
+                      <td className="hidden truncate px-3 py-3 text-muted-foreground lg:table-cell">
+                        {memberName(key.created_by_membership_id)}
+                      </td>
+                      <td className="px-3 py-3 text-muted-foreground">{row.lastUsedLabel}</td>
+                      <td className="px-3 py-3">
+                        <KeyStatus revoked={row.isRevoked} label={row.statusLabel} />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {!row.isRevoked && (
+                          <Button variant="outline" onClick={() => setRevokeTarget(key)} className="h-8 bg-card">
+                            Cabut
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <ul className="flex flex-col gap-2.5 md:hidden">
+            {keys.map((key) => {
+              const row = toAPIKeyRow(key, now);
+              return (
+                <li
+                  key={row.id}
+                  className={cn("rounded-[10px] border border-border bg-card p-3.5", row.isRevoked && "opacity-60")}
+                >
+                  <div className="flex items-start justify-between gap-2.5">
+                    <div className="min-w-0">
+                      <div className="truncate text-[15px] font-bold">{row.name}</div>
+                      <div className="truncate font-mono text-[13px] text-muted-foreground">{row.keyPrefix}…</div>
+                    </div>
+                    <KeyStatus revoked={row.isRevoked} label={row.statusLabel} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[13px] text-muted-foreground">
+                    <span>{row.scopeLabels}</span>
+                    <span>Oleh {memberName(key.created_by_membership_id)}</span>
+                    <span>{key.last_used_at ? `Dipakai ${row.lastUsedLabel}` : row.lastUsedLabel}</span>
+                  </div>
+                  {!row.isRevoked && (
+                    <Button variant="outline" onClick={() => setRevokeTarget(key)} className="mt-3 w-full bg-card">
+                      Cabut
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
 
       <CreateAPIKeyDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={reload} />
@@ -165,5 +179,19 @@ export function APIKeysScreen() {
         }}
       />
     </div>
+  );
+}
+
+// "Aktif" in the accent, "Dicabut" neutral — the word carries it.
+function KeyStatus({ revoked, label }: { revoked: boolean; label: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[12.5px] font-bold",
+        revoked ? "bg-secondary text-secondary-foreground" : "bg-accent-tint text-accent-strong"
+      )}
+    >
+      {label}
+    </span>
   );
 }

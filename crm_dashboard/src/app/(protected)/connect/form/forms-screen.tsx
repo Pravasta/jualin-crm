@@ -15,6 +15,9 @@ import { globalMessage } from "@/lib/auth-errors";
 import { formatDateID } from "@/lib/date";
 import { useSession } from "@/lib/session-context";
 import { CreateFormDialog } from "./create-form-dialog";
+import { BackLink, EmptyCard, ListSkeleton, NotForRole, SectionHeader, tableHeadRow } from "../connect-ui";
+import Link from "next/link";
+import { Plus } from "lucide-react";
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
@@ -49,85 +52,91 @@ export function FormsScreen() {
   }, [canManage]);
 
   if (!canManage) {
-    return (
-      <p className="text-[13px] text-muted-foreground">
-        Pengelolaan formulir tidak tersedia untuk role Anda.
-      </p>
-    );
+    return <NotForRole>Pengelolaan formulir tidak tersedia untuk role Anda.</NotForRole>;
   }
 
   const loading = !loaded;
 
   return (
-    <div>
-      <button
-        type="button"
-        onClick={() => router.push("/connect")}
-        className="mb-3.5 flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground"
-      >
-        ← Kembali ke Connect
-      </button>
-
-      <div className="mb-3.5 flex items-center justify-between">
-        <div>
-          <h2 className="text-[13.5px] font-semibold">Formulir</h2>
-          <p className="text-[12.5px] text-muted-foreground">
-            Salin satu potong HTML, tempel di situs Anda — lead masuk otomatis tanpa developer.
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>+ Buat formulir</Button>
-      </div>
+    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 md:gap-4">
+      <BackLink href="/connect" label="Connect" />
+      <SectionHeader
+        title="Formulir"
+        description="Salin satu potong HTML, tempel di situs Anda — lead masuk otomatis tanpa developer."
+        actions={
+          <Button onClick={() => setCreateOpen(true)} className="gap-1.5 md:h-9 md:px-4">
+            <Plus className="size-4" aria-hidden />
+            Buat formulir
+          </Button>
+        }
+      />
 
       <FormErrorBanner message={error} />
 
       {loading ? (
-        <p className="text-[13px] text-muted-foreground">Memuat…</p>
+        <ListSkeleton label="Memuat formulir" />
       ) : forms.length === 0 ? (
-        <p className="text-[13px] text-muted-foreground">
-          Belum ada formulir. Buat satu untuk mulai menangkap lead dari situs Anda.
-        </p>
+        <EmptyCard title="Belum ada formulir">
+          Buat satu untuk mulai menangkap lead dari situs Anda.
+        </EmptyCard>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-background">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="bg-muted/40">
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Nama
-                </th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Submission
-                </th>
-                <th className="px-4 py-2.5 text-left text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  Dibuat
-                </th>
-                <th className="px-4 py-2.5" />
-              </tr>
-            </thead>
-            <tbody>
-              {forms.map((form) => (
-                <tr
-                  key={form.id}
-                  className="cursor-pointer border-t border-border/70 hover:bg-muted/30"
-                  onClick={() => router.push(`/connect/form/${form.id}`)}
-                >
-                  <td className="px-4 py-2.5">
-                    <div className="text-[13px] font-medium">{form.name}</div>
-                    <div className="font-mono text-[11.5px] text-muted-foreground">
-                      {form.public_key}
-                    </div>
-                  </td>
-                  <td className="px-4 py-2.5 text-[13px] text-foreground/70">{form.submit_count}</td>
-                  <td className="px-4 py-2.5 text-[13px] text-foreground/70">
-                    {formatDateID(form.created_at)}
-                  </td>
-                  <td className="px-4 py-2.5 text-right">
-                    <span className="text-[13px] text-accent-strong underline">Kelola</span>
-                  </td>
+        <>
+          <div className="hidden overflow-hidden rounded-xl border border-border bg-card md:block">
+            <table className="w-full table-fixed border-collapse text-[14px]">
+              <thead>
+                <tr className={tableHeadRow}>
+                  <th className="px-4 py-2.5">Nama</th>
+                  <th className="w-32 px-3 py-2.5">Submission</th>
+                  <th className="w-36 px-3 py-2.5">Dibuat</th>
+                  <th className="w-24 px-4 py-2.5" aria-label="Aksi" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {forms.map((form) => (
+                  <tr
+                    key={form.id}
+                    className="cursor-pointer border-t border-border/60 hover:bg-muted/50"
+                    onClick={() => router.push(`/connect/form/${form.id}`)}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="truncate font-semibold">{form.name}</div>
+                      <div className="truncate font-mono text-[12.5px] text-muted-foreground">{form.public_key}</div>
+                    </td>
+                    <td className="px-3 py-3 tabular-nums">{form.submit_count}</td>
+                    <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">{formatDateID(form.created_at)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <Link
+                        href={`/connect/form/${form.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-semibold text-accent-strong hover:underline"
+                      >
+                        Kelola
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <ul className="flex flex-col gap-2.5 md:hidden">
+            {forms.map((form) => (
+              <li key={form.id}>
+                <Link
+                  href={`/connect/form/${form.id}`}
+                  className="block rounded-[10px] border border-border bg-card p-3.5 active:bg-muted/60"
+                >
+                  <div className="truncate text-[15px] font-bold">{form.name}</div>
+                  <div className="truncate font-mono text-[12.5px] text-muted-foreground">{form.public_key}</div>
+                  <div className="mt-2 flex flex-wrap gap-x-3 text-[13px] text-muted-foreground">
+                    <span>{form.submit_count} submission</span>
+                    <span>Dibuat {formatDateID(form.created_at)}</span>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
       <CreateFormDialog

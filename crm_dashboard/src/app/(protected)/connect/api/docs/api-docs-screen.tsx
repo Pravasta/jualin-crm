@@ -16,7 +16,6 @@
 // unmistakably at that flow, which is what makes acceptance criterion
 // #10 ("mengikuti halaman dari nol") honest rather than aspirational.
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FormErrorBanner } from "@/components/form-error-banner";
@@ -25,6 +24,7 @@ import { canManageAPIKeys } from "@/lib/api-key-rows";
 import { listAPIKeys, type APIKey } from "@/lib/api-keys";
 import { globalMessage } from "@/lib/auth-errors";
 import { useSession } from "@/lib/session-context";
+import { BackLink, NotForRole } from "../../connect-ui";
 import { CreateAPIKeyDialog } from "../create-api-key-dialog";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -46,7 +46,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export function APIDocsScreen() {
   const session = useSession();
-  const router = useRouter();
   const canManage = canManageAPIKeys(session.role);
 
   // Active keys only — a revoked key's prefix would make the example
@@ -77,9 +76,7 @@ export function APIDocsScreen() {
 
   if (!canManage) {
     return (
-      <p className="text-[13px] text-muted-foreground">
-        Halaman dokumentasi integrasi tidak tersedia untuk role Anda.
-      </p>
+      <NotForRole>Halaman dokumentasi integrasi tidak tersedia untuk role Anda.</NotForRole>
     );
   }
 
@@ -88,13 +85,9 @@ export function APIDocsScreen() {
   const exampleCredential = selected ? `${selected.key_prefix}...<secret_anda>` : "<key_prefix_anda>...<secret_anda>";
 
   return (
-    <div className="flex max-w-2xl flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-[15px] font-semibold">Dokumentasi integrasi</h1>
-        <Button variant="outline" onClick={() => router.push("/connect/api")}>
-          ← Kembali ke API Key
-        </Button>
-      </div>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+      <BackLink href="/connect/api" label="API Key" />
+      <h1 className="text-[20px] font-bold md:text-[22px]">Dokumentasi integrasi</h1>
 
       <FormErrorBanner message={error} />
 
@@ -161,7 +154,8 @@ export function APIDocsScreen() {
       </Section>
 
       <Section title="Field yang diterima">
-        <table className="w-full border-collapse text-[12.5px]">
+        <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full min-w-[480px] border-collapse text-[12.5px]">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
               <th className="py-1.5 pr-3 font-medium">Field</th>
@@ -186,10 +180,12 @@ export function APIDocsScreen() {
             </tr>
           </tbody>
         </table>
+        </div>
       </Section>
 
       <Section title="Katalog kesalahan">
-        <table className="w-full border-collapse text-[12.5px]">
+        <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full min-w-[480px] border-collapse text-[12.5px]">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
               <th className="py-1.5 pr-3 font-medium">HTTP</th>
@@ -244,6 +240,7 @@ export function APIDocsScreen() {
             </tr>
           </tbody>
         </table>
+        </div>
       </Section>
 
       <Section title="Mengulang request dengan aman">
@@ -258,7 +255,8 @@ export function APIDocsScreen() {
 
       <Section title="Batas kecepatan">
         <p>Setiap response membawa empat header berikut:</p>
-        <table className="w-full border-collapse text-[12.5px]">
+        <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full min-w-[480px] border-collapse text-[12.5px]">
           <tbody>
             <tr className="border-b border-border/60">
               <td className="py-1.5 pr-3 font-mono">X-RateLimit-Limit</td>
@@ -278,6 +276,7 @@ export function APIDocsScreen() {
             </tr>
           </tbody>
         </table>
+        </div>
         <p className="text-muted-foreground">
           Lihat <code className="font-mono">X-RateLimit-Limit</code> di response Anda sendiri untuk angka
           pasti — batasnya bisa disesuaikan dari sisi kami tanpa mengubah halaman ini.
