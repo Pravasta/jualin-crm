@@ -121,3 +121,65 @@ ekstensi Chrome tidak tersambung di sesi ini. Pengecekannya diserahkan ke review
 halaman (tabel lebar di daftar lead, customer, tugas, dan anggota), bukan dari kerangka. Itu wilayah
 #161–#167. Dialog lama (`components/ui/dialog.tsx`) belum berubah jadi sheet di HP, dan itu juga
 wilayah layar masing-masing.
+
+---
+
+## #161 — Daftar Lead
+
+**Yang berubah:** `leads/leads-list.tsx` (tata letak tiga lebar), `components/ui/dialog.tsx` (sheet dari bawah di
+HP), `components/ui/input.tsx` dan `button.tsx` (44 px di HP), `components/no-contact-badge.tsx` (gaya handoff),
+`lib/lead-filters.ts` (`sheetFilterCount`) dan `lib/lead-contact.ts` (`primaryContact`), masing-masing dengan test.
+
+| Lebar | Daftar | Filter |
+|---|---|---|
+| <768 | Kartu (nama, `#nomor`, badge, "Belum ada kontak", pemilik · sumber · tanggal), tombol + mengambang di atas bilah bawah | Chip status **digeser ke samping**. Sumber/pemilik/tanggal di sheet **Filter**, dengan jumlah filter tersembunyi di tombolnya |
+| 768–1023 | Tabel: Nama (dengan `#nomor` di bawahnya) · Status · Pemilik · Masuk | Chip status membungkus; sumber/pemilik/tanggal sebaris di bawahnya |
+| 1024–1279 | + Sumber | sama |
+| ≥1280 | + Nomor sebagai kolom sendiri · Kontak | sama |
+
+**Kolom bertambah menurut lebar**, bukan satu tabel yang menyusut. `table-fixed` dengan lebar tetap untuk kolom kecil.
+Pada percobaan pertama, Nama tinggal ~120 px di 1024. Status diberi 12.5rem karena "Tidak Memenuhi Syarat"
+adalah badge terlebar dan tidak boleh terpotong.
+
+**Filter tidak berubah artinya.** Parameter URL dan query sama persis. Yang berubah hanya tempatnya: definisi JSX
+filter sekunder dipakai dua kali (sebaris dan di sheet), jadi keduanya tidak bisa menyimpang. Tombol di sheet
+berlabel **"Tampilkan N lead"**, bukan "Terapkan": filter sudah berlaku saat dipilih, dan tombol ini hanya
+menutup sheet. Label "Terapkan" akan menjanjikan langkah yang tidak ada.
+
+**Menyimpang dari handoff:**
+- **Periode tetap rentang tanggal** (dua `<input type="date">`), bukan preset "7/30 hari, bulan ini" seperti di
+  prototipe. Preset mengubah perilaku filter yang sudah berjalan, dan itu bukan pekerjaan redesain.
+- **Sumber tetap multi-pilih (chip)**, bukan `<select>` tunggal seperti di prototipe. Brief §8.4 meminta
+  multi-pilih, dan itu yang sudah berjalan.
+- Pemilik mendapat opsi **"Tanpa pemilik aktif"** di dropdown-nya juga, dengan parameter `assigned_to=none` yang sama
+  seperti chip, supaya sheet HP bisa memilihnya tanpa menggulir chip.
+- Judul halaman "Lead" + subjudul dari prototipe **tidak** diulang di isi halaman, karena judulnya sudah ada di header
+  kerangka (#160).
+
+**Menyimpang dari issue, keduanya global dan hanya CSS:**
+- **`DialogContent` menjadi sheet dari bawah di bawah 768 px** untuk *semua* dialog di aplikasi, bukan hanya
+  "Lead baru". TD §4.3 meminta ini di setiap layar. Melakukannya sekali di komponen dasar berarti 16 dialog lain
+  ikut benar tanpa disentuh, dan tidak ada dialog yang perlu tahu lebar layar.
+- **`Input` dan `Button` ukuran `default` jadi 44 px di bawah 768 px** (target sentuh brief §9.2). Keduanya tetap
+  32 px mulai 768 px. Input memang sudah 16 px di HP (di bawah 16 px, iOS Safari melakukan zoom saat fokus). Override
+  14 px buatan saya sendiri di kotak pencarian dan filter sempat melanggarnya, dan sudah dikembalikan ke `text-base`.
+
+**Test yang diubah:** `no-contact-badge.test.ts` sebelumnya mengunci kelas `bg-muted`. Maksud test itu adalah
+"warna netral, bukan warna error", jadi kini ia menerima token netral (`bg-secondary` atau `bg-muted`) dan tetap
+menolak `destructive/red/amber`.
+
+**Temuan #159 untuk layar ini selesai:** teks "tanpa pemilik" `oklch(0.65 0 0)` (3.23:1) diganti
+`text-accent-strong` tebal (7.04:1), mengikuti handoff. Tidak ada lagi abu-abu mentah di `leads-list.tsx`.
+
+**Verifikasi:** typecheck, lint (0/0), **252 test**, build. **Diverifikasi visual terhadap `crm_be` sungguhan**
+lewat Chrome headless yang dikendalikan CDP (sesi dari login API akun uji lokal, 7 lead contoh dengan status
+berbeda-beda):
+- `/leads` di 360, 390, 820, 1024, 1440: **`scrollWidth` = lebar layar di kelimanya**, tanpa elemen yang meluap
+- sheet Filter dan dialog Lead baru di 360/390 (sheet dari bawah, target 44 px), dialog di 1024 (tetap di tengah)
+- sapuan cepat halaman lain di 360/820: tidak ada guliran horizontal halaman. **Tabel di Beranda dan Tim masih
+  terpotong di dalam kartunya di 360 px**, dan itu wilayah #163 dan #165.
+
+**Catatan untuk session berikutnya:** skrip CDP (`shoot.mjs`) ada di scratchpad sesi ini, tidak di repo. Bila
+dipakai lagi, polanya: `curl` login → cookie jar → `Network.setCookie` → `Emulation.setDeviceMetricsOverride`
+→ ukur `document.documentElement.scrollWidth`. Tombol `position: fixed` punya `offsetParent === null`, jadi pakai
+`getClientRects().length` untuk memeriksa keterlihatannya.

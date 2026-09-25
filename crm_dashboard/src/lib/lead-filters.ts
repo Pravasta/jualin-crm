@@ -30,3 +30,17 @@ export function hasAnyLeadFilter(filter: LeadFilterState): boolean {
     filter.createdTo !== ""
   );
 }
+
+/**
+ * How many filters live behind the phone "Filter" button (#161) — source,
+ * owner and entry-date range. Status chips and the keyword stay on screen,
+ * so they don't count: the badge answers "is something hidden in the sheet
+ * narrowing this list?", not "how many filters are there".
+ */
+export function sheetFilterCount(filter: LeadFilterState): number {
+  return (
+    filter.source.length +
+    (filter.assignedTo !== "" ? 1 : 0) +
+    (filter.createdFrom !== "" || filter.createdTo !== "" ? 1 : 0)
+  );
+}

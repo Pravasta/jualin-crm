@@ -31,3 +31,13 @@ export function hasContact(fields: ContactFields): boolean {
 export function shouldConfirmNoContact(fields: ContactFields, alreadyConfirmed: boolean): boolean {
   return !alreadyConfirmed && !hasContact(fields);
 }
+
+// The single contact shown in the lead table's Kontak column (#161). Phone
+// first: it is what the list is scanned for ("who do I call"), and an email
+// that follows would be truncated anyway. Blank means blank here too — a
+// whitespace-only field must not print as an empty-looking cell.
+export function primaryContact(fields: ContactFields): string {
+  if (!isBlank(fields.phone)) return fields.phone!.trim();
+  if (!isBlank(fields.email)) return fields.email!.trim();
+  return "—";
+}

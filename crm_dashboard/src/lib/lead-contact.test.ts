@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasContact, shouldConfirmNoContact } from "./lead-contact";
+import { hasContact, primaryContact, shouldConfirmNoContact } from "./lead-contact";
 
 // Issue #143. "Punya kontak" is email OR phone that is not blank. The
 // blank-handling is not pedantry: crm_be trims an email and stores what is
@@ -53,5 +53,20 @@ describe("shouldConfirmNoContact", () => {
     expect(shouldConfirmNoContact({ email: "budi@example.com", phone: "" }, false)).toBe(false);
     expect(shouldConfirmNoContact({ email: "", phone: "0812" }, false)).toBe(false);
     expect(shouldConfirmNoContact({ email: "budi@example.com", phone: "" }, true)).toBe(false);
+  });
+});
+
+describe("primaryContact", () => {
+  it("prefers the phone, falls back to the email", () => {
+    expect(primaryContact({ phone: "0812-3456-7890", email: "dewi@contoh.id" })).toBe("0812-3456-7890");
+    expect(primaryContact({ phone: null, email: "sinar@contoh.id" })).toBe("sinar@contoh.id");
+  });
+
+  it("treats a whitespace-only phone as absent, same as hasContact", () => {
+    expect(primaryContact({ phone: "   ", email: "a@contoh.id" })).toBe("a@contoh.id");
+  });
+
+  it("shows a dash when there is nothing to show", () => {
+    expect(primaryContact({ phone: "", email: "  " })).toBe("—");
   });
 });
