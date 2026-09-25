@@ -10,9 +10,15 @@
 // fetched to show its current name/number, which is also what proves
 // on screen that editing this customer never touched the lead it came
 // from (AC: "mengubah nama customer tidak mengubah lead asalnya").
+//
+// Phase 8.6 (#164): same header pattern as the lead detail (#162). The
+// handoff's contract value, order history and customer timeline are dummy
+// data — a customer carries none of them, and money is out of scope — so
+// they are not drawn.
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ArrowLeft, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { FormErrorBanner } from "@/components/form-error-banner";
@@ -93,77 +99,84 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
   // changed in another tab), the error shows apa adanya, same as #34.
   const canManage = session.role === "owner" || session.role === "admin";
 
+  const facts: { label: string; value: string }[] = [
+    { label: "Email", value: customer.email?.trim() || "—" },
+    { label: "Telepon", value: customer.phone?.trim() || "—" },
+    { label: "Perusahaan", value: customer.company?.trim() || "—" },
+    { label: "Customer sejak", value: formatDateID(customer.converted_at) },
+  ];
+
   return (
-    <div>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3.5">
       <button
         type="button"
         onClick={() => router.push("/customers")}
-        className="mb-3.5 flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground"
+        className="flex min-h-9 items-center gap-1.5 self-start text-[13.5px] font-medium text-muted-foreground hover:text-foreground"
       >
-        ← Kembali ke daftar customer
+        <ArrowLeft className="size-4" aria-hidden />
+        Daftar customer
       </button>
 
-      <div className="max-w-xl">
-        <Card>
-          <CardContent>
-            <div className="mb-1 flex items-start justify-between">
-              <div className="flex items-center gap-2 text-[19px] font-semibold">
-                {customer.name}
-                {canManage && (
-                  <button
-                    type="button"
-                    onClick={() => setEditOpen(true)}
-                    className="text-xs font-normal text-accent-strong underline"
-                  >
-                    Ubah
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="mb-2.5 text-[13px] text-muted-foreground">
-              Pelanggan sejak {formatDateID(customer.converted_at)}
-            </div>
-
-            <div className="flex flex-col gap-1 text-[13px] text-foreground/80">
-              {customer.email && <span>{customer.email}</span>}
-              {customer.phone && <span>{customer.phone}</span>}
-              {customer.company && <span>{customer.company}</span>}
-            </div>
-            {customer.notes && (
-              <div className="mt-2.5 text-[13px] text-muted-foreground">{customer.notes}</div>
-            )}
-
-            <div className="mt-3.5 border-t border-border pt-3 text-[13px]">
-              Berasal dari lead:{" "}
-              {fromLead ? (
-                <Link
-                  href={`/leads/${fromLead.id}`}
-                  className="font-medium text-accent-strong underline"
-                >
-                  #{fromLead.lead_number} {fromLead.name}
-                </Link>
-              ) : fromLeadMissing ? (
-                <span className="text-muted-foreground">Lead sudah dihapus</span>
-              ) : (
-                <span className="text-muted-foreground">Memuat…</span>
-              )}
-            </div>
-
+      <Card>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-3">
+            <h1 className="min-w-0 text-[20px] leading-tight font-bold tracking-tight break-words md:text-[24px]">
+              {customer.name}
+            </h1>
             {canManage && (
-              <div className="mt-4 border-t border-border pt-3.5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setDeleteOpen(true)}
-                  className="border-destructive/35 bg-destructive/6 text-destructive hover:bg-destructive/10"
-                >
-                  Hapus customer
-                </Button>
-              </div>
+              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)} className="h-9 shrink-0 md:h-7">
+                Ubah
+              </Button>
             )}
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+
+          {/* Values wrap, never truncate — same rule as the lead detail (#162). */}
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-4">
+            {facts.map((f) => (
+              <div key={f.label} className="min-w-0">
+                <dt className="text-[11.5px] font-semibold tracking-[0.04em] text-muted-foreground uppercase">
+                  {f.label}
+                </dt>
+                <dd className="mt-0.5 text-[14px] [overflow-wrap:anywhere]">{f.value}</dd>
+              </div>
+            ))}
+          </dl>
+
+          {customer.notes && (
+            <p className="rounded-lg bg-muted px-3 py-2 text-[13.5px] whitespace-pre-line">{customer.notes}</p>
+          )}
+
+          <div className="border-t border-border pt-3.5 text-[14px]">
+            <span className="text-muted-foreground">Berasal dari lead </span>
+            {fromLead ? (
+              <Link
+                href={`/leads/${fromLead.id}`}
+                className="font-semibold text-accent-strong underline underline-offset-2"
+              >
+                <span className="font-mono">#{fromLead.lead_number}</span> {fromLead.name}
+              </Link>
+            ) : fromLeadMissing ? (
+              <span className="text-muted-foreground">yang sudah dihapus</span>
+            ) : (
+              <span className="text-muted-foreground">…</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {canManage && (
+        // Destructive, and looks it (brief §5.1 principle 3) — outside the
+        // card, apart from the everyday actions.
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setDeleteOpen(true)}
+          className="h-11 self-start border-destructive/40 bg-card text-destructive hover:bg-destructive/6 hover:text-destructive md:h-9"
+        >
+          <Trash2 className="size-4" aria-hidden />
+          Hapus customer
+        </Button>
+      )}
 
       <EditCustomerDialog
         open={editOpen}
