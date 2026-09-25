@@ -74,3 +74,50 @@ dicek saat review PR.
 
 **Catatan untuk session berikutnya:** #160 bisa langsung memakai token `--sidebar-*`. Setiap layar yang
 dirombak mengganti `oklch(… 0 0)` mentah dengan token, bukan menyalin angkanya.
+
+---
+
+## #160 — Kerangka aplikasi responsif
+
+**Yang berubah:** `components/app-shell.tsx` (tiga tata letak), `lib/nav.ts` (`BOTTOM_NAV_HREFS`,
+`MORE_NAV_ITEMS`, `isMoreActive` + test), `components/ui/sheet.tsx` (baru),
+`components/notification-bell.tsx` (lebar panel dibatasi lebar layar).
+
+| Lebar | Navigasi |
+|---|---|
+| ≥1024 (`lg:`) | Sidebar 232 px (`w-58`), label penuh, nama organization, identitas di bawah |
+| 768–1023 (`md:`) | Sidebar 68 px (`w-17`), ikon saja. Label lewat `title` + `aria-label`, jumlah "tanpa pemilik aktif" menempel di sudut ikon Lead |
+| <768 | Tanpa sidebar. Header (logo + judul + lonceng), **bilah bawah tetap** Beranda · Lead · Tugas · Lainnya, dan sheet "Lainnya" berisi Customer, Tim, Connect, Langganan, Pengaturan, identitas (nama · organization · role), Keluar |
+
+- **Breakpoint dari CSS**, bukan `window.innerWidth` (TD §4.1): ketiga tata letak ada di HTML pertama, dan
+  yang tidak cocok disembunyikan `display:none`. Tidak ada lompatan tata letak saat hydrate, dan server tidak
+  perlu mengukur apa pun.
+- **Bilah bawah berisi 4 slot, bukan 5.** Laporan masuk di #171 bersama rutenya (komentar di issue ini).
+  Slotnya tetap di semua halaman: prototipe mengganti slot kelima per halaman (Connect/Paket/Atur), dan
+  navigasi yang berpindah tempat bukan navigasi.
+- **Target sentuh:** item bilah bawah `min-h-14` (56 px), item sheet `min-h-12` (48 px). Keduanya di atas
+  44 px.
+- **Safe area iPhone:** bilah bawah dan sheet menambahkan `env(safe-area-inset-bottom)`. `main` memberi ruang
+  5.5rem + safe area di HP, supaya baris terakhir halaman tidak tertutup bilah.
+- `main` beralih dari `bg-muted/30` ke `bg-background` (putih hangat token #159), supaya kartu putih terbaca
+  sebagai permukaan tersendiri, sesuai handoff.
+- Kotak logo memakai `bg-primary` (token), bukan gradasi oklch mentah.
+
+**Menyimpang dari TD:** tidak ada. **Menyimpang dari issue:** item Laporan tidak dipasang (lihat di atas;
+dicatat di komentar issue dan `issues.md`).
+
+**`shadcn add sheet` tidak dipakai.** CLI-nya berhenti di prompt untuk menimpa `components/ui/button.tsx`
+(yang sudah kita ubah), dan sebelum itu **sudah menambahkan paket npm tak dikenal bernama `cn`** ke
+`package.json`. Keduanya dibatalkan (`git checkout`, `npm uninstall`). `sheet.tsx` ditulis tangan di atas
+primitive `@base-ui/react/dialog` yang sama dengan `dialog.tsx`, dan hanya sisi bawah yang dibuat, sesuai
+Aturan #27. **Untuk issue berikutnya:** jangan jalankan `shadcn add` tanpa memeriksa `git diff package.json`
+sesudahnya.
+
+**Verifikasi:** typecheck, lint (0/0), 247 test, build. Stack lokal dijalankan (`docker compose up`,
+migration di versi 10). **Pengecekan visual di 360/390/820/1440 px belum dilakukan oleh agent**, karena
+ekstensi Chrome tidak tersambung di sesi ini. Pengecekannya diserahkan ke review PR.
+
+**Catatan untuk session berikutnya:** guliran horizontal di HP sekarang hanya bisa berasal dari **isi**
+halaman (tabel lebar di daftar lead, customer, tugas, dan anggota), bukan dari kerangka. Itu wilayah
+#161–#167. Dialog lama (`components/ui/dialog.tsx`) belum berubah jadi sheet di HP, dan itu juga
+wilayah layar masing-masing.

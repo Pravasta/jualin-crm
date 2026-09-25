@@ -36,6 +36,24 @@ export const NAV_ITEMS: NavItemConfig[] = [
   { href: "/settings", label: "Pengaturan" },
 ];
 
+// Phone-width navigation (td.md §4.1): a fixed bottom bar for the screens
+// opened many times a day, and "Lainnya" for the rest. The bar is FIXED
+// across pages — the prototype swapped its fifth slot per page (Connect on
+// one, Paket on another), and navigation that moves isn't navigation.
+// "Laporan" joins this list in #171, when its route exists (issues.md: a
+// menu item pointing at a missing route is a broken link).
+export const BOTTOM_NAV_HREFS = ["/", "/leads", "/tasks"] as const;
+
+/** Everything not on the bottom bar, in sidebar order — the "Lainnya" sheet. */
+export const MORE_NAV_ITEMS: NavItemConfig[] = NAV_ITEMS.filter(
+  (item) => !(BOTTOM_NAV_HREFS as readonly string[]).includes(item.href)
+);
+
+/** "Lainnya" is the active tab whenever the open page lives inside it. */
+export function isMoreActive(pathname: string): boolean {
+  return MORE_NAV_ITEMS.some((item) => isActive(pathname, item.href));
+}
+
 // Exact match for "/" so it isn't active on every page; prefix match for
 // the rest so /leads/{id} keeps "Lead" highlighted on a detail screen.
 export function isActive(pathname: string, href: string): boolean {
