@@ -158,7 +158,7 @@ export function TeamScreen() {
   const leadsHref = (member: Member) => `/leads?assigned_to=${member.id}`;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 md:gap-4">
+    <div className="flex w-full flex-col gap-3.5 md:gap-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-[15px] font-bold">Anggota</h2>
         {canManageTeam && (

@@ -80,7 +80,7 @@ export function ConnectScreen() {
   const session = useSession();
 
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 md:gap-4">
+    <div className="flex w-full flex-col gap-3.5 md:gap-4">
       <p className="text-[14px] text-muted-foreground">
         Pilih cara pelanggan dan sistem eksternal mengirim lead ke organization Anda.
       </p>

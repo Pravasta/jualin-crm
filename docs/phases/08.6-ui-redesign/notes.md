@@ -737,3 +737,29 @@ dulu ✅\* sampai verifikasi manual dijalankan.
 
 Status webhook **Gagal + Kirim ulang** (#166, butuh jadwal retry habis), tombol **Coba Pro (test)** (#167, test checkout
 mati di lokal), **Detail Lead mobile** dirender dan **semua layar mobile di HP fisik** (#173).
+
+---
+
+## #192 — Perbaikan pasca-phase: celah halaman kiri-kanan (dilaporkan pemilik produk)
+
+**Masalah:** setiap layar membungkus isinya dengan `mx-auto max-w-[1280px]` (atau `max-w-3xl`). Di layar lebar, isi
+mengambang di tengah. Terukur di 1920 px: celah kiri/kanan **204 px** sedangkan celah atas **28 px**, dan judul di header
+(24 px dari kiri) tidak sejajar dengan isi. Di 1440 px, header dan isi juga meleset 4 px (`lg:px-6` vs `lg:p-7`).
+**Sapuan #174 tidak menangkapnya**, karena yang diukur hanya guliran horizontal, bukan simetri celah, dan lebar
+terbesarnya 1440.
+
+**Perbaikan (satu aturan, di `app-shell.tsx`):** satu celah yang sama di keempat sisi pada setiap lebar (14/20/28 px),
+dan padding horizontal header sama dengan `main`.
+- **Layar daftar/dasbor** (Beranda, Lead, Detail Lead, Customer, Tugas, Laporan, Tim, Connect, Langganan): tanpa
+  `max-w`/`mx-auto`, lebar penuh dengan celah 28 px.
+- **Layar baca/form** (detail Customer, Pengaturan, editor formulir, dokumentasi API/webhook): lebar baca `max-w-3xl`
+  **dipertahankan tapi rata kiri**. Tepi kirinya sejajar dengan judul header dan layar lain, dan ruang kosong ada di kanan.
+  Form dan teks sepanjang 1600 px sulit dibaca. Bila pemilik produk ingin layar ini juga penuh, cukup hapus `max-w-3xl`.
+
+**Verifikasi (diukur):** `/`, `/leads`, `/reports` di 1440 **dan** 1920: celah kiri = atas = kanan = 28 px, dan judul
+header 28 px. Detail customer, pengaturan, dan editor formulir: kiri = atas = 28 px, sejajar header. Sapuan guliran
+horizontal diulang dengan lebar **1920** ditambahkan: 19 rute × 5 lebar = **95 pengecekan, 0 gagal**. typecheck, lint,
+279 test, build.
+
+**Pelajaran untuk sapuan berikutnya:** "tidak ada guliran horizontal" bukan ukuran tata letak yang cukup. Ukur juga
+**simetri celah** (kiri vs atas) dan **kesejajaran judul header dengan isi**, dan sertakan lebar di atas 1440.

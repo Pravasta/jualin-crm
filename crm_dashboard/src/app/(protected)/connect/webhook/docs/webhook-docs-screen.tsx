@@ -101,7 +101,7 @@ export function WebhookDocsScreen() {
   const example = WEBHOOK_DOC_EXAMPLES.find((e) => e.language === lang) ?? WEBHOOK_DOC_EXAMPLES[0];
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+    <div className="flex w-full max-w-3xl flex-col gap-4">
       <BackLink href="/connect/webhook" label="Webhook" />
       <h1 className="text-[20px] font-bold md:text-[22px]">Dokumentasi webhook</h1>
 

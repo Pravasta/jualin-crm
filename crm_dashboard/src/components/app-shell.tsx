@@ -188,7 +188,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3.5 backdrop-blur-sm md:px-5 lg:px-6">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3.5 backdrop-blur-sm md:px-5 lg:px-7">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="md:hidden">
               <BrandMark />
@@ -198,7 +198,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <NotificationBell />
         </header>
 
-        {/* Bottom padding on phones clears the fixed bar plus the iPhone
+        {/* One gutter, the same on every side at every width (#192): 14px
+            phone, 20px tablet, 28px desktop — and the header's horizontal
+            padding matches it, so the page title and the content share a
+            left edge. Screens do NOT centre themselves in a max-width box:
+            that made the side gutters 204px against a 28px top at 1920px.
+            Reading-width screens (details, settings, docs) keep a max width
+            but stay left-aligned.
+            Bottom padding on phones clears the fixed bar plus the iPhone
             home indicator, so the last row of any page stays reachable. */}
         <main className="min-w-0 flex-1 bg-background p-3.5 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:p-5 lg:p-7">
           {children}

@@ -259,7 +259,7 @@ export function ReportsScreen() {
     "h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-base outline-none focus-visible:ring-3 focus-visible:ring-ring/50 md:h-9 md:w-auto md:text-[13.5px]";
 
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-4">
+    <div className="flex w-full flex-col gap-4">
       {/* One filter row, above everything it scopes (dataviz: filters sit
           above the charts, never inside a card). */}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 md:flex md:flex-wrap md:items-center">

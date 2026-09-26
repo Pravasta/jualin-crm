@@ -147,7 +147,7 @@ export function TaskList() {
   const now = new Date();
 
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 md:gap-4">
+    <div className="flex w-full flex-col gap-3.5 md:gap-4">
       <div className="flex flex-col gap-2.5 md:flex-row md:flex-wrap md:items-center">
         <div role="group" aria-label="Status tugas" className="flex gap-1.5">
           {STATUS_OPTIONS.map((opt) => {
