@@ -103,7 +103,7 @@ export function SubscriptionScreen() {
 
   if (!canView) {
     return (
-      <div className="mx-auto w-full max-w-[1280px] rounded-xl border border-dashed border-border bg-card px-6 py-12 text-center text-[14px] text-muted-foreground">
+      <div className="w-full rounded-xl border border-dashed border-border bg-card px-6 py-12 text-center text-[14px] text-muted-foreground">
         Langganan tidak tersedia untuk role Anda.
       </div>
     );
@@ -125,7 +125,7 @@ export function SubscriptionScreen() {
   const loading = !loaded;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-4">
+    <div className="flex w-full flex-col gap-4">
       <section className="rounded-xl border border-border bg-card p-4 md:p-5">
         <div className="text-[12px] font-bold tracking-[0.05em] text-muted-foreground uppercase">Paket Anda</div>
         <div className="mt-1 text-[24px] leading-tight font-extrabold">{planDisplayName(session.plan.code)}</div>

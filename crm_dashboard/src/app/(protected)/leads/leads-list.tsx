@@ -287,7 +287,7 @@ export function LeadsList() {
   return (
     // pb-16 on phones: room for the floating "Lead baru" button, so it never
     // covers the last card's status badge at the end of the scroll.
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 pb-16 md:gap-4 md:pb-0">
+    <div className="flex w-full flex-col gap-3.5 pb-16 md:gap-4 md:pb-0">
       <div className="flex items-center gap-2.5">
         <div className="relative min-w-0 flex-1 md:max-w-96">
           <Search

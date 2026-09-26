@@ -45,7 +45,7 @@ export function SettingsScreen() {
   const session = useSession();
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+    <div className="flex w-full max-w-3xl flex-col gap-4">
       <Card>
         <CardContent className="flex flex-col gap-3">
           <h2 className="text-[16px] font-bold">Organization</h2>

@@ -147,7 +147,7 @@ export function HomeScreen() {
   const conversionMissing = !loading && (summary?.conversion_rate ?? null) === null;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 md:gap-4.5">
+    <div className="flex w-full flex-col gap-3.5 md:gap-4.5">
       <div className="flex flex-wrap items-center justify-between gap-2.5">
         <p className="text-[14px] text-muted-foreground">Bagaimana keadaan bisnis periode ini?</p>
         <select

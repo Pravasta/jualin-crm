@@ -64,7 +64,7 @@ export function WebhooksScreen() {
   const loading = !loaded;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 md:gap-4">
+    <div className="flex w-full flex-col gap-3.5 md:gap-4">
       <BackLink href="/connect" label="Connect" />
       <SectionHeader
         title="Webhook"

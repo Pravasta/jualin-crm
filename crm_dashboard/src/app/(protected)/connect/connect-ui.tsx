@@ -47,7 +47,7 @@ export function SectionHeader({
 // error.
 export function NotForRole({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto w-full max-w-[1280px] rounded-xl border border-dashed border-border bg-card px-6 py-12 text-center text-[14px] text-muted-foreground">
+    <div className="w-full rounded-xl border border-dashed border-border bg-card px-6 py-12 text-center text-[14px] text-muted-foreground">
       {children}
     </div>
   );

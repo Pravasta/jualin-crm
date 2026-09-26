@@ -90,7 +90,7 @@ export function CustomerList() {
   const isEmptyFiltered = !loading && total === 0 && !!urlKeyword;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5 md:gap-4">
+    <div className="flex w-full flex-col gap-3.5 md:gap-4">
       <div className="relative md:max-w-96">
         <Search
           className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"

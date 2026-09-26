@@ -85,7 +85,7 @@ export function APIDocsScreen() {
   const exampleCredential = selected ? `${selected.key_prefix}...<secret_anda>` : "<key_prefix_anda>...<secret_anda>";
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+    <div className="flex w-full max-w-3xl flex-col gap-4">
       <BackLink href="/connect/api" label="API Key" />
       <h1 className="text-[20px] font-bold md:text-[22px]">Dokumentasi integrasi</h1>
 

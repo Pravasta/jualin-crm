@@ -342,7 +342,7 @@ export function LeadDetail({ leadId }: { leadId: string }) {
   // note form, timeline — then assignment, tasks and the two Owner/Admin
   // actions. From 1024px the last group becomes a 300px side column.
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-3.5">
+    <div className="flex w-full flex-col gap-3.5">
       <button
         type="button"
         onClick={() => router.push("/leads")}

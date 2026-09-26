@@ -198,7 +198,7 @@ export function FormEditor({ formId }: { formId: string }) {
   const fixedSnippet = fixedHeightSnippet(snippetParams);
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="w-full max-w-3xl">
       <div className="mb-3.5">
         <BackLink href="/connect/form" label="Formulir" />
       </div>

@@ -107,7 +107,7 @@ export function CustomerDetail({ customerId }: { customerId: string }) {
   ];
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-3.5">
+    <div className="flex w-full max-w-3xl flex-col gap-3.5">
       <button
         type="button"
         onClick={() => router.push("/customers")}
